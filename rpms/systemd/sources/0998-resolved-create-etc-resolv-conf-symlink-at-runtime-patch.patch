@@ -1,0 +1,38 @@
+commit 5d0a89edd8a53ecd51d1405b253d8b1909181d62
+Author: Davide Cavalca <dcavalca@fb.com>
+Date:   Wed Jul 27 09:51:02 2016 -0700
+
+    yummy:patchX:0998-resolved-create-etc-resolv-conf-symlink-at-runtime-patch.patch
+
+0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
+
+
+diff --git a/src/resolve/resolved.c b/src/resolve/resolved.c
+index deb75f9..914d3b8 100644
+--- a/src/resolve/resolved.c
++++ b/src/resolve/resolved.c
+@@ -67,6 +67,10 @@ int main(int argc, char *argv[]) {
+                 goto finish;
+         }
+ 
++        r = symlink("../run/systemd/resolve/resolv.conf", "/etc/resolv.conf");
++        if (r < 0 && errno != EEXIST)
++                log_warning_errno(errno, "Could not create /etc/resolv.conf symlink: %m");
++
+         /* Drop privileges, but keep three caps. Note that we drop those too, later on (see below) */
+         r = drop_privileges(uid, gid,
+                             (UINT64_C(1) << CAP_NET_RAW)|          /* needed for SO_BINDTODEVICE */
+diff --git a/tmpfiles.d/etc.conf.m4 b/tmpfiles.d/etc.conf.m4
+index 064eae9..928105e 100644
+--- a/tmpfiles.d/etc.conf.m4
++++ b/tmpfiles.d/etc.conf.m4
+@@ -13,9 +13,6 @@ L+ /etc/mtab - - - - ../proc/self/mounts
+ m4_ifdef(`HAVE_SMACK_RUN_LABEL',
+ t /etc/mtab - - - - security.SMACK64=_
+ )m4_dnl
+-m4_ifdef(`ENABLE_RESOLVED',
+-L! /etc/resolv.conf - - - - ../usr/lib/systemd/resolv.conf
+-)m4_dnl
+ C /etc/nsswitch.conf - - - -
+ m4_ifdef(`HAVE_PAM',
+ C /etc/pam.d - - - -

@@ -1,0 +1,624 @@
+commit 2c1999a380fe89cafe78a519ddefa67efadc1106
+Author: Davide Cavalca <dcavalca@fb.com>
+Date:   Wed Jul 27 10:30:54 2016 -0700
+
+    yummy:patchX:FB--add-back-compat-libs.patch
+
+FB: add back compat-libs
+
+
+diff --git a/.gitignore b/.gitignore
+index f7db68b..ddd31b5 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -38,6 +38,7 @@
+ /hostnamectl
+ /install-tree
+ /journalctl
++/libsystemd-*.c
+ /libtool
+ /linuxx64.efi.stub
+ /localectl
+diff --git a/Makefile.am b/Makefile.am
+index 0c27f81..40138b2 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -46,6 +46,24 @@ LIBSYSTEMD_CURRENT=16
+ LIBSYSTEMD_REVISION=0
+ LIBSYSTEMD_AGE=16
+ 
++# The following four libraries only exist for compatibility reasons,
++# their version info should not be bumped anymore
++LIBSYSTEMD_LOGIN_CURRENT=9
++LIBSYSTEMD_LOGIN_REVISION=3
++LIBSYSTEMD_LOGIN_AGE=9
++
++LIBSYSTEMD_DAEMON_CURRENT=0
++LIBSYSTEMD_DAEMON_REVISION=12
++LIBSYSTEMD_DAEMON_AGE=0
++
++LIBSYSTEMD_ID128_CURRENT=0
++LIBSYSTEMD_ID128_REVISION=28
++LIBSYSTEMD_ID128_AGE=0
++
++LIBSYSTEMD_JOURNAL_CURRENT=11
++LIBSYSTEMD_JOURNAL_REVISION=5
++LIBSYSTEMD_JOURNAL_AGE=11
++
+ # Dirs of external packages
+ dbuspolicydir=@dbuspolicydir@
+ dbussessionservicedir=@dbussessionservicedir@
+@@ -5999,6 +6017,127 @@ EXTRA_DIST += \
+ 	test/loopy.service.d/compat.conf
+ 
+ # ------------------------------------------------------------------------------
++if ENABLE_COMPAT_LIBS
++libsystemd-%.c: src/compat-libs/libsystemd-%.sym
++	$(AM_V_at)$(MKDIR_P) $(dir $@)
++	$(AM_V_GEN)sed -r -n 's/^ +(sd_.*);/obsolete_lib(\1,$(notdir $(basename $<)));/p' <$< >$@
++
++BUILT_SOURCES += \
++	libsystemd-journal.c \
++	libsystemd-login.c \
++	libsystemd-id128.c \
++	libsystemd-daemon.c
++
++nodist_libsystemd_journal_la_SOURCES = \
++	libsystemd-journal.c
++
++libsystemd_journal_la_SOURCES = \
++	src/compat-libs/libsystemd-journal.sym
++
++libsystemd_journal_la_CPPFLAGS = \
++	$(AM_CPPFLAGS) \
++	-imacros$(top_srcdir)/src/compat-libs/linkwarning.h
++
++libsystemd_journal_la_LDFLAGS = \
++	$(AM_LDFLAGS) \
++	-version-info $(LIBSYSTEMD_JOURNAL_CURRENT):$(LIBSYSTEMD_JOURNAL_REVISION):$(LIBSYSTEMD_JOURNAL_AGE) \
++	-Wl,--version-script=$(top_srcdir)/src/compat-libs/libsystemd-journal.sym
++
++libsystemd_journal_la_LIBADD = \
++	$(libsystemd_internal_la_LIBADD) \
++	$(libsystemd_journal_internal_la_LIBADD)
++
++nodist_libsystemd_login_la_SOURCES = \
++	libsystemd-login.c
++
++libsystemd_login_la_SOURCES = \
++	src/compat-libs/libsystemd-login.sym
++
++libsystemd_login_la_CPPFLAGS = \
++	$(AM_CPPFLAGS) \
++	-imacros$(top_srcdir)/src/compat-libs/linkwarning.h
++
++libsystemd_login_la_LDFLAGS = \
++	$(AM_LDFLAGS) \
++	-version-info $(LIBSYSTEMD_LOGIN_CURRENT):$(LIBSYSTEMD_LOGIN_REVISION):$(LIBSYSTEMD_LOGIN_AGE) \
++	-Wl,--version-script=$(top_srcdir)/src/compat-libs/libsystemd-login.sym
++
++libsystemd_login_la_LIBADD = \
++	 $(libsystemd_internal_la_LIBADD)
++
++nodist_libsystemd_id128_la_SOURCES = \
++	libsystemd-id128.c
++
++libsystemd_id128_la_SOURCES = \
++	src/compat-libs/libsystemd-id128.sym
++
++libsystemd_id128_la_CPPFLAGS = \
++	$(AM_CPPFLAGS) \
++	-imacros$(top_srcdir)/src/compat-libs/linkwarning.h
++
++libsystemd_id128_la_LDFLAGS = \
++	$(AM_LDFLAGS) \
++	-version-info $(LIBSYSTEMD_ID128_CURRENT):$(LIBSYSTEMD_ID128_REVISION):$(LIBSYSTEMD_ID128_AGE) \
++	-Wl,--version-script=$(top_srcdir)/src/compat-libs/libsystemd-id128.sym
++
++libsystemd_id128_la_LIBADD = \
++	 $(libsystemd_internal_la_LIBADD)
++
++nodist_libsystemd_daemon_la_SOURCES = \
++	libsystemd-daemon.c
++
++libsystemd_daemon_la_SOURCES = \
++	src/compat-libs/libsystemd-daemon.sym
++
++libsystemd_daemon_la_CPPFLAGS = \
++	$(AM_CPPFLAGS) \
++	-imacros$(top_srcdir)/src/compat-libs/linkwarning.h
++
++libsystemd_daemon_la_LDFLAGS = \
++	$(AM_LDFLAGS) \
++	-version-info $(LIBSYSTEMD_DAEMON_CURRENT):$(LIBSYSTEMD_DAEMON_REVISION):$(LIBSYSTEMD_DAEMON_AGE) \
++	-Wl,--version-script=$(top_srcdir)/src/compat-libs/libsystemd-daemon.sym
++
++libsystemd_daemon_la_LIBADD = \
++	 $(libsystemd_internal_la_LIBADD)
++
++lib_LTLIBRARIES += \
++	libsystemd-journal.la \
++	libsystemd-login.la \
++	libsystemd-id128.la \
++	libsystemd-daemon.la
++
++pkgconfiglib_DATA += \
++	src/compat-libs/libsystemd-journal.pc \
++	src/compat-libs/libsystemd-login.pc \
++	src/compat-libs/libsystemd-id128.pc \
++	src/compat-libs/libsystemd-daemon.pc
++
++# move lib from $(libdir) to $(rootlibdir) and update devel link, if needed
++compat-lib-install-hook:
++	libname=libsystemd-login.so && $(move-to-rootlibdir)
++	libname=libsystemd-journal.so && $(move-to-rootlibdir)
++	libname=libsystemd-id128.so && $(move-to-rootlibdir)
++	libname=libsystemd-daemon.so && $(move-to-rootlibdir)
++
++compat-lib-uninstall-hook:
++	rm -f $(DESTDIR)$(rootlibdir)/libsystemd-login.so*
++	rm -f $(DESTDIR)$(rootlibdir)/libsystemd-journal.so*
++	rm -f $(DESTDIR)$(rootlibdir)/libsystemd-id128.so*
++	rm -f $(DESTDIR)$(rootlibdir)/libsystemd-daemon.so*
++
++INSTALL_EXEC_HOOKS += compat-lib-install-hook
++UNINSTALL_EXEC_HOOKS += compat-lib-uninstall-hook
++endif
++
++EXTRA_DIST += \
++	src/compat-libs/linkwarning.h \
++	src/compat-libs/libsystemd-journal.pc.in \
++	src/compat-libs/libsystemd-login.pc.in \
++	src/compat-libs/libsystemd-id128.pc.in \
++	src/compat-libs/libsystemd-daemon.pc.in
++
++# ------------------------------------------------------------------------------
+ substitutions = \
+        '|rootlibexecdir=$(rootlibexecdir)|' \
+        '|rootbindir=$(rootbindir)|' \
+diff --git a/configure.ac b/configure.ac
+index cf595e6..4c8d07e 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -381,6 +381,17 @@ AS_IF([test "x$have_utmp" = "xyes"], [AC_DEFINE(HAVE_UTMP, 1, [Define if utmp/wt
+ AM_CONDITIONAL([HAVE_UTMP], [test "x$have_utmp" = "xyes"])
+ 
+ # ------------------------------------------------------------------------------
++have_compat_libs=no
++AC_ARG_ENABLE([compat_libs], AS_HELP_STRING([--enable-compat-libs],[Enable creation of compatibility libraries]),
++                [case "${enableval}" in
++                        yes) have_compat_libs=yes ;;
++                        no) have_compat_libs=no ;;
++                        *) AC_MSG_ERROR(bad value ${enableval} for --enable-compat-libs) ;;
++                esac],
++                [have_compat_libs=no])
++AM_CONDITIONAL([ENABLE_COMPAT_LIBS], [test "$have_compat_libs" = "yes"])
++
++# ------------------------------------------------------------------------------
+ have_coverage=no
+ AC_ARG_ENABLE(coverage, AS_HELP_STRING([--enable-coverage], [enable test coverage]))
+ if test "x$enable_coverage" = "xyes" ; then
+@@ -1641,6 +1652,7 @@ AC_MSG_RESULT([
+         test coverage:                     ${have_coverage}
+         Split /usr:                        ${enable_split_usr}
+         SysV compatibility:                ${SYSTEM_SYSV_COMPAT}
++        compatibility libraries:           ${have_compat_libs}
+         utmp/wtmp support:                 ${have_utmp}
+         ldconfig support:                  ${enable_ldconfig}
+         hibernate support:                 ${enable_hibernate}
+diff --git a/src/compat-libs/.gitignore b/src/compat-libs/.gitignore
+new file mode 100644
+index 0000000..662c154
+--- /dev/null
++++ b/src/compat-libs/.gitignore
+@@ -0,0 +1 @@
++/libsystemd-*.pc
+diff --git a/src/compat-libs/libsystemd-daemon.pc.in b/src/compat-libs/libsystemd-daemon.pc.in
+new file mode 100644
+index 0000000..847afc9
+--- /dev/null
++++ b/src/compat-libs/libsystemd-daemon.pc.in
+@@ -0,0 +1,19 @@
++#  Permission is hereby granted, free of charge, to any person
++#  obtaining a copy of this software and associated documentation files
++#  (the "Software"), to deal in the Software without restriction,
++#  including without limitation the rights to use, copy, modify, merge,
++#  publish, distribute, sublicense, and/or sell copies of the Software,
++#  and to permit persons to whom the Software is furnished to do so,
++#  subject to the following conditions:
++
++prefix=@prefix@
++exec_prefix=@exec_prefix@
++libdir=@libdir@
++includedir=@includedir@
++
++Name: systemd
++Description: systemd Daemon Utility Library - deprecated
++URL: @PACKAGE_URL@
++Version: @PACKAGE_VERSION@
++Libs: -L${libdir} -lsystemd
++Cflags: -I${includedir}
+diff --git a/src/compat-libs/libsystemd-daemon.sym b/src/compat-libs/libsystemd-daemon.sym
+new file mode 100644
+index 0000000..f440238
+--- /dev/null
++++ b/src/compat-libs/libsystemd-daemon.sym
+@@ -0,0 +1,27 @@
++/***
++  Permission is hereby granted, free of charge, to any person
++  obtaining a copy of this software and associated documentation files
++  (the "Software"), to deal in the Software without restriction,
++  including without limitation the rights to use, copy, modify, merge,
++  publish, distribute, sublicense, and/or sell copies of the Software,
++  and to permit persons to whom the Software is furnished to do so,
++  subject to the following conditions:
++***/
++
++/* Original symbols from systemd v31 */
++
++LIBSYSTEMD_DAEMON_31 {
++global:
++        sd_booted;
++        sd_is_fifo;
++        sd_is_mq;
++        sd_is_socket;
++        sd_is_socket_inet;
++        sd_is_socket_unix;
++        sd_is_special;
++        sd_listen_fds;
++        sd_notify;
++        sd_notifyf;
++local:
++        *;
++};
+diff --git a/src/compat-libs/libsystemd-id128.pc.in b/src/compat-libs/libsystemd-id128.pc.in
+new file mode 100644
+index 0000000..80f8fee
+--- /dev/null
++++ b/src/compat-libs/libsystemd-id128.pc.in
+@@ -0,0 +1,18 @@
++#  This file is part of systemd.
++#
++#  systemd is free software; you can redistribute it and/or modify it
++#  under the terms of the GNU Lesser General Public License as published by
++#  the Free Software Foundation; either version 2.1 of the License, or
++#  (at your option) any later version.
++
++prefix=@prefix@
++exec_prefix=@exec_prefix@
++libdir=@libdir@
++includedir=@includedir@
++
++Name: systemd
++Description: systemd 128 Bit ID Utility Library - deprecated
++URL: @PACKAGE_URL@
++Version: @PACKAGE_VERSION@
++Libs: -L${libdir} -lsystemd
++Cflags: -I${includedir}
+diff --git a/src/compat-libs/libsystemd-id128.sym b/src/compat-libs/libsystemd-id128.sym
+new file mode 100644
+index 0000000..604c002
+--- /dev/null
++++ b/src/compat-libs/libsystemd-id128.sym
+@@ -0,0 +1,21 @@
++/***
++  This file is part of systemd.
++
++  systemd is free software; you can redistribute it and/or modify it
++  under the terms of the GNU Lesser General Public License as published by
++  the Free Software Foundation; either version 2.1 of the License, or
++  (at your option) any later version.
++***/
++
++/* Original symbols from systemd v38 */
++
++LIBSYSTEMD_ID128_38 {
++global:
++        sd_id128_to_string;
++        sd_id128_from_string;
++        sd_id128_randomize;
++        sd_id128_get_machine;
++        sd_id128_get_boot;
++local:
++        *;
++};
+diff --git a/src/compat-libs/libsystemd-journal.pc.in b/src/compat-libs/libsystemd-journal.pc.in
+new file mode 100644
+index 0000000..395f710
+--- /dev/null
++++ b/src/compat-libs/libsystemd-journal.pc.in
+@@ -0,0 +1,19 @@
++#  This file is part of systemd.
++#
++#  systemd is free software; you can redistribute it and/or modify it
++#  under the terms of the GNU Lesser General Public License as published by
++#  the Free Software Foundation; either version 2.1 of the License, or
++#  (at your option) any later version.
++
++prefix=@prefix@
++exec_prefix=@exec_prefix@
++libdir=@libdir@
++includedir=@includedir@
++
++Name: systemd
++Description: systemd Journal Utility Library - deprecated
++URL: @PACKAGE_URL@
++Version: @PACKAGE_VERSION@
++Requires: libsystemd = @PACKAGE_VERSION@
++Libs: -L${libdir} -lsystemd
++Cflags: -I${includedir}
+diff --git a/src/compat-libs/libsystemd-journal.sym b/src/compat-libs/libsystemd-journal.sym
+new file mode 100644
+index 0000000..4eb1591
+--- /dev/null
++++ b/src/compat-libs/libsystemd-journal.sym
+@@ -0,0 +1,111 @@
++/***
++  This file is part of systemd.
++
++  systemd is free software; you can redistribute it and/or modify it
++  under the terms of the GNU Lesser General Public License as published by
++  the Free Software Foundation; either version 2.1 of the License, or
++  (at your option) any later version.
++***/
++
++/* Original symbols from systemd v38 */
++
++LIBSYSTEMD_JOURNAL_38 {
++global:
++        sd_journal_print;
++        sd_journal_printv;
++        sd_journal_send;
++        sd_journal_sendv;
++        sd_journal_stream_fd;
++        sd_journal_open;
++        sd_journal_close;
++        sd_journal_previous;
++        sd_journal_next;
++        sd_journal_previous_skip;
++        sd_journal_next_skip;
++        sd_journal_get_realtime_usec;
++        sd_journal_get_monotonic_usec;
++        sd_journal_get_data;
++        sd_journal_enumerate_data;
++        sd_journal_restart_data;
++        sd_journal_add_match;
++        sd_journal_flush_matches;
++        sd_journal_seek_head;
++        sd_journal_seek_tail;
++        sd_journal_seek_monotonic_usec;
++        sd_journal_seek_realtime_usec;
++        sd_journal_seek_cursor;
++        sd_journal_get_cursor;
++        sd_journal_get_fd;
++        sd_journal_process;
++local:
++        *;
++};
++
++LIBSYSTEMD_JOURNAL_183 {
++global:
++        sd_journal_print_with_location;
++        sd_journal_printv_with_location;
++        sd_journal_send_with_location;
++        sd_journal_sendv_with_location;
++} LIBSYSTEMD_JOURNAL_38;
++
++LIBSYSTEMD_JOURNAL_184 {
++global:
++        sd_journal_get_cutoff_realtime_usec;
++        sd_journal_get_cutoff_monotonic_usec;
++} LIBSYSTEMD_JOURNAL_183;
++
++LIBSYSTEMD_JOURNAL_187 {
++global:
++        sd_journal_wait;
++        sd_journal_open_directory;
++        sd_journal_add_disjunction;
++} LIBSYSTEMD_JOURNAL_184;
++
++LIBSYSTEMD_JOURNAL_188 {
++global:
++        sd_journal_perror;
++        sd_journal_perror_with_location;
++} LIBSYSTEMD_JOURNAL_187;
++
++LIBSYSTEMD_JOURNAL_190 {
++global:
++        sd_journal_get_usage;
++} LIBSYSTEMD_JOURNAL_188;
++
++LIBSYSTEMD_JOURNAL_195 {
++global:
++        sd_journal_test_cursor;
++        sd_journal_query_unique;
++        sd_journal_enumerate_unique;
++        sd_journal_restart_unique;
++} LIBSYSTEMD_JOURNAL_190;
++
++LIBSYSTEMD_JOURNAL_196 {
++global:
++        sd_journal_get_catalog;
++        sd_journal_get_catalog_for_message_id;
++        sd_journal_set_data_threshold;
++        sd_journal_get_data_threshold;
++} LIBSYSTEMD_JOURNAL_195;
++
++LIBSYSTEMD_JOURNAL_198 {
++global:
++        sd_journal_reliable_fd;
++} LIBSYSTEMD_JOURNAL_196;
++
++LIBSYSTEMD_JOURNAL_201 {
++global:
++        sd_journal_get_events;
++        sd_journal_get_timeout;
++} LIBSYSTEMD_JOURNAL_198;
++
++LIBSYSTEMD_JOURNAL_202 {
++global:
++        sd_journal_add_conjunction;
++} LIBSYSTEMD_JOURNAL_201;
++
++LIBSYSTEMD_JOURNAL_205 {
++global:
++        sd_journal_open_files;
++} LIBSYSTEMD_JOURNAL_202;
+diff --git a/src/compat-libs/libsystemd-login.pc.in b/src/compat-libs/libsystemd-login.pc.in
+new file mode 100644
+index 0000000..db3f79c
+--- /dev/null
++++ b/src/compat-libs/libsystemd-login.pc.in
+@@ -0,0 +1,18 @@
++#  This file is part of systemd.
++#
++#  systemd is free software; you can redistribute it and/or modify it
++#  under the terms of the GNU Lesser General Public License as published by
++#  the Free Software Foundation; either version 2.1 of the License, or
++#  (at your option) any later version.
++
++prefix=@prefix@
++exec_prefix=@exec_prefix@
++libdir=@libdir@
++includedir=@includedir@
++
++Name: systemd
++Description: systemd Login Utility Library - deprecated
++URL: @PACKAGE_URL@
++Version: @PACKAGE_VERSION@
++Libs: -L${libdir} -lsystemd
++Cflags: -I${includedir}
+diff --git a/src/compat-libs/libsystemd-login.sym b/src/compat-libs/libsystemd-login.sym
+new file mode 100644
+index 0000000..54aa91c
+--- /dev/null
++++ b/src/compat-libs/libsystemd-login.sym
+@@ -0,0 +1,87 @@
++/***
++  This file is part of systemd.
++
++  systemd is free software; you can redistribute it and/or modify it
++  under the terms of the GNU Lesser General Public License as published by
++  the Free Software Foundation; either version 2.1 of the License, or
++  (at your option) any later version.
++***/
++
++/* Original symbols from systemd v31 */
++
++LIBSYSTEMD_LOGIN_31 {
++global:
++        sd_get_seats;
++        sd_get_sessions;
++        sd_get_uids;
++        sd_login_monitor_flush;
++        sd_login_monitor_get_fd;
++        sd_login_monitor_new;
++        sd_login_monitor_unref;
++        sd_pid_get_owner_uid;
++        sd_pid_get_session;
++        sd_seat_can_multi_session;
++        sd_seat_get_active;
++        sd_seat_get_sessions;
++        sd_session_get_seat;
++        sd_session_get_uid;
++        sd_session_is_active;
++        sd_uid_get_seats;
++        sd_uid_get_sessions;
++        sd_uid_get_state;
++        sd_uid_is_on_seat;
++local:
++        *;
++};
++
++LIBSYSTEMD_LOGIN_38 {
++global:
++        sd_pid_get_unit;
++        sd_session_get_service;
++} LIBSYSTEMD_LOGIN_31;
++
++LIBSYSTEMD_LOGIN_43 {
++global:
++        sd_session_get_type;
++        sd_session_get_class;
++        sd_session_get_display;
++} LIBSYSTEMD_LOGIN_38;
++
++LIBSYSTEMD_LOGIN_186 {
++global:
++        sd_session_get_state;
++        sd_seat_can_tty;
++        sd_seat_can_graphical;
++} LIBSYSTEMD_LOGIN_43;
++
++LIBSYSTEMD_LOGIN_198 {
++global:
++        sd_session_get_tty;
++} LIBSYSTEMD_LOGIN_186;
++
++LIBSYSTEMD_LOGIN_201 {
++global:
++        sd_login_monitor_get_events;
++        sd_login_monitor_get_timeout;
++} LIBSYSTEMD_LOGIN_198;
++
++LIBSYSTEMD_LOGIN_202 {
++global:
++        sd_pid_get_user_unit;
++        sd_pid_get_machine_name;
++} LIBSYSTEMD_LOGIN_201;
++
++LIBSYSTEMD_LOGIN_203 {
++global:
++        sd_get_machine_names;
++} LIBSYSTEMD_LOGIN_202;
++
++LIBSYSTEMD_LOGIN_205 {
++global:
++        sd_pid_get_slice;
++} LIBSYSTEMD_LOGIN_203;
++
++LIBSYSTEMD_LOGIN_207 {
++global:
++        sd_session_get_vt;
++} LIBSYSTEMD_LOGIN_205;
+diff --git a/src/compat-libs/linkwarning.h b/src/compat-libs/linkwarning.h
+new file mode 100644
+index 0000000..79ece9e
+--- /dev/null
++++ b/src/compat-libs/linkwarning.h
+@@ -0,0 +1,35 @@
++/***
++  This file is part of systemd, but is heavily based on
++  glibc's libc-symbols.h.
++
++  Copyright (C) 1995-1998,2000-2006,2008,2009 Free Software Foundation, Inc
++
++  systemd is free software; you can redistribute it and/or modify it
++  under the terms of the GNU Lesser General Public License as published by
++  the Free Software Foundation; either version 2.1 of the License, or
++  (at your option) any later version.
++
++  systemd is distributed in the hope that it will be useful, but
++  WITHOUT ANY WARRANTY; without even the implied warranty of
++  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
++  Lesser General Public License for more details.
++
++  You should have received a copy of the GNU Lesser General Public License
++  along with systemd; If not, see <http://www.gnu.org/licenses/>.
++***/
++
++#pragma once
++
++#define __make_section_unallocated(section_string)      \
++  asm (".section " section_string "\n\t.previous");
++
++#define __sec_comment "\n#APP\n\t#"
++
++#define link_warning(symbol, msg) \
++  __make_section_unallocated (".gnu.warning." #symbol)  \
++  static const char __evoke_link_warning_##symbol[]     \
++    __attribute__ ((used, section (".gnu.warning." #symbol __sec_comment))) \
++    = msg
++
++#define obsolete_lib(name, lib)                         \
++  link_warning(name, #name " was moved to libsystemd. Do not use " #lib ".")

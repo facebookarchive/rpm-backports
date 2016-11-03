@@ -1,0 +1,31 @@
+commit 1e77741803934b995e03298e0b7ff9ce96230788
+Author: Davide Cavalca <dcavalca@fb.com>
+Date:   Wed Jul 27 12:30:05 2016 -0700
+
+    yummy:patchX:build-sys--conditionally-disable-LTO-if-requested.patch
+
+build-sys: conditionally disable LTO if requested
+
+    
+    This adds a --disable-lto option to ./configure, but does not change the
+    default behavior.
+
+diff --git a/configure.ac b/configure.ac
+index 4c8d07e..5574970 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -211,9 +211,12 @@ AS_CASE([$CC], [*clang*],
+                -Wno-gnu-variable-sized-type-not-at-end \
+         ])])
+ 
++AC_ARG_ENABLE([lto], [AS_HELP_STRING([--disable-lto], [disable -flto])],
++                     [], [enable_lto=yes])
+ AS_CASE([$CFLAGS], [*-O[[12345sz\ ]]*],
+-        [CC_CHECK_FLAGS_APPEND([with_cflags], [CFLAGS], [\
+-               -flto])],
++        [AS_IF([test "x$enable_lto" = "xyes"],
++               [CC_CHECK_FLAGS_APPEND([with_cflags], [CFLAGS], [-flto])],
++               [AC_MSG_RESULT([disabling -flto as requested])])],
+         [AC_MSG_RESULT([skipping -flto, optimization not enabled])])
+ AC_SUBST([OUR_CFLAGS], "$with_cflags $sanitizer_cflags")
+ 

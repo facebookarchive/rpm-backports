@@ -1,0 +1,65 @@
+commit d2a940167fca5a7eaa6916e1054a4595db408179
+Author: Davide Cavalca <dcavalca@fb.com>
+Date:   Wed Jul 27 09:51:02 2016 -0700
+
+    yummy:patchX:kernel-install-grubby-patch.patch
+
+kernel-install-grubby.patch
+
+
+diff --git a/src/kernel-install/kernel-install b/src/kernel-install/kernel-install
+old mode 100644
+new mode 100755
+index 1159dc3..4c16a1a
+--- a/src/kernel-install/kernel-install
++++ b/src/kernel-install/kernel-install
+@@ -71,6 +71,49 @@ fi
+ KERNEL_VERSION="$1"
+ KERNEL_IMAGE="$2"
+ 
++if [[ -x /sbin/new-kernel-pkg ]]; then
++    KERNEL_DIR="${KERNEL_IMAGE%/*}"
++    [[ "$KERNEL_VERSION" == *\+* ]] && flavor=-"${KERNEL_VERSION##*+}"
++    case "$COMMAND" in
++        add)
++            if [[ "${KERNEL_DIR}" != "/boot" ]]; then
++                for i in \
++                    "$KERNEL_IMAGE" \
++                        "$KERNEL_DIR"/System.map \
++                        "$KERNEL_DIR"/config \
++                        "$KERNEL_DIR"/zImage.stub \
++                        "$KERNEL_DIR"/dtb \
++                    ; do
++                    [[ -e "$i" ]] || continue
++                    cp -aT "$i" "/boot/${i##*/}-${KERNEL_VERSION}"
++                    command -v restorecon &>/dev/null && \
++                        restorecon -R "/boot/${i##*/}-${KERNEL_VERSION}"
++                done
++                # hmac is .vmlinuz-<version>.hmac so needs a special treatment
++                i="$KERNEL_DIR/.${KERNEL_IMAGE##*/}.hmac"
++                if [[ -e "$i" ]]; then
++                    cp -a "$i" "/boot/.${KERNEL_IMAGE##*/}-${KERNEL_VERSION}.hmac"
++                    command -v restorecon &>/dev/null && \
++                        restorecon "/boot/.${KERNEL_IMAGE##*/}-${KERNEL_VERSION}.hmac"
++                fi
++            fi
++            /sbin/new-kernel-pkg --package "kernel${flavor}" --install "$KERNEL_VERSION" || exit $?
++            /sbin/new-kernel-pkg --package "kernel${flavor}" --mkinitrd --dracut --depmod --update "$KERNEL_VERSION" || exit $?
++            /sbin/new-kernel-pkg --package "kernel${flavor}" --rpmposttrans "$KERNEL_VERSION" || exit $?
++            ;;
++        remove)
++            /sbin/new-kernel-pkg --package "kernel${flavor+-$flavor}" --rminitrd --rmmoddep --remove "$KERNEL_VERSION" || exit $?
++            ;;
++        *)
++            ;;
++    esac
++
++    # exit, if we can't find a boot loader spec conforming setup
++    if ! [[ -d /boot/loader/entries || -L /boot/loader/entries ]]; then
++        exit 0
++    fi
++fi
++
+ if [[ -f /etc/machine-id ]]; then
+     read MACHINE_ID < /etc/machine-id
+ fi
