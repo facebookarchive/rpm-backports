@@ -6,8 +6,8 @@ and from the last released CentOS 7 point release. Some packages also have
 extra dependencies from Fedora Rawhide that we list below. Because we pull from
 Rawhide, some of these versions may no longer be available; in that case it's 
 usually safe to use the latest release, but feel free to file an issue as well.
-In our environment we import the src.rpm for these dependencies and rebuild 
-them in mock.
+In our environment we import the `src.rpm` for these dependencies and rebuild
+them in [mock](https://github.com/rpm-software-management/mock).
 
 ## Packages
 
@@ -24,5 +24,3 @@ packages from this repo. It also requires the following packages from Rawhide:
 * archlinux-keyring-20160215-1.fc25
 * debootstrap-1.0.81-1.fc24
 * keyrings-filesystem-1-5.fc24
-
-This line is a test by phild.

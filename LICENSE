@@ -1,4 +1,6 @@
-The RPM specfiles in the repository (rpms/*/specfiles/*) are released under the
- MIT license, in accordance to the Fedora guidelines (https://fedoraproject.org/wiki/Licensing:Main?rd=Licensing#License_of_Fedora_SPEC_Files).
+The RPM specfiles in the repository (rpms/*/specfiles/*) are released under
+the MIT license, in accordance to the Fedora guidelines per
+https://fedoraproject.org/wiki/Licensing:Main?rd=Licensing#License_of_Fedora_SPEC_Files
 
-The systemd and mkosi packages include source code files and patches that are licensed under LGPL2.1 (see rpms/{mkosi,systemd}/LICENSE.LGPL2.1).
+The systemd and mkosi packages include source code files and patches that are
+licensed under LGPL2.1 (see rpms/{mkosi,systemd}/LICENSE.LGPL2.1).
