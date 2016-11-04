@@ -1,6 +1,6 @@
 Name:	mkosi
 Version: 0.0.1
-Release: 1.fb2
+Release: 1.fb3
 Summary: Build Legacy-Free OS Images
 
 License: LGPL 2.1
@@ -9,7 +9,7 @@ Source0: mkosi
 Source1: RPM-GPG-KEY-fedora-24-x86_64
 Patch0: 0001-Fix-arch-mirror-selection.patch
 
-Requires: fb-gcc-4.9-glibc-2.20-fb-python3-runtime
+Requires: python35
 Requires: arch-install-scripts
 Requires: dnf
 Requires: debootstrap
@@ -27,7 +27,7 @@ cp %SOURCE0 .
 %patch0 -p1
 
 %build
-sed -i mkosi -e 's:/usr/bin/python3:/usr/local/fbcode/gcc-4.9-glibc-2.20-fb/bin/python3.5:'
+sed -i mkosi -e 's:/usr/bin/python3:/usr/bin/python35:'
 
 %install
 install -d -m 0755 %{buildroot}%{_bindir}
@@ -40,6 +40,9 @@ install -m 0644 %SOURCE1 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedo
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-24-x86_64
 
 %changelog
+* Fri Nov 4 2016 Davide Cavalca <dcavalca@fb.com> - 0.0.1-1.fb3
+- switch python dependency to use backported python35 package
+
 * Fri Sep 2 2016 Davide Cavalca <dcavalca@fb.com> - 0.0.1-1.fb2
 - rebase on 04e70cf6106ce4da440798fd70ef74728ddf3285
 - add depends on arch-install-scripts now that it's available

@@ -24,3 +24,4 @@ packages from this repo. It also requires the following packages from Rawhide:
 * archlinux-keyring-20160215-1.fc25
 * debootstrap-1.0.81-1.fc24
 * keyrings-filesystem-1-5.fc24
+* python35-3.5.2-3.fc23
