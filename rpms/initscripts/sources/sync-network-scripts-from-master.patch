@@ -1,0 +1,85 @@
+commit 7df92c812e001b5351f55df9a3f1343011812469
+Author: Phil Dibowitz <phild@fb.com>
+Date:   51 seconds ago
+
+    yummy:patchX:sync-network-scripts-from-master.patch
+
+sync network-scripts from master
+
+
+diff --git a/sysconfig/network-scripts/ifdown-ipv6 b/sysconfig/network-scripts/ifdown-ipv6
+index 1452da0..c849d1f 100755
+--- a/sysconfig/network-scripts/ifdown-ipv6
++++ b/sysconfig/network-scripts/ifdown-ipv6
+@@ -62,7 +62,7 @@ if [ $? != 0 -a $? != 11 ]; then
+     exit 1
+ fi
+ 
+-if [ ! "$IPV6_SET_SYCTL" = "no" ]; then
++if [ ! "$IPV6_SET_SYSCTLS" = "no" ]; then
+     # Switch some sysctls to secure mode
+     /sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.forwarding=0 >/dev/null 2>&1
+     /sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.accept_ra=0 >/dev/null 2>&1
+diff --git a/sysconfig/network-scripts/ifup-eth b/sysconfig/network-scripts/ifup-eth
+index 4d022f7..e884fa7 100755
+--- a/sysconfig/network-scripts/ifup-eth
++++ b/sysconfig/network-scripts/ifup-eth
+@@ -185,7 +185,13 @@ if [ -n "${DYNCONFIG}" ] && [ -x /sbin/dhclient ]; then
+     fi;
+     generate_config_file_name
+     generate_lease_file_name
+-    DHCLIENTARGS="${DHCLIENTARGS} -H ${DHCP_HOSTNAME:-${HOSTNAME%%.*}} ${ONESHOT} -q ${DHCLIENTCONF} -lf ${LEASEFILE} -pf /var/run/dhclient-${DEVICE}.pid"
++
++    if need_hostname; then
++        DHCLIENTARGS="${DHCLIENTARGS} ${DHCP_HOSTNAME:+-H $DHCP_HOSTNAME} ${ONESHOT} -q ${DHCLIENTCONF} -lf ${LEASEFILE} -pf /var/run/dhclient-${DEVICE}.pid"
++    else
++        DHCLIENTARGS="${DHCLIENTARGS} -H ${DHCP_HOSTNAME:-${HOSTNAME%%.*}} ${ONESHOT} -q ${DHCLIENTCONF} -lf ${LEASEFILE} -pf /var/run/dhclient-${DEVICE}.pid"
++    fi
++
+     echo
+     echo -n $"Determining IP information for ${DEVICE}..."
+     if ! is_true "${PERSISTENT_DHCLIENT}" && check_link_down ${DEVICE}; then
+@@ -326,7 +332,14 @@ if is_true "${DHCPV6C}" && [ -x /sbin/dhclient ]; then
+     generate_lease_file_name 6
+     echo
+     echo -n $"Determining IPv6 information for ${DEVICE}..."
+-    if /sbin/dhclient -6 -1 ${DHCPV6C_OPTIONS} ${DHCLIENTCONF} -lf ${LEASEFILE} -pf /var/run/dhclient6-${DEVICE}.pid -H ${DHCP_HOSTNAME:-${HOSTNAME%%.*}} ${DEVICE} ; then
++
++    if need_hostname; then
++        DHCLIENTARGS="-6 -1 ${DHCPV6C_OPTIONS} ${DHCLIENTCONF} -lf ${LEASEFILE} -pf /var/run/dhclient6-${DEVICE}.pid ${DHCP_HOSTNAME:+-H $DHCP_HOSTNAME} ${DEVICE}"
++    else
++        DHCLIENTARGS="-6 -1 ${DHCPV6C_OPTIONS} ${DHCLIENTCONF} -lf ${LEASEFILE} -pf /var/run/dhclient6-${DEVICE}.pid -H ${DHCP_HOSTNAME:-${HOSTNAME%%.*}} ${DEVICE}"
++    fi
++
++    if /sbin/dhclient "$DHCLIENTARGS"; then
+         echo $" done."
+     else
+         echo $" failed."
+diff --git a/sysconfig/network-scripts/network-functions b/sysconfig/network-scripts/network-functions
+index 7f753e2..4ff6b98 100644
+--- a/sysconfig/network-scripts/network-functions
++++ b/sysconfig/network-scripts/network-functions
+@@ -355,13 +355,16 @@ is_available_wait ()
+ 
+ need_hostname ()
+ {
+-    CHECK_HOSTNAME=$(hostname)
+-    if [ "$CHECK_HOSTNAME" = "(none)" -o "$CHECK_HOSTNAME" = "localhost" -o \
+-             "$CHECK_HOSTNAME" = "localhost.localdomain" ]; then
+-        return 0
+-    else
+-        return 1
+-    fi
++    CHECK_HOSTNAME="$(hostname)"
++
++    case "$CHECK_HOSTNAME" in
++        '(none)' | 'localhost' | 'localhost.localdomain')
++            return 0
++            ;;
++        *)
++            return 1
++            ;;
++    esac
+ }
+ 
+ set_hostname ()

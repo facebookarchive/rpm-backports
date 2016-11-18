@@ -1,0 +1,5735 @@
+commit 1065097f34edb34506485daff754d7b5cc367173
+Author: Phil Dibowitz <phild@fb.com>
+Date:   14 seconds ago
+
+    yummy:patchX:Backport-latest-network-scripts.patch
+
+Backport latest network-scripts
+
+
+diff --git a/sysconfig/network-scripts/ifdown b/sysconfig/network-scripts/ifdown
+index 8cb8288..90b1c83 100755
+--- a/sysconfig/network-scripts/ifdown
++++ b/sysconfig/network-scripts/ifdown
+@@ -25,10 +25,10 @@ need_config "${CONFIG}"
+ 
+ if [ $UID != 0 ]; then
+     if [ -x /usr/sbin/usernetctl ]; then
+-	source_config
+-	if /usr/sbin/usernetctl ${CONFIG} report ; then
+-	    exec /usr/sbin/usernetctl ${CONFIG} down
+-	fi
++        source_config
++        if /usr/sbin/usernetctl ${CONFIG} report ; then
++            exec /usr/sbin/usernetctl ${CONFIG} down
++        fi
+     fi
+     echo $"Users cannot control this device." >&2
+     exit 1
+@@ -43,7 +43,7 @@ fi
+ 
+ if [ "$_use_nm" = "true" ]; then
+     if [ -n "$UUID" -a -z "$DEVICE" ]; then
+-	DEVICE=$(nmcli -t --fields uuid,device con show --active | awk -F ':' "\$1 == \"$UUID\" { print \$2 }")
++        DEVICE=$(nmcli -t --fields uuid,device con show --active | awk -F ':' "\$1 == \"$UUID\" { print \$2 }")
+     fi
+     if [ -n "$DEVICE" ] && ! is_nm_device_unmanaged "$DEVICE" ; then
+         if ! LC_ALL=C nmcli -t -f STATE,DEVICE dev status | egrep -q "^(failed|disconnected|unmanaged|unavailable):$DEVICE$"; then
+diff --git a/sysconfig/network-scripts/ifdown-bnep b/sysconfig/network-scripts/ifdown-bnep
+index b8064fd..f29b34b 100755
+--- a/sysconfig/network-scripts/ifdown-bnep
++++ b/sysconfig/network-scripts/ifdown-bnep
+@@ -13,37 +13,37 @@ source_config
+ 
+ # On hotplug events, just bring the virtual device up as if it's normal Ethernet
+ if [ -n "$IN_HOTPLUG" ]; then
+-	exec /etc/sysconfig/network-scripts/ifdown-eth ${CONFIG} $2
++    exec /etc/sysconfig/network-scripts/ifdown-eth ${CONFIG} $2
+ fi
+ 
+ stop_panu()
+ {
+-	kill -TERM $(cat /var/run/pand-${DEVICE}.pid)
++    kill -TERM $(cat /var/run/pand-${DEVICE}.pid)
+ }
+ 
+ stop_nap()
+ {
+-	kill -TERM $(cat /var/run/pand-${DEVICE}.pid)
+-	/usr/bin/pand -K
++    kill -TERM $(cat /var/run/pand-${DEVICE}.pid)
++    /usr/bin/pand -K
+ }
+ 
+ stop_gn()
+ {
+-	:
++    :
+ }
+ 
+ case "$ROLE" in
+-	PANU)
+-		stop_panu
+-		;;
+-	NAP)
+-		stop_nap
+-		;;
+-	GN)
+-		stop_gn
+-		;;
+-	*)
+-		echo Unknown BNEP mode :$ROLE
+-		;;
++PANU)
++    stop_panu
++    ;;
++NAP)
++    stop_nap
++    ;;
++GN)
++    stop_gn
++    ;;
++*)
++    echo Unknown BNEP mode :$ROLE
++    ;;
+ esac
+ 
+diff --git a/sysconfig/network-scripts/ifdown-eth b/sysconfig/network-scripts/ifdown-eth
+index cdf44f5..23038e5 100755
+--- a/sysconfig/network-scripts/ifdown-eth
++++ b/sysconfig/network-scripts/ifdown-eth
+@@ -36,50 +36,50 @@ if [ -n "${TEAM_MASTER}" ] && [ ! "${DEVICETYPE}" = "TeamPort" ] && [ -x ./ifdow
+ fi
+ 
+ if [ "${SLAVE}" != "yes" -o -z "${MASTER}" ]; then
+-if [ -n "${HWADDR}" -a -z "${MACADDR}" ]; then
+-    FOUNDMACADDR=$(get_hwaddr ${REALDEVICE})
+-    if [ -n "${FOUNDMACADDR}" -a "${FOUNDMACADDR}" != "${HWADDR}" ]; then
+-        NEWCONFIG=$(get_config_by_hwaddr ${FOUNDMACADDR})
+-	if [ -n "${NEWCONFIG}" ]; then
+-	   eval $(LANG=C grep -F "DEVICE=" $NEWCONFIG)
+-	else
+-	   net_log $"Device ${DEVICE} has MAC address ${FOUNDMACADDR}, instead of configured address ${HWADDR}. Ignoring."
+-	   exit 1
+-	fi
+-	if [ -n "${NEWCONFIG}" -a "${NEWCONFIG##*/}" != "${CONFIG##*/}" -a "${DEVICE}" = "${REALDEVICE}" ]; then
+-	   exec /sbin/ifdown ${NEWCONFIG}
+-	else
+-	   net_log $"Device ${DEVICE} has MAC address ${FOUNDMACADDR}, instead of configured address ${HWADDR}. Ignoring."
+-	   exit 1
+-	fi
++    if [ -n "${HWADDR}" -a -z "${MACADDR}" ]; then
++        FOUNDMACADDR=$(get_hwaddr ${REALDEVICE})
++        if [ -n "${FOUNDMACADDR}" -a "${FOUNDMACADDR}" != "${HWADDR}" ]; then
++            NEWCONFIG=$(get_config_by_hwaddr ${FOUNDMACADDR})
++            if [ -n "${NEWCONFIG}" ]; then
++                eval $(LANG=C grep -F "DEVICE=" $NEWCONFIG)
++            else
++                net_log $"Device ${DEVICE} has MAC address ${FOUNDMACADDR}, instead of configured address ${HWADDR}. Ignoring."
++                exit 1
++            fi
++            if [ -n "${NEWCONFIG}" -a "${NEWCONFIG##*/}" != "${CONFIG##*/}" -a "${DEVICE}" = "${REALDEVICE}" ]; then
++                exec /sbin/ifdown ${NEWCONFIG}
++            else
++                net_log $"Device ${DEVICE} has MAC address ${FOUNDMACADDR}, instead of configured address ${HWADDR}. Ignoring."
++                exit 1
++            fi
++        fi
+     fi
+ fi
+-fi
+ 
+ if is_bonding_device ${DEVICE} ; then
+-    for device in $(LANG=C grep -l "^[[:space:]]*MASTER=\"\?${DEVICE}\"\?\([[:space:]#]\|$\)" /etc/sysconfig/network-scripts/ifcfg-*) ; do
+-	is_ignored_file "$device" && continue
+-	/sbin/ifdown ${device##*/}
++    for device in $(LANG=C grep -l "^[[:space:]]*MASTER=['\"]\?${DEVICE}['\"]\?\([[:space:]#]\|$\)" /etc/sysconfig/network-scripts/ifcfg-*) ; do
++        is_ignored_file "$device" && continue
++        /sbin/ifdown ${device##*/}
+     done
+     for arg in $BONDING_OPTS ; do
+-	key=${arg%%=*};
+-	[[ "${key}" != "arp_ip_target" ]] && continue
+-	value=${arg##*=};
+-	if [ "${value:0:1}" != "" ]; then
++        key=${arg%%=*};
++        [[ "${key}" != "arp_ip_target" ]] && continue
++        value=${arg##*=};
++        if [ "${value:0:1}" != "" ]; then
+             OLDIFS=$IFS;
+             IFS=',';
+             for arp_ip in $value; do
+-		if grep -q $arp_ip /sys/class/net/${DEVICE}/bonding/arp_ip_target; then
++                if grep -q $arp_ip /sys/class/net/${DEVICE}/bonding/arp_ip_target; then
+                     echo "-$arp_ip" > /sys/class/net/${DEVICE}/bonding/arp_ip_target
+-		fi
++                fi
+             done
+             IFS=$OLDIFS;
+-	else
+-	    value=${value#+};
+-	    if grep -q $value /sys/class/net/${DEVICE}/bonding/arp_ip_target; then
++        else
++            value=${value#+};
++            if grep -q $value /sys/class/net/${DEVICE}/bonding/arp_ip_target; then
+                 echo "-$value" > /sys/class/net/${DEVICE}/bonding/arp_ip_target
+-	    fi
+-	fi
++            fi
++        fi
+     done
+ fi
+ 
+@@ -87,61 +87,66 @@ fi
+ 
+ retcode=0
+ [ -n "$(pidof -x dhclient)" ] && {
+-   for VER in "" 6 ; do
+-	if [ -f "/var/run/dhclient$VER-${DEVICE}.pid" ]; then
+-		dhcpid=$(cat /var/run/dhclient$VER-${DEVICE}.pid)
+-		generate_lease_file_name $VER
+-		if [[ "$DHCPRELEASE" = [yY1]* ]];  then
+-			/sbin/dhclient -r -lf ${LEASEFILE} -pf /var/run/dhclient$VER-${DEVICE}.pid ${DEVICE} >/dev/null 2>&1
+-			retcode=$?
+-		else
+-			kill $dhcpid >/dev/null 2>&1
+-			retcode=$?
+-			reason=STOP$VER interface=${DEVICE} /sbin/dhclient-script
+-		fi
+-		if [ -f "/var/run/dhclient$VER-${DEVICE}.pid" ]; then
+-			rm -f /var/run/dhclient$VER-${DEVICE}.pid
+-			kill $dhcpid >/dev/null 2>&1
+-		fi	
+-	fi
+-    done
+-}	
++for VER in "" 6 ; do
++    if [ -f "/var/run/dhclient$VER-${DEVICE}.pid" ]; then
++        dhcpid=$(cat /var/run/dhclient$VER-${DEVICE}.pid)
++        generate_lease_file_name $VER
++        if is_true "$DHCPRELEASE";  then
++            /sbin/dhclient -r -lf ${LEASEFILE} -pf /var/run/dhclient$VER-${DEVICE}.pid ${DEVICE} >/dev/null 2>&1
++            retcode=$?
++        else
++            kill $dhcpid >/dev/null 2>&1
++            retcode=$?
++            reason=STOP$VER interface=${DEVICE} /sbin/dhclient-script
++        fi
++        if [ -f "/var/run/dhclient$VER-${DEVICE}.pid" ]; then
++            rm -f /var/run/dhclient$VER-${DEVICE}.pid
++            kill $dhcpid >/dev/null 2>&1
++        fi  
++    fi
++done
++}  
+ # we can't just delete the configured address because that address
+ # may have been changed in the config file since the device was
+ # brought up.  Flush all addresses associated with this
+ # instance instead.
+ if [ -d "/sys/class/net/${REALDEVICE}" ]; then
+-	if [ "${REALDEVICE}" = "${DEVICE}" ]; then
+-		ip addr flush dev ${REALDEVICE} scope global 2>/dev/null
+-	else
+-		ip addr flush dev ${REALDEVICE} label ${DEVICE} scope global 2>/dev/null
+-	fi
+-	
+-	if [ "${SLAVE}" = "yes" -a -n "${MASTER}" ]; then
+-		echo "-${DEVICE}" > /sys/class/net/${MASTER}/bonding/slaves 2>/dev/null
+-	fi
+-
+-	if [ "${REALDEVICE}" = "${DEVICE}" ]; then
+-  		ip link set dev ${DEVICE} down 2>/dev/null
+-	fi
++    LABEL=
++    if [ "${REALDEVICE}" != "${DEVICE}" ]; then
++        LABEL="label ${DEVICE}"
++    fi
++    if [ "${REALDEVICE}" = "lo" ]; then
++        ip addr flush dev ${REALDEVICE} ${LABEL} scope host 2>/dev/null
++    else
++        ip addr flush dev ${REALDEVICE} ${LABEL} scope global 2>/dev/null
++        ip -4 addr flush dev ${REALDEVICE} ${LABEL} scope host 2>/dev/null
++    fi
++
++    if [ "${SLAVE}" = "yes" -a -n "${MASTER}" ]; then
++        echo "-${DEVICE}" > /sys/class/net/${MASTER}/bonding/slaves 2>/dev/null
++    fi
++
++    if [ "${REALDEVICE}" = "${DEVICE}" ]; then
++        ip link set dev ${DEVICE} down 2>/dev/null
++    fi
+ fi
+ [ "$retcode" = "0" ] && retcode=$?
+ 
+ if [ -n "${BRIDGE}" ] && [ -x /usr/sbin/brctl ]; then
+-      /sbin/ip link set dev ${DEVICE} down
+-      /usr/sbin/brctl delif -- ${BRIDGE} ${DEVICE}
+-      # Upon removing a device from a bridge,
+-      # it's necessary to make radvd reload its config
+-      [ -r /var/run/radvd/radvd.pid ] && kill -HUP $(cat /var/run/radvd/radvd.pid)
+-      if [ -d /sys/class/net/${BRIDGE}/brif ] && [ $(ls -1 /sys/class/net/${BRIDGE}/brif | wc -l) -eq 0 ]; then
+-	  /usr/sbin/brctl delbr -- ${BRIDGE}
+-      fi
++    /sbin/ip link set dev ${DEVICE} down
++    /usr/sbin/brctl delif -- ${BRIDGE} ${DEVICE}
++    # Upon removing a device from a bridge,
++    # it's necessary to make radvd reload its config
++    [ -r /var/run/radvd/radvd.pid ] && kill -HUP $(cat /var/run/radvd/radvd.pid)
++    if [ -d /sys/class/net/${BRIDGE}/brif ] && [ $(ls -1 /sys/class/net/${BRIDGE}/brif | wc -l) -eq 0 ]; then
++        /usr/sbin/brctl delbr -- ${BRIDGE}
++    fi
+ fi
+ 
+ if [ "${TYPE}" = "Tap" ]; then
+-        TUNMODE="mode tap"
+-        [[ ${DEVICE} == tun* ]] && TUNMODE="mode tun"
+-        ip tuntap del ${TUNMODE} dev ${DEVICE} >/dev/null
++    TUNMODE="mode tap"
++    [[ ${DEVICE} == tun* ]] && TUNMODE="mode tun"
++    ip tuntap del ${TUNMODE} dev ${DEVICE} >/dev/null
+ fi
+ 
+ if [ -n "${TEAM_CONFIG}" ] && [ ! "${DEVICETYPE}" = "Team" ] && [ -x ./ifdown-Team ]; then
+@@ -169,7 +174,7 @@ fi
+ if [ -n "$VLAN" ]; then
+     # 802.1q VLAN
+     if [ -f /proc/net/vlan/${DEVICE} ]; then
+-	    ip link delete ${DEVICE} type vlan
++        ip link delete ${DEVICE} type vlan
+     fi
+ fi
+ 
+diff --git a/sysconfig/network-scripts/ifdown-ipv6 b/sysconfig/network-scripts/ifdown-ipv6
+index d2207b7..1452da0 100755
+--- a/sysconfig/network-scripts/ifdown-ipv6
++++ b/sysconfig/network-scripts/ifdown-ipv6
+@@ -58,78 +58,81 @@ ipv6_test testonly || exit 0
+ # Test device status
+ ipv6_test_device_status $DEVICE
+ if [ $? != 0 -a $? != 11 ]; then
+-	# device doesn't exist or other problem occurs
+-	exit 1
++    # device doesn't exist or other problem occurs
++    exit 1
+ fi
+ 
+-# Switch some sysctls to secure mode
+-/sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.forwarding=0 >/dev/null 2>&1
+-/sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.accept_ra=0 >/dev/null 2>&1
+-/sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.accept_redirects=0 >/dev/null 2>&1
++if [ ! "$IPV6_SET_SYCTL" = "no" ]; then
++    # Switch some sysctls to secure mode
++    /sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.forwarding=0 >/dev/null 2>&1
++    /sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.accept_ra=0 >/dev/null 2>&1
++    /sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.accept_redirects=0 >/dev/null 2>&1
++fi
+ /sbin/ip link set $DEVICE addrgenmode eui64 >/dev/null 2>&1
+ 
+ # Test status of tun6to4 device
+ ipv6_test_device_status tun6to4
+ if [ $? = 0 -o $? = 11 ]; then
+-	# Device exists
+-	valid6to4config="yes"
+-
+-	if [ -z "$IPV6TO4_RELAY" ]; then
+-		IPV6TO4_RELAY="192.88.99.1"
+-	fi
+-
+-	# Get IPv4 address from interface
+-	if [ -n "$IPV6TO4_IPV4ADDR" ]; then
+-		# Take special configured from config file (precedence 1)
+-		ipv4addr="$IPV6TO4_IPV4ADDR"
+-
+-		# Get IPv4 address from interface first
+-		ipv4addrlocal="$(ipv6_get_ipv4addr_of_device $DEVICE)"
+-		if [ -z "$ipv4addrlocal" ]; then
+-			# Take configured from config file
+-			ipv4addrlocal="$IPADDR"
+-		fi
+-	else
+-		# Get IPv4 address from interface first (has precedence 2)
+-		ipv4addr="$(ipv6_get_ipv4addr_of_device $DEVICE)"
+-		if [ -z "$ipv4addr" ]; then
+-			# Take configured from config file (precedence 3)
+-			ipv4addr="$IPADDR"
+-		fi
+-		ipv4addrlocal="$ipv4addr"
+-	fi
+-
+-	# Get local IPv4 address of dedicated tunnel
+-	ipv4addr6to4local="$(ipv6_get_ipv4addr_of_tunnel tun6to4 local)"
+-
+-	if [ -z "$ipv4addrlocal" -o -z "$ipv4addr6to4local" ]; then
+-		# no IPv4 addresses given, 6to4 sure not configured
+-		valid6to4config="no"
+-	else
+-		# Check against configured 6to4 tunnel to see if this interface was used before
+-		if [ "$ipv4addrlocal" != "$ipv4addr6to4local" ]; then
+-			# IPv4 address of interface does't match local tunnel address, interface was not used for current 6to4 setup
+-			valid6to4config="no"
+-		fi
+-	fi
+-
++    # Device exists
++    valid6to4config="yes"
++
++    if [ -z "$IPV6TO4_RELAY" ]; then
++        IPV6TO4_RELAY="192.88.99.1"
++    fi
++
++    # Get IPv4 address from interface
++    if [ -n "$IPV6TO4_IPV4ADDR" ]; then
++        # Take special configured from config file (precedence 1)
++        ipv4addr="$IPV6TO4_IPV4ADDR"
++
++        # Get IPv4 address from interface first
++        ipv4addrlocal="$(ipv6_get_ipv4addr_of_device $DEVICE)"
++        if [ -z "$ipv4addrlocal" ]; then
++            # Take configured from config file
++            ipv4addrlocal="$IPADDR"
++        fi
++    else
++        # Get IPv4 address from interface first (has precedence 2)
++        ipv4addr="$(ipv6_get_ipv4addr_of_device $DEVICE)"
++        if [ -z "$ipv4addr" ]; then
++            # Take configured from config file (precedence 3)
++            ipv4addr="$IPADDR"
++        fi
++        ipv4addrlocal="$ipv4addr"
++    fi
++
++    # Get local IPv4 address of dedicated tunnel
++    ipv4addr6to4local="$(ipv6_get_ipv4addr_of_tunnel tun6to4 local)"
++
++    if [ -z "$ipv4addrlocal" -o -z "$ipv4addr6to4local" ]; then
++        # no IPv4 addresses given, 6to4 sure not configured
++        valid6to4config="no"
++    else
++        # Check against configured 6to4 tunnel to see if this interface was
++        # used before
++        if [ "$ipv4addrlocal" != "$ipv4addr6to4local" ]; then
++            # IPv4 address of interface does't match local tunnel address,
++            # interface was not used for current 6to4 setup
++            valid6to4config="no"
++        fi
++    fi
+ fi
+ 
+ # Shutdown of 6to4, if configured
+ if [ "$valid6to4config" = "yes" ]; then
+-	if [ -n "$IPV6TO4_ROUTING" ]; then
+-		# Delete routes to local networks
+-		for devsuf in $IPV6TO4_ROUTING; do
+-			dev="${devsuf%%-*}"
+-			ipv6_cleanup_6to4_device $dev
+-		done
+-	fi
+-
+-	# Delete all configured 6to4 address
+-	ipv6_cleanup_6to4_tunnels tun6to4
+-
+-	# Control running radvd
+-	ipv6_trigger_radvd down "$IPV6_RADVD_TRIGGER_ACTION" $IPV6_RADVD_PIDFILE
++    if [ -n "$IPV6TO4_ROUTING" ]; then
++        # Delete routes to local networks
++        for devsuf in $IPV6TO4_ROUTING; do
++            dev="${devsuf%%-*}"
++            ipv6_cleanup_6to4_device $dev
++        done
++    fi
++
++    # Delete all configured 6to4 address
++    ipv6_cleanup_6to4_tunnels tun6to4
++
++    # Control running radvd
++    ipv6_trigger_radvd down "$IPV6_RADVD_TRIGGER_ACTION" $IPV6_RADVD_PIDFILE
+ fi
+ 
+ # Delete all current configured IPv6 addresses on this interface
+diff --git a/sysconfig/network-scripts/ifdown-post b/sysconfig/network-scripts/ifdown-post
+index bcf4765..8b56e14 100755
+--- a/sysconfig/network-scripts/ifdown-post
++++ b/sysconfig/network-scripts/ifdown-post
+@@ -18,32 +18,35 @@ source_config
+ 
+ /etc/sysconfig/network-scripts/ifdown-routes ${REALDEVICE} ${DEVNAME}
+ 
+-if [ "$PEERDNS" != "no" -o -n "$RESOLV_MODS" -a "$RESOLV_MODS" != "no" ]; then
+-    if [ -f /etc/resolv.conf.save ]; then
+-	change_resolv_conf /etc/resolv.conf.save
+-	rm -f /etc/resolv.conf.save
+-    fi
+-    if [ "${DEVICETYPE}" = "ppp" -o "${DEVICETYPE}" = "ippp" ]; then
+-        if [ -f /etc/ppp/peers/$DEVICE ] ; then
+-	    rm -f /etc/ppp/peers/$DEVICE
+-        fi
++if [ "$PEERDNS" != "no" -o -n "$RESOLV_MODS" -a "$RESOLV_MODS" != "no" ] && \
++    [ "${DEVICETYPE}" = "ppp" -o "${DEVICETYPE}" = "ippp" -o -n "${DNS1}" \
++    -o "${BOOTPROTO}" = "bootp" -o "${BOOTPROTO}" = "dhcp" ] ; then
++if [ -f /etc/resolv.conf.save ]; then
++    change_resolv_conf /etc/resolv.conf.save
++    rm -f /etc/resolv.conf.save
++fi
++if [ "${DEVICETYPE}" = "ppp" -o "${DEVICETYPE}" = "ippp" ]; then
++    if [ -f /etc/ppp/peers/$DEVICE ] ; then
++        rm -f /etc/ppp/peers/$DEVICE
+     fi
+ fi
++fi
+ 
+ # Reset the default route if this interface had a special one
+ if ! check_default_route ; then
+     # ISDN device needs special handling dial on demand
+-    if [ "${DEVICETYPE}" = "ippp" -o "${DEVICETYPE}" = "isdn" ] && [ "$DIALMODE" = "auto" ] ; then
+-        if [ -z "$GATEWAY" ] ; then
+-            /sbin/ip route add default ${METRIC:+metric} \
+-		${WINDOW:+window $WINDOW} dev ${DEVICE}
+-        else
+-            /sbin/ip route add default ${METRIC:+metric} \
+-		${WINDOW:+window $WINDOW} via ${GATEWAY}
+-        fi
++    if [ "${DEVICETYPE}" = "ippp" -o "${DEVICETYPE}" = "isdn" ] && \
++        [ "$DIALMODE" = "auto" ] ; then
++    if [ -z "$GATEWAY" ] ; then
++        /sbin/ip route add default ${METRIC:+metric} \
++            ${WINDOW:+window $WINDOW} dev ${DEVICE}
+     else
+-        add_default_route ${DEVICE}
++        /sbin/ip route add default ${METRIC:+metric} \
++            ${WINDOW:+window $WINDOW} via ${GATEWAY}
+     fi
++else
++    add_default_route ${DEVICE}
++fi
+ fi
+ 
+ # Inform firewall
+diff --git a/sysconfig/network-scripts/ifdown-routes b/sysconfig/network-scripts/ifdown-routes
+index 0109404..1d1549d 100755
+--- a/sysconfig/network-scripts/ifdown-routes
++++ b/sysconfig/network-scripts/ifdown-routes
+@@ -1,6 +1,7 @@
+ #! /bin/bash
+ #
+ # Drops static routes which go through device $1
++
+ if [ -z "$1" ]; then
+     echo $"usage: ifdown-routes <net-device> [<nickname>]"
+     exit 1
+@@ -18,15 +19,15 @@ if [ -n "$2" -a "$2" != "$1" ]; then
+ fi
+ 
+ for file in $FILES; do
+-   if [ -f "$file" ]; then
+-       proto=
+-       if [ "$file" != "${file##*/rule6-}" ]; then
+-           proto="-6"
+-       fi
+-       { cat "$file" ; echo ; } | while read line; do
+-	   if [[ ! "$line" =~ $MATCH ]]; then
+-	       /sbin/ip $proto rule del $line
+-	   fi
+-       done
+-   fi
++    if [ -f "$file" ]; then
++        proto=
++        if [ "$file" != "${file##*/rule6-}" ]; then
++            proto="-6"
++        fi
++        { cat "$file" ; echo ; } | while read line; do
++            if [[ ! "$line" =~ $MATCH ]]; then
++                /sbin/ip $proto rule del $line
++            fi
++        done
++    fi
+ done
+diff --git a/sysconfig/network-scripts/ifdown-sit b/sysconfig/network-scripts/ifdown-sit
+index e4d0734..37d100e 100755
+--- a/sysconfig/network-scripts/ifdown-sit
++++ b/sysconfig/network-scripts/ifdown-sit
+@@ -37,8 +37,8 @@ REALDEVICE=${DEVICE%%:*}
+ 
+ # Generic tunnel device sit0 is not supported here
+ if [ "$DEVICE" = "sit0" ]; then
+-	net_log $"Device '$DEVICE' isn't supported here, use IPV6_AUTOTUNNEL setting and restart (IPv6) networking"
+-	exit 1
++    net_log $"Device '$DEVICE' isn't supported here, use IPV6_AUTOTUNNEL setting and restart (IPv6) networking"
++    exit 1
+ fi
+ 
+ # IPv6 test, no module loaded, exit if system is not IPv6-ready
+@@ -47,8 +47,8 @@ ipv6_test testonly || exit 0
+ # Test device status
+ ipv6_test_device_status $DEVICE
+ if [ $? != 0 -a $? != 11 ]; then
+-	# device doesn't exist or other problem occurs
+-	exit 0
++    # device doesn't exist or other problem occurs
++    exit 0
+ fi
+ 
+ # Cleanup additional static routes
+diff --git a/sysconfig/network-scripts/ifup b/sysconfig/network-scripts/ifup
+index 2b826e2..e06fafb 100755
+--- a/sysconfig/network-scripts/ifup
++++ b/sysconfig/network-scripts/ifup
+@@ -41,10 +41,10 @@ need_config "${CONFIG}"
+ 
+ if [ ${UID} != 0 ]; then
+     if [ -x /usr/sbin/usernetctl ]; then
+-	source_config
+-	if /usr/sbin/usernetctl ${CONFIG} report ; then
+-	    exec /usr/sbin/usernetctl ${CONFIG} up
+-	fi
++        source_config
++        if /usr/sbin/usernetctl ${CONFIG} report ; then
++            exec /usr/sbin/usernetctl ${CONFIG} up
++        fi
+     fi
+     echo $"Users cannot control this device." >&2
+     exit 1
+@@ -65,7 +65,7 @@ then
+     exit 0
+ fi
+ 
+-if [ "$_use_nm" = "true" -a -n "$UUID" -a "$DEVICE" != "lo" ]; then
++if [ "$_use_nm" = "true" -a -n "$UUID" -a "$REALDEVICE" != "lo" ]; then
+     if [ "foo$2" = "fooboot" ] && [ "${TYPE}" = "Wireless" ]; then
+         exit 0
+     fi
+@@ -89,56 +89,56 @@ if [ "${VLAN}" = "yes" ] && [ "$ISALIAS" = "no" ] && [ -n "$DEVICE" ]; then
+             PHYSDEV=${DEVICE%.*}
+         fi
+         MATCH='^vlan[0-9]{1,4}?'
+-         if [[ "${DEVICE}" =~ $MATCH ]]; then
+-             VID=$(echo "${DEVICE}" | LC_ALL=C sed 's/^vlan0*//')
+-             # PHYSDEV should be set in ifcfg-vlan* file
+-             if test -z "$PHYSDEV"; then
++        if [[ "${DEVICE}" =~ $MATCH ]]; then
++            VID=$(echo "${DEVICE}" | LC_ALL=C sed 's/^vlan0*//')
++            # PHYSDEV should be set in ifcfg-vlan* file
++            if test -z "$PHYSDEV"; then
+                 net_log $"PHYSDEV should be set for device ${DEVICE}"
+                 exit 1
+-             fi
++            fi
+         fi
+     fi
+     if [ -n "$VID" ]; then
+-	if [ ! -d /proc/net/vlan ]; then
++        if [ ! -d /proc/net/vlan ]; then
+             if ! modprobe 8021q >/dev/null 2>&1 ; then
+-		net_log $"No 802.1Q VLAN support available in kernel for device ${DEVICE}"
+-		exit 1
+-	    fi
+-	fi
+-
+-	is_available_wait ${PHYSDEV} ${DEVTIMEOUT} || {
+-	    if [ "$?" = "1" ] ; then
+-		net_log $"$alias device ${DEVICE} does not seem to be present, delaying initialization."
+-		exit 1
+-	    else
+-		exit 0
+-	    fi
+-	}
+-
+-	# Link on Physical device needs to be up but no ip required
+-	check_device_down ${PHYSDEV} && {
+-	    ip -o link set dev ${PHYSDEV} up
+-	}
+-
+-	if [ ! -f /proc/net/vlan/${DEVICE} ]; then
+-	    if [ "${REORDER_HDR}" = "no" -o "${REORDER_HDR}" = "0" ]; then
+-		FLAG_REORDER_HDR="reorder_hdr off"
+-	    fi
+-
+-	    if [ "${GVRP}" = "yes" -o "${GVRP}" = "1" ]; then
+-		FLAG_GVRP="gvrp on"
+-	    fi
+-
+-	    ip link add dev ${DEVICE} link ${PHYSDEV} type vlan id ${VID} ${FLAG_REORDER_HDR} ${FLAG_GVRP} || {
+-		(/usr/bin/logger -p daemon.info -t ifup \
+-		    $"ERROR: could not add vlan ${VID} as ${DEVICE} on dev ${PHYSDEV}" &)&
+-		net_log $"ERROR: could not add vlan ${VID} as ${DEVICE} on dev ${PHYSDEV}"
+-		exit 1
+-	    }
+-	fi
++                net_log $"No 802.1Q VLAN support available in kernel for device ${DEVICE}"
++                exit 1
++            fi
++        fi
++
++        is_available_wait ${PHYSDEV} ${DEVTIMEOUT} || {
++            if [ "$?" = "1" ] ; then
++                net_log $"$alias device ${DEVICE} does not seem to be present, delaying initialization."
++                exit 1
++            else
++                exit 0
++            fi
++        }
++
++        # Link on Physical device needs to be up but no ip required
++        check_device_down ${PHYSDEV} && { ip -o link set dev ${PHYSDEV} up; }
++
++        if [ ! -f /proc/net/vlan/${DEVICE} ]; then
++            if [ "${REORDER_HDR}" = "no" -o "${REORDER_HDR}" = "0" ]; then
++                FLAG_REORDER_HDR="reorder_hdr off"
++            fi
++
++            if [ "${GVRP}" = "yes" -o "${GVRP}" = "1" ]; then
++                FLAG_GVRP="gvrp on"
++            fi
++
++            ip link add dev ${DEVICE} link ${PHYSDEV} type vlan id ${VID} ${FLAG_REORDER_HDR} ${FLAG_GVRP} || {
++                (/usr/bin/logger -p daemon.info -t ifup \
++                     $"ERROR: could not add vlan ${VID} as ${DEVICE} on dev ${PHYSDEV}" &) &
++                net_log $"ERROR: could not add vlan ${VID} as ${DEVICE} on dev ${PHYSDEV}"
++                exit 1
++            }
++        fi
+     fi
+ 
+-    /usr/lib/systemd/systemd-sysctl --prefix "/proc/sys/net/ipv4/conf/${DEVICE}" --prefix "/proc/sys/net/ipv6/conf/${DEVICE}"
++    /usr/lib/systemd/systemd-sysctl \
++        --prefix "/proc/sys/net/ipv4/conf/${DEVICE}" \
++        --prefix "/proc/sys/net/ipv6/conf/${DEVICE}"
+ fi
+ 
+ if [ "${BOOTPROTO}" = "bootp" -o "${BOOTPROTO}" = "dhcp" ]; then
+@@ -160,5 +160,3 @@ if [ ! -x ${OTHERSCRIPT} ]; then
+ fi
+ 
+ exec ${OTHERSCRIPT} ${CONFIG} $2
+-
+-
+diff --git a/sysconfig/network-scripts/ifup-aliases b/sysconfig/network-scripts/ifup-aliases
+index be44bcb..fbc1547 100755
+--- a/sysconfig/network-scripts/ifup-aliases
++++ b/sysconfig/network-scripts/ifup-aliases
+@@ -64,8 +64,8 @@ TEXTDOMAINDIR=/etc/locale
+ 
+ device=$1
+ if [ "$device" = "" ]; then
+-	echo $"usage: ifup-aliases <net-device> [<parent-config>]\n"
+-	exit 1
++  echo $"usage: ifup-aliases <net-device> [<parent-config>]\n"
++  exit 1
+ fi
+ 
+ PARENTCONFIG=${2:-ifcfg-$device}
+@@ -87,275 +87,293 @@ cd /etc/sysconfig/network-scripts
+ # A list of all the devices is created in rdev_LIST.
+ 
+ eval $( ip addr show $device label $device:* | \
+-	awk 'BEGIN { COUNT=0;LAST_DEV="" } /inet / {
+-# Split IP address into address/prefix
+-                split($2,IPADDR,"/");
+-# Create A_B_C_D IP address form
+-                IP_ADDR=IPADDR[1];
+-                gsub(/\./,"_",IP_ADDR);
+-# Split device into device:index
+-                split($NF,DEV,":");
+-# Update last device
+-                LAST_DEV=LAST_DEV " " DEV[2];
+-                printf("rdev_%s_addr=%s\nrdevip_%s=%s\nrdev_%s_pb=%s_%s\nrdev_LIST=\"%s\"\n",
+-	             DEV[2],IPADDR[1],IP_ADDR,DEV[2],DEV[2],IPADDR[2],$4,LAST_DEV);
+-	     } END {
+-	        if(LAST_DEV == "") print "no_devices_are_up=yes"
+-	     }' );
+-
+-       #
+-       # Store configuration of the parent device and network
+-       #
++    awk 'BEGIN { COUNT=0;LAST_DEV="" } /inet / {
++        # Split IP address into address/prefix
++        split($2,IPADDR,"/");
++        # Create A_B_C_D IP address form
++        IP_ADDR=IPADDR[1];
++        gsub(/\./,"_",IP_ADDR);
++        # Split device into device:index
++        split($NF,DEV,":");
++        # Update last device
++        LAST_DEV=LAST_DEV " " DEV[2];
++        printf("rdev_%s_addr=%s\nrdevip_%s=%s\nrdev_%s_pb=%s_%s\nrdev_LIST=\"%s\"\n",
++        DEV[2],IPADDR[1],IP_ADDR,DEV[2],DEV[2],IPADDR[2],$4,LAST_DEV);
++    } END {
++        if(LAST_DEV == "") print "no_devices_are_up=yes"
++    }' );
++
++#
++# Store configuration of the parent device and network
++#
+ 
+ # read from the /etc/sysconfig/network
+ eval ` (
+-       . /etc/sysconfig/network;
+-       echo network_GATEWAY=$GATEWAY\;;
+-       echo network_GATEWAYDEV=$GATEWAYDEV\;;
++    . /etc/sysconfig/network;
++    echo network_GATEWAY=$GATEWAY\;;
++    echo network_GATEWAYDEV=$GATEWAYDEV\;;
+ ) `
+ 
+ # read defaults from the parent config file
+ [ -f $PARENTCONFIG ] || {
+-       net_log $"Missing config file $PARENTCONFIG."
+-       exit 1
++    net_log $"Missing config file $PARENTCONFIG."
++    exit 1
+ }
+ eval ` (
+-       . ./$PARENTCONFIG;
+-       echo default_PREFIX=$PREFIX\;;
+-       echo default_NETMASK=$NETMASK\;;
+-       echo default_BROADCAST=$BROADCAST\;;
+-       echo default_GATEWAY=$GATEWAY\;;
+-       echo default_NO_ALIASROUTING=$NO_ALIASROUTING\;;
++    . ./$PARENTCONFIG;
++    echo default_PREFIX=$PREFIX\;;
++    echo default_NETMASK=$NETMASK\;;
++    echo default_BROADCAST=$BROADCAST\;;
++    echo default_GATEWAY=$GATEWAY\;;
++    echo default_NO_ALIASROUTING=$NO_ALIASROUTING\;;
++    echo default_ARPCHECK=$ARPCHECK\;;
+ ) `
+ [ -z "$default_GATEWAY" ] && default_GATEWAY=$network_GATEWAY
+ 
+ function ini_env ()
+ {
+-       DEVICE=""
+-       IPADDR=""
+-       PREFIX=$default_PREFIX
+-       NETMASK=$default_NETMASK
+-       BROADCAST=$default_BROADCAST
+-       GATEWAY=$default_GATEWAY
+-       NO_ALIASROUTING=$default_NO_ALIASROUTING
+-       ONPARENT=""
+-       ARPCHECK=""
++    DEVICE=""
++    IPADDR=""
++    IPV6ADDR=""
++    PREFIX=$default_PREFIX
++    NETMASK=$default_NETMASK
++    BROADCAST=$default_BROADCAST
++    GATEWAY=$default_GATEWAY
++    NO_ALIASROUTING=$default_NO_ALIASROUTING
++    ONPARENT=""
++    ARPCHECK=$default_ARPCHECK
+ }
+ 
+ function is_default_gateway ()
+ {
+-	LC_ALL=C /sbin/ip route ls default scope global \
+-		| awk '$3 == "'"$1"'" { found = 1; } END { exit found == 0; }'
++    LC_ALL=C /sbin/ip route ls default scope global \
++        | awk '$3 == "'"$1"'" { found = 1; } END { exit found == 0; }'
+ }
+ 
+-       #
+-       # Read the alias configuration files and enable each aliased
+-       # device using new_interface()
+-       #
++#
++# Read the alias configuration files and enable each aliased
++# device using new_interface()
++#
+ 
+ function new_interface ()
+ {
+ 
+-       ipa=$IPADDR; ipb=${ipa#*.}; ipc=${ipb#*.};
+-       IPGLOP="${ipa%%.*}_${ipb%%.*}_${ipc%%.*}_${ipc#*.}";
+-       DEVNUM=${DEVICE#*:}
+-
+-       MATCH='^[0-9A-Za-z_]*$'
+-       if (LC_ALL=C; [[ ! "$DEVNUM" =~ $MATCH ]]); then
+-	      net_log $"error in $FILE: invalid alias number"
+-	      return 1
+-       fi
+-
+-       eval "
+-              ipseen=\$ipseen_${IPGLOP}; devseen=\$devseen_${DEVNUM};
+-              ipseen_${IPGLOP}=$FILE; devseen_${DEVNUM}=$FILE;
+-       ";
+-
+-       if [ -n "$ipseen" ]; then
+-              net_log $"error in $FILE: already seen ipaddr $IPADDR in $ipseen"
+-	      return 1
+-       fi
+-
+-       if [ -n "$devseen" ]; then
+-              net_log $"error in $FILE: already seen device $parent_device:$DEVNUM in $devseen"
+-	      return 1
+-       fi
+-
+-       if [ -z "$DEVICE" -o -z "$IPADDR" ]; then
+-              net_log $"error in $FILE: didn't specify device or ipaddr"
+-	      return 1
+-       fi
+-
+-       if [ -z "$NETMASK" -a -z "$PREFIX" ]; then
+-               net_log $"error iN $FILE: didn't specify netmask or prefix"
+-       fi
+-
+-       if [ -z "$PREFIX" ]; then
+-               eval $(/bin/ipcalc --prefix ${IPADDR} ${NETMASK})
+-       fi
+-
+-       if [ -z "$BROADCAST" -o "$BROADCAST" = "$default_BROADCAST" ]; then
+-               eval $(/bin/ipcalc --broadcast ${IPADDR}/${PREFIX})
+-       fi
+-
+-       if [ "$no_devices_are_up" = "yes" ]; then
+-               setup_this=yes
+-       else
+-
+-               setup_this=""
+-
+-               eval "
+-                       rdev_addr=\$rdev_${DEVNUM}_addr;
+-                       rdev_pb=\$rdev_${DEVNUM}_pb;
+-                       rdev_mark=\$rdev_${DEVNUM}_mark;
+-                       rdevip=\$rdevip_${IPGLOP};
+-               ";
+-
+-               if [ -n "$rdev_addr" ]; then
+-                       if [ "$rdev_addr" = "${IPADDR}" ]; then
+-                               newmark=keep
+-                               if [ "$rdev_pb" != "${PREFIX}_${BROADCAST}" ]; then
+-                                       setup_this=freshen
+-                               else
+-                                       setup_this=no
+-                               fi
+-                       else
+-                               if [ "$rdev_mark" != "remove" ]; then
+-                                       /sbin/ip addr flush dev $parent_device label $parent_device:${DEVNUM}
+-                                       do_netreport=yes
+-                               fi
+-                               newmark=remove
+-                               setup_this=yes
+-                       fi
+-                       if [ -n "$rdev_mark" -a "$rdev_mark" != "$newmark" ]; then
+-                               net_log $"error in ifcfg-${parent_device}: files"
+-			       return 1
+-                       fi
+-                       eval " rdev_${DEVNUM}_mark=\$newmark ";
+-               else
+-                       setup_this=yes
+-               fi
+-
+-               if [ -n "$rdevip" -a "$rdevip" != "${DEVNUM}" ]; then
+-                       eval " mark_remove=\$rdev_${rdevip}_mark ";
+-                       if [ -n "$mark_remove" -a "$mark_remove" != "remove" ]; then
+-                               net_log $"error in ifcfg-${parent_device}: files"
+-			       return 1
+-                       fi
+-                       if [ "$mark_remove" != "remove" ]; then
+-                               eval " rdev_${rdevip}_mark=remove ";
+-                               /sbin/ip addr flush dev $parent_device label $parent_device:$rdevip
+-                               do_netreport=yes
+-                       fi
+-               fi
+-
+-       fi
+-
+-       if [ "$setup_this" = "freshen" ] ; then
+-               # we can do the freshen stuff right now
+-               /sbin/ip addr change ${IPADDR}/${PREFIX} brd ${BROADCAST}
+-       fi
+-
+-       if [ "$setup_this" = "yes" ] ; then
+-               if [ "${parent_device}" != "lo" ] &&  [ "${ARPCHECK}" != "no" ] && \
+-               is_available ${parent_device} && \
+-               ( grep -qswi "up" /sys/class/net/${parent_device}/operstate ||  grep -qswi "1" /sys/class/net/${parent_device}/carrier ) ; then
+-                   echo $"Determining if ip address ${IPADDR} is already in use for device ${parent_device}..."
+-				   /sbin/arping -q -c 2 -w ${ARPING_WAIT:-3} -D -I ${parent_device} ${IPADDR}
+-				   if [ $? = 1 ]; then
+-					   net_log $"Error, some other host already uses address ${IPADDR}."
+-					   return 1
+-				   fi
+-			   fi
+-
+-               /sbin/ip addr add ${IPADDR}/${PREFIX} brd ${BROADCAST} dev ${parent_device} label ${DEVICE}
+-
+-	       [[ "$IPV6INIT" != [nN0]* ]]  && /etc/sysconfig/network-scripts/ifup-ipv6 ${DEVICE}
+-
+-               if [ "$NO_ALIASROUTING" != yes ]; then
+-
+-                       GATEWAYDEV=$network_GATEWAYDEV;
+-
+-                       if [ -n "${GATEWAY}" -a \
+-			       \( -z "${GATEWAYDEV}" -o "${GATEWAYDEV}" = "${DEVICE}" \) ]; then
+-                               # set up default gateway, if it isn't already there
+-			       if ! is_default_gateway "$GATEWAY"; then
+-					ip route replace default ${METRIC:+metric $METRIC} via ${GATEWAY} dev ${DEVICE}
+-			       fi
+-                       fi
+-
+-		       /etc/sysconfig/network-scripts/ifup-routes ${DEVICE} ${NAME}
+-
+-                       do_netreport=yes
+-                       ifuplocal_queue="$ifuplocal_queue $DEVICE"
+-
+-               fi
+-
+-	fi
+-
++    ipa=$IPADDR; ipb=${ipa#*.}; ipc=${ipb#*.};
++    IPGLOP="${ipa%%.*}_${ipb%%.*}_${ipc%%.*}_${ipc#*.}";
++    DEVNUM=${DEVICE#*:}
++
++    MATCH='^[0-9A-Za-z_]*$'
++    if (LC_ALL=C; [[ ! "$DEVNUM" =~ $MATCH ]]); then
++        net_log $"error in $FILE: invalid alias number"
++        return 1
++    fi
++
++    eval "
++        ipseen=\$ipseen_${IPGLOP}; devseen=\$devseen_${DEVNUM};
++        ipseen_${IPGLOP}=$FILE; devseen_${DEVNUM}=$FILE;
++    ";
++
++    if [ -n "$ipseen" ]; then
++        net_log $"error in $FILE: already seen ipaddr $IPADDR in $ipseen"
++        return 1
++    fi
++
++    if [ -n "$devseen" ]; then
++        net_log $"error in $FILE: already seen device $parent_device:$DEVNUM in $devseen"
++        return 1
++    fi
++
++    if [ -z "$DEVICE" -o -z "$IPADDR" ]; then
++        if [ -n "$IPV6ADDR" -a -n "$DEVICE" ] && ! is_false "$IPV6INIT"; then
++            /etc/sysconfig/network-scripts/ifup-ipv6 ${DEVICE}
++            return $?
++        fi
++        net_log $"error in $FILE: didn't specify device or ipaddr"
++        return 1
++    fi
++
++    if [ -z "$NETMASK" -a -z "$PREFIX" ]; then
++        net_log $"error iN $FILE: didn't specify netmask or prefix"
++    fi
++
++    if [ -z "$PREFIX" ]; then
++        eval $(/bin/ipcalc --prefix ${IPADDR} ${NETMASK})
++    fi
++
++    if [ -z "$BROADCAST" -o "$BROADCAST" = "$default_BROADCAST" ]; then
++        eval $(/bin/ipcalc --broadcast ${IPADDR}/${PREFIX})
++    fi
++
++    if [ "$no_devices_are_up" = "yes" ]; then
++        setup_this=yes
++    else
++
++        setup_this=""
++
++        eval "
++        rdev_addr=\$rdev_${DEVNUM}_addr;
++        rdev_pb=\$rdev_${DEVNUM}_pb;
++        rdev_mark=\$rdev_${DEVNUM}_mark;
++        rdevip=\$rdevip_${IPGLOP};
++        ";
++
++        if [ -n "$rdev_addr" ]; then
++            if [ "$rdev_addr" = "${IPADDR}" ]; then
++                newmark=keep
++                if [ "$rdev_pb" != "${PREFIX}_${BROADCAST}" ]; then
++                    setup_this=freshen
++                else
++                    setup_this=no
++                fi
++            else
++                if [ "$rdev_mark" != "remove" ]; then
++                    /sbin/ip addr flush dev $parent_device label $parent_device:${DEVNUM}
++                    do_netreport=yes
++                fi
++                newmark=remove
++                setup_this=yes
++            fi
++            if [ -n "$rdev_mark" -a "$rdev_mark" != "$newmark" ]; then
++                net_log $"error in ifcfg-${parent_device}: files"
++                return 1
++            fi
++            eval " rdev_${DEVNUM}_mark=\$newmark ";
++        else
++            setup_this=yes
++        fi
++
++        if [ -n "$rdevip" -a "$rdevip" != "${DEVNUM}" ]; then
++            eval " mark_remove=\$rdev_${rdevip}_mark ";
++            if [ -n "$mark_remove" -a "$mark_remove" != "remove" ]; then
++                net_log $"error in ifcfg-${parent_device}: files"
++                return 1
++            fi
++            if [ "$mark_remove" != "remove" ]; then
++                eval " rdev_${rdevip}_mark=remove ";
++                /sbin/ip addr flush dev $parent_device label $parent_device:$rdevip
++                do_netreport=yes
++            fi
++        fi
++
++    fi
++
++    if [ "$setup_this" = "freshen" ] ; then
++        # we can do the freshen stuff right now
++        /sbin/ip addr change ${IPADDR}/${PREFIX} brd ${BROADCAST}
++    fi
++
++    if [ "$setup_this" = "yes" ] ; then
++        if [ "${parent_device}" != "lo" ] &&  [ "${ARPCHECK}" != "no" ] && \
++                is_available ${parent_device} && \
++                ( grep -qswi "up" /sys/class/net/${parent_device}/operstate ||  grep -qswi "1" /sys/class/net/${parent_device}/carrier ) ; then
++            echo $"Determining if ip address ${IPADDR} is already in use for device ${parent_device}..."
++            ARPING=$(/sbin/arping -c 2 -w ${ARPING_WAIT:-3} -D -I ${parent_device} ${IPADDR})
++            if [ $? = 1 ]; then
++                ARPINGMAC=$(echo $ARPING | sed -ne 's/.*\[\(.*\)\].*/\1/p')
++                net_log $"Error, some other host ($ARPINGMAC) already uses address ${IPADDR}."
++                return 1
++            fi
++        fi
++
++        /sbin/ip addr add ${IPADDR}/${PREFIX} brd ${BROADCAST} \
++            dev ${parent_device} label ${DEVICE}
++
++        # update ARP cache of neighboring computers:
++        if [ "${REALDEVICE}" != "lo" ]; then
++            /sbin/arping -q -A -c 1 -I ${parent_device} ${IPADDR}
++            ( sleep 2; /sbin/arping -q -U -c 1 -I ${parent_device} ${IPADDR} ) > /dev/null 2>&1 < /dev/null &
++        fi
++
++        ! is_false "$IPV6INIT" && \
++            /etc/sysconfig/network-scripts/ifup-ipv6 ${DEVICE}
++
++        if [ "$NO_ALIASROUTING" != yes ]; then
++
++            GATEWAYDEV=$network_GATEWAYDEV;
++
++            if [ -n "${GATEWAY}" -a \
++                    \( -z "${GATEWAYDEV}" -o "${GATEWAYDEV}" = "${DEVICE}" \) ]; then
++                # set up default gateway, if it isn't already there
++                if ! is_default_gateway "$GATEWAY"; then
++                    ip route replace default ${METRIC:+metric $METRIC} via ${GATEWAY} dev ${DEVICE}
++                fi
++            fi
++
++            /etc/sysconfig/network-scripts/ifup-routes ${DEVICE} ${NAME}
++
++            do_netreport=yes
++            ifuplocal_queue="$ifuplocal_queue $DEVICE"
++        fi
++    fi
+ }
+ 
+-if [ "$BASH_VERSINFO" ]; then shopt -s nullglob; else allow_null_glob_expansion=foo; fi
++if [ "$BASH_VERSINFO" ]; then
++    shopt -s nullglob
++else
++    allow_null_glob_expansion=foo
++fi
+ 
+ for FILE in ifcfg-${parent_device}:* ; do
+-       is_ignored_file "$FILE" && continue
+-       ini_env;
+-       . ./$FILE;
+-       [ -z "$DEVICE" ] && DEVICE=${FILE##ifcfg-}
+-       [ "$ONPARENT" != "no" -a "$ONPARENT" != "NO" ] && new_interface;
+-       unset DEVICE
++    is_ignored_file "$FILE" && continue
++    ini_env
++    . ./$FILE
++    [ -z "$DEVICE" ] && DEVICE=${FILE##ifcfg-}
++    [ "$ONPARENT" != "no" -a "$ONPARENT" != "NO" ] && new_interface
++    unset DEVICE
+ done
+ 
+ for FILE in ifcfg-${parent_device}-range* ; do
+-       is_ignored_file "$FILE" && continue
+-       ini_env;
+-       . ./$FILE;
+-
+-       ipaddr_prefix=${IPADDR_START%.*}
+-       ipaddr_startnum=${IPADDR_START##*.}
+-       ipaddr_endnum=${IPADDR_END##*.}
+-
+-       if [ "${IPADDR_START%.*}" != "${IPADDR_END%.*}" ]; then
+-               net_log $"error in $FILE: IPADDR_START and IPADDR_END don't agree"; continue
+-       fi
+-
+-       if [ $ipaddr_startnum -gt $ipaddr_endnum ]; then
+-               net_log $"error in $FILE: IPADDR_START greater than IPADDR_END"; continue
+-       fi
+-
+-       ipaddr_num=$ipaddr_startnum
+-       ipaddr_clonenum=$CLONENUM_START
+-
+-       while [ $ipaddr_num -le $ipaddr_endnum ]; do
+-               IPADDR="$ipaddr_prefix.$ipaddr_num"
+-               DEVICE="$parent_device:$ipaddr_clonenum"
+-	       [ "$ONPARENT" != "no" -a "$ONPARENT" != "NO" ] && new_interface;
+-               ipaddr_num=$(($ipaddr_num+1))
+-               ipaddr_clonenum=$(($ipaddr_clonenum+1))
+-       done
+-       
++    is_ignored_file "$FILE" && continue
++    ini_env
++    . ./$FILE
++
++    ipaddr_prefix=${IPADDR_START%.*}
++    ipaddr_startnum=${IPADDR_START##*.}
++    ipaddr_endnum=${IPADDR_END##*.}
++
++    if [ "${IPADDR_START%.*}" != "${IPADDR_END%.*}" ]; then
++        net_log $"error in $FILE: IPADDR_START and IPADDR_END don't agree"
++        continue
++    fi
++
++    if [ $ipaddr_startnum -gt $ipaddr_endnum ]; then
++        net_log $"error in $FILE: IPADDR_START greater than IPADDR_END"
++        continue
++    fi
++
++    ipaddr_num=$ipaddr_startnum
++    ipaddr_clonenum=$CLONENUM_START
++
++    while [ $ipaddr_num -le $ipaddr_endnum ]; do
++        IPADDR="$ipaddr_prefix.$ipaddr_num"
++        DEVICE="$parent_device:$ipaddr_clonenum"
++        IPV6INIT="no"
++        [ "$ONPARENT" != "no" -a "$ONPARENT" != "NO" ] && new_interface
++        ipaddr_num=$(($ipaddr_num+1))
++        ipaddr_clonenum=$(($ipaddr_clonenum+1))
++    done
+ done
+ 
+-       #
+-       # Remove any devices that should not be around
+-       #
+-	for DEVNUM in $rdev_LIST ; do
+-	       eval " rdev_mark=\$rdev_${DEVNUM}_mark ";
+-	       if [ -z "$rdev_mark" ]; then
+-	               /sbin/ip addr flush dev $parent_device label $parent_device:${DEVNUM}
+-        	       do_netreport=yes
+-	       fi
+-	done
+-       #
+-       # Notify of new device creation
+-       #
++#
++# Remove any devices that should not be around
++#
++for DEVNUM in $rdev_LIST ; do
++    eval " rdev_mark=\$rdev_${DEVNUM}_mark "
++    if [ -z "$rdev_mark" ]; then
++        /sbin/ip addr flush dev $parent_device label $parent_device:${DEVNUM}
++        do_netreport=yes
++    fi
++done
++#
++# Notify of new device creation
++#
+ 
+ if [ -n "$do_netreport" ]; then
+-       do_netreport
++    do_netreport
+ fi
+ 
+ if [ -x /sbin/ifup-local ]; then
+-       for DEVICE in $ifuplocal_queue ; do
+-               /sbin/ifup-local ${DEVICE}
+-       done
++    for DEVICE in $ifuplocal_queue ; do
++        /sbin/ifup-local ${DEVICE}
++    done
+ fi
+diff --git a/sysconfig/network-scripts/ifup-bnep b/sysconfig/network-scripts/ifup-bnep
+index 5aff277..bc69662 100755
+--- a/sysconfig/network-scripts/ifup-bnep
++++ b/sysconfig/network-scripts/ifup-bnep
+@@ -13,43 +13,43 @@ source_config
+ 
+ # On hotplug events, just bring the virtual device up as if it's normal Ethernet
+ if [ -n "$IN_HOTPLUG" ]; then
+-	exec sh -x /etc/sysconfig/network-scripts/ifup-eth ${CONFIG} $2 
++    exec sh -x /etc/sysconfig/network-scripts/ifup-eth ${CONFIG} $2 
+ fi
+ 
+ start_panu()
+ {
+-	PANDARGS="--persist --pidfile=/var/run/pand-${DEVICE}.pid --ethernet=${DEVICE} --autozap"
+-	[ "${CACHE}" != "no" -a "${CACHE}" != "NO" ] && PANDARGS="${PANDARGS} --cache"
+-	if [ "${REMOTEBDADDR}" = "" ]; then
+-		PANDARGS="${PANDARGS} --search"
+-	else
+-		PANDARGS="${PANDARGS} --connect ${REMOTEBDADDR}"
+-	fi
+-	/usr/bin/pand ${PANDARGS}
++    PANDARGS="--persist --pidfile=/var/run/pand-${DEVICE}.pid --ethernet=${DEVICE} --autozap"
++    [ "${CACHE}" != "no" -a "${CACHE}" != "NO" ] && PANDARGS="${PANDARGS} --cache"
++    if [ "${REMOTEBDADDR}" = "" ]; then
++        PANDARGS="${PANDARGS} --search"
++    else
++        PANDARGS="${PANDARGS} --connect ${REMOTEBDADDR}"
++    fi
++    /usr/bin/pand ${PANDARGS}
+ }
+ 
+ start_nap()
+ {
+-	:
++    :
+ }
+ 
+ start_gn()
+ {
+-	:
++    :
+ }
+ 
+ case "$ROLE" in
+-	PANU)
+-		start_panu
+-		;;
+-	NAP)
+-		start_nap
+-		;;
+-	GN)
+-		start_gn
+-		;;
+-	*)
+-		echo Unknown BNEP mode :$ROLE
+-		;;
++PANU)
++    start_panu
++    ;;
++NAP)
++    start_nap
++    ;;
++GN)
++    start_gn
++    ;;
++*)
++    echo Unknown BNEP mode :$ROLE
++    ;;
+ esac
+ 
+diff --git a/sysconfig/network-scripts/ifup-ctc b/sysconfig/network-scripts/ifup-ctc
+index 39d6a09..83f754a 100755
+--- a/sysconfig/network-scripts/ifup-ctc
++++ b/sysconfig/network-scripts/ifup-ctc
+@@ -19,9 +19,8 @@ CONFIG=$1
+ [ -f "$CONFIG" ] || CONFIG=ifcfg-$CONFIG
+ source_config
+ 
+-if [ "$2" = "boot" -a "${ONBOOT}" = "no" ]
+-then
+-	exit
++if [ "$2" = "boot" -a "${ONBOOT}" = "no" ] ; then
++    exit
+ fi
+ [ -n "${MTU}" ] && ip link set dev ${DEVICE} mtu ${MTU}
+ 
+@@ -32,22 +31,22 @@ ip link set up dev ${DEVICE}
+ # quite a while...
+ timeout=0
+ while ! ping -w 30 -c 1 ${GATEWAY} &>/dev/null; do
+-	timeout=$(($timeout + 1))
+-	if [ $timeout = 20 ]; then
+-		net_log $"ERROR: ${DEVICE} did not come up!"
+-		break
+-	fi
++    timeout=$(($timeout + 1))
++    if [ $timeout = 20 ]; then
++        net_log $"ERROR: ${DEVICE} did not come up!"
++        break
++    fi
+ done
+ 
+ if [ "${NETWORK}" != "" ] ; then
+-	ip route add to ${GATEWAY} metric 1 dev ${DEVICE}
++    ip route add to ${GATEWAY} metric 1 dev ${DEVICE}
+ fi
+ 
+ if [ "${GATEWAY}" != "" ]; then
+-	if [ "${GATEWAYDEV}" = "" -o "${GATEWAYDEV}" = "${DEVICE}" ]; then
+-		# set up default gateway
+-                ip route replace default ${METRIC:+metric $METRIC} via ${GATEWAY}
+-	fi
++    if [ "${GATEWAYDEV}" = "" -o "${GATEWAYDEV}" = "${DEVICE}" ]; then
++        # set up default gateway
++        ip route replace default ${METRIC:+metric $METRIC} via ${GATEWAY}
++    fi
+ fi
+ 
+ /etc/sysconfig/network-scripts/ifup-post $1
+diff --git a/sysconfig/network-scripts/ifup-eth b/sysconfig/network-scripts/ifup-eth
+index 3638a6e..4d022f7 100755
+--- a/sysconfig/network-scripts/ifup-eth
++++ b/sysconfig/network-scripts/ifup-eth
+@@ -40,49 +40,49 @@ is_available ${REALDEVICE}
+ if [ -n "${HWADDR}" ]; then
+     FOUNDMACADDR=$(get_hwaddr ${REALDEVICE})
+     if [ "${FOUNDMACADDR}" != "${HWADDR}" -a "${FOUNDMACADDR}" != "${MACADDR}" ]; then
+-	    net_log $"Device ${DEVICE} has different MAC address than expected, ignoring."
+-	    exit 1
++        net_log $"Device ${DEVICE} has different MAC address than expected, ignoring."
++        exit 1
+     fi
+ fi
+ 
+ # If the device is a bridge, create it with brctl, if available.
+ if [ "${TYPE}" = "Bridge" ]; then
+-      if [ ! -x /usr/sbin/brctl ]; then
+-	  net_log $"Bridge support not available: brctl not found"
+-	  exit 1
+-      fi
+-      if [ ! -d /sys/class/net/${DEVICE}/bridge ]; then
+-		/usr/sbin/brctl addbr -- ${DEVICE} || exit 1
+-      fi
+-      [ -n "${DELAY}" ] && /usr/sbin/brctl setfd -- ${DEVICE} ${DELAY}
+-      [ -n "${STP}" ] && /usr/sbin/brctl stp -- ${DEVICE} ${STP}
+-      [ -n "${PRIO}" ] && /usr/sbin/brctl setbridgeprio ${DEVICE} ${PRIO}
+-      [ -n "${AGEING}" ] && /usr/sbin/brctl setageing ${DEVICE} ${AGEING}
+-      # add the bits to setup driver parameters here
+-      for arg in $BRIDGING_OPTS ; do
+-          key=${arg%%=*};
+-          value=${arg##*=};
+-          if [ "${key}" != "multicast_router" -a "${key}" != "hash_max" -a "${key}" != "multicast_snooping" ]; then
+-              echo $value > /sys/class/net/${DEVICE}/bridge/$key
+-          fi
+-      done
+-      # set LINKDELAY (used as timeout when calling check_link_down())
+-      # to at least (${DELAY} * 2) + 7 if STP is enabled. This is the
+-      # minimum time required for /sys/class/net/$REALDEVICE/carrier to
+-      # become 1 after "ip link set dev $DEVICE up" is called.
+-      if [ "${STP}" = "yes" -o "${STP}" = "on" ]; then
+-          TMPD=7
+-          [ -n "${DELAY}" ] && TMPD=$(expr ${DELAY} \* 2 + ${TMPD})
+-          [ 0$LINKDELAY -lt $TMPD ] && LINKDELAY=$TMPD
+-      fi
++    if [ ! -x /usr/sbin/brctl ]; then
++        net_log $"Bridge support not available: brctl not found"
++        exit 1
++    fi
++    if [ ! -d /sys/class/net/${DEVICE}/bridge ]; then
++        /usr/sbin/brctl addbr -- ${DEVICE} || exit 1
++    fi
++    [ -n "${DELAY}" ] && /usr/sbin/brctl setfd -- ${DEVICE} ${DELAY}
++    [ -n "${STP}" ] && /usr/sbin/brctl stp -- ${DEVICE} ${STP}
++    [ -n "${PRIO}" ] && /usr/sbin/brctl setbridgeprio ${DEVICE} ${PRIO}
++    [ -n "${AGEING}" ] && /usr/sbin/brctl setageing ${DEVICE} ${AGEING}
++    # add the bits to setup driver parameters here
++    for arg in $BRIDGING_OPTS ; do
++        key=${arg%%=*};
++        value=${arg##*=};
++        if [ "${key}" != "multicast_router" -a "${key}" != "hash_max" -a "${key}" != "multicast_snooping" ]; then
++            echo $value > /sys/class/net/${DEVICE}/bridge/$key
++        fi
++    done
++    # set LINKDELAY (used as timeout when calling check_link_down())
++    # to at least (${DELAY} * 2) + 7 if STP is enabled. This is the
++    # minimum time required for /sys/class/net/$REALDEVICE/carrier to
++    # become 1 after "ip link set dev $DEVICE up" is called.
++    if [ "${STP}" = "yes" -o "${STP}" = "on" ]; then
++        TMPD=7
++        [ -n "${DELAY}" ] && TMPD=$(expr ${DELAY} \* 2 + ${TMPD})
++        [ 0$LINKDELAY -lt $TMPD ] && LINKDELAY=$TMPD
++    fi
+ fi
+ 
+ # Create tap device.
+ if [ "${TYPE}" = "Tap" ]; then
+-      [ -n "${OWNER}" ] && OWNER="user ${OWNER}"
+-      TUNMODE="mode tap"
+-      [[ ${DEVICE} == tun* ]] && TUNMODE="mode tun"
+-      ip tuntap add ${TUNMODE} ${OWNER} dev ${DEVICE} > /dev/null
++    [ -n "${OWNER}" ] && OWNER="user ${OWNER}"
++    TUNMODE="mode tap"
++    [[ ${DEVICE} == tun* ]] && TUNMODE="mode tun"
++    ip tuntap add ${TUNMODE} ${OWNER} dev ${DEVICE} > /dev/null
+ fi
+ 
+ # Team master initialization.
+@@ -92,12 +92,12 @@ fi
+ 
+ # now check the real state
+ is_available_wait ${REALDEVICE} ${DEVTIMEOUT} || {
+-      if [ -n "$alias" ]; then
+-         net_log $"$alias device ${DEVICE} does not seem to be present, delaying initialization."
+-      else
+-         net_log $"Device ${DEVICE} does not seem to be present, delaying initialization."
+-      fi
+-      exit 1
++    if [ -n "$alias" ]; then
++        net_log $"$alias device ${DEVICE} does not seem to be present, delaying initialization."
++    else
++        net_log $"Device ${DEVICE} does not seem to be present, delaying initialization."
++    fi
++    exit 1
+ }
+ 
+ 
+@@ -105,10 +105,10 @@ is_available_wait ${REALDEVICE} ${DEVTIMEOUT} || {
+ # available as a configuration option in the config file, forcing the kernel
+ # to think an ethernet card has a different MAC address than it really has.
+ if [ -n "${MACADDR}" ]; then
+-   ip link set dev ${DEVICE} address ${MACADDR}
++    ip link set dev ${DEVICE} address ${MACADDR}
+ fi
+ if [ -n "${MTU}" ]; then
+-   ip link set dev ${DEVICE} mtu ${MTU}
++    ip link set dev ${DEVICE} mtu ${MTU}
+ fi
+ 
+ # is the device wireless? If so, configure wireless device specifics
+@@ -125,8 +125,8 @@ fi
+ if [ "${SLAVE}" = yes -a "${ISALIAS}" = no -a "${MASTER}" != "" ]; then
+     install_bonding_driver ${MASTER}
+     grep -wq "${DEVICE}" /sys/class/net/${MASTER}/bonding/slaves 2>/dev/null || {
+-	/sbin/ip link set dev ${DEVICE} down
+-	echo "+${DEVICE}" > /sys/class/net/${MASTER}/bonding/slaves 2>/dev/null
++        /sbin/ip link set dev ${DEVICE} down
++        echo "+${DEVICE}" > /sys/class/net/${MASTER}/bonding/slaves 2>/dev/null
+     }
+     ethtool_set
+ 
+@@ -138,9 +138,9 @@ fi
+ if [ "$ISALIAS" = no ] && is_bonding_device ${DEVICE} ; then
+     install_bonding_driver ${DEVICE}
+     /sbin/ip link set dev ${DEVICE} up
+-    for device in $(LANG=C grep -l "^[[:space:]]*MASTER=\"\?${DEVICE}\"\?\([[:space:]#]\|$\)" /etc/sysconfig/network-scripts/ifcfg-*) ; do
+-	    is_ignored_file "$device" && continue
+-	    /sbin/ifup ${device##*/} || net_log "Unable to start slave device ${device##*/} for master ${DEVICE}." warning
++    for device in $(LANG=C grep -l "^[[:space:]]*MASTER=['\"]\?${DEVICE}['\"]\?\([[:space:]#]\|$\)" /etc/sysconfig/network-scripts/ifcfg-*) ; do
++        is_ignored_file "$device" && continue
++        /sbin/ifup ${device##*/} || net_log "Unable to start slave device ${device##*/} for master ${DEVICE}." warning
+     done
+ 
+     [ -n "${LINKDELAY}" ] && /bin/sleep ${LINKDELAY}
+@@ -149,147 +149,153 @@ if [ "$ISALIAS" = no ] && is_bonding_device ${DEVICE} ; then
+     for arg in $BONDING_OPTS ; do   
+         key=${arg%%=*};
+         value=${arg##*=};
+-	if [ "${key}" = "primary" ]; then 
++        if [ "${key}" = "primary" ]; then 
+             echo $value > /sys/class/net/${DEVICE}/bonding/$key
+-	fi
++        fi
+     done
+ fi
+ 
+ # If the device is part of a bridge, add the device to the bridge
+ if [ -n "${BRIDGE}" ] && [ -x /usr/sbin/brctl ]; then
+-      if [ ! -d /sys/class/net/${BRIDGE}/bridge ]; then
+-	  /usr/sbin/brctl addbr -- ${BRIDGE} 2>/dev/null
+-      fi
+-      /sbin/ip addr flush dev ${DEVICE} 2>/dev/null
+-      /sbin/ip link set dev ${DEVICE} up
+-      ethtool_set
+-      [ -n "${LINKDELAY}" ] && /bin/sleep ${LINKDELAY}
+-      /usr/sbin/brctl addif -- ${BRIDGE} ${DEVICE}
+-      # add the bits to setup driver parameters here
+-      for arg in $BRIDGING_OPTS ; do
+-          key=${arg%%=*};
+-          value=${arg##*=};
+-          echo $value > /sys/class/net/${DEVICE}/brport/$key
+-      done
+-      # Upon adding a device to a bridge,
+-      # it's necessary to make radvd reload its config
+-      [ -r /var/run/radvd/radvd.pid ] && kill -HUP $(cat /var/run/radvd/radvd.pid)
+-      exit 0
++    if [ ! -d /sys/class/net/${BRIDGE}/bridge ]; then
++        /usr/sbin/brctl addbr -- ${BRIDGE} 2>/dev/null
++    fi
++    /sbin/ip addr flush dev ${DEVICE} 2>/dev/null
++    /sbin/ip link set dev ${DEVICE} up
++    ethtool_set
++    [ -n "${LINKDELAY}" ] && /bin/sleep ${LINKDELAY}
++    /usr/sbin/brctl addif -- ${BRIDGE} ${DEVICE}
++    # add the bits to setup driver parameters here
++    for arg in $BRIDGING_OPTS ; do
++        key=${arg%%=*};
++        value=${arg##*=};
++        echo $value > /sys/class/net/${DEVICE}/brport/$key
++    done
++    # Upon adding a device to a bridge,
++    # it's necessary to make radvd reload its config
++    [ -r /var/run/radvd/radvd.pid ] && kill -HUP $(cat /var/run/radvd/radvd.pid)
++    exit 0
+ fi
+-		     
++
+ if [ -n "${DYNCONFIG}" ] && [ -x /sbin/dhclient ]; then
+-    if [[ "${PERSISTENT_DHCLIENT}" =  [yY1]* ]]; then
+-       ONESHOT="";
++    if is_true "${PERSISTENT_DHCLIENT}"; then
++        ONESHOT="";
+     else
+-       ONESHOT="-1";
++        ONESHOT="-1";
+     fi;
+     generate_config_file_name
+     generate_lease_file_name
+     DHCLIENTARGS="${DHCLIENTARGS} -H ${DHCP_HOSTNAME:-${HOSTNAME%%.*}} ${ONESHOT} -q ${DHCLIENTCONF} -lf ${LEASEFILE} -pf /var/run/dhclient-${DEVICE}.pid"
+     echo
+     echo -n $"Determining IP information for ${DEVICE}..."
+-    if [[ "${PERSISTENT_DHCLIENT}" !=  [yY1]* ]] && check_link_down ${DEVICE}; then
+-	echo $" failed; no link present.  Check cable?"
+-	exit 1
++    if ! is_true "${PERSISTENT_DHCLIENT}" && check_link_down ${DEVICE}; then
++        echo $" failed; no link present.  Check cable?"
++        exit 1
+     fi
+ 
+     ethtool_set
+ 
+     if /sbin/dhclient ${DHCLIENTARGS} ${DEVICE} ; then
+-	echo $" done."
+-	dhcpipv4="good"
++        echo $" done."
++        dhcpipv4="good"
+     else
+-	echo $" failed."
+-	if [[ "${IPV4_FAILURE_FATAL}"  = [Yy1]* ]] ; then
+-	    exit 1
+-	fi
+-	if [[ "$IPV6INIT" = [nN0]* || "$DHCPV6C" != [yY1]* ]] ; then
+-	    exit 1
+-	fi
+-	net_log "Unable to obtain IPv4 DHCP address ${DEVICE}." warning
++        echo $" failed."
++        if is_true "${IPV4_FAILURE_FATAL}"; then
++            exit 1
++        fi
++        if is_false "$IPV6INIT" || ! is_true "$DHCPV6C"; then
++            exit 1
++        fi
++        net_log "Unable to obtain IPv4 DHCP address ${DEVICE}." warning
+     fi
+-# end dynamic device configuration
++    # end dynamic device configuration
+ else 
+     if [ -z "${IPADDR}" -a -z "${IPADDR0}" -a -z "${IPADDR1}" -a -z "${IPADDR2}" ]; then
+-         # enable device without IP, useful for e.g. PPPoE
+-	 ip link set dev ${REALDEVICE} up
+-	 ethtool_set
+-	 [ -n "${LINKDELAY}" ] && /bin/sleep ${LINKDELAY}
++        # enable device without IP, useful for e.g. PPPoE
++        ip link set dev ${REALDEVICE} up
++        ethtool_set
++        [ -n "${LINKDELAY}" ] && /bin/sleep ${LINKDELAY}
+     else
+-  
+-    expand_config
+-
+-    [ -n "${ARP}" ] && \
+-	ip link set dev ${REALDEVICE} $(toggle_value arp $ARP)
+-   
+-    if ! ip link set dev ${REALDEVICE} up ; then
+-	net_log $"Failed to bring up ${DEVICE}."
+-	exit 1
+-    fi
+ 
+-    ethtool_set
++        expand_config
+ 
+-    [ -n "${LINKDELAY}" ] && /bin/sleep ${LINKDELAY}
++        [ -n "${ARP}" ] && \
++            ip link set dev ${REALDEVICE} $(toggle_value arp $ARP)
+ 
+-    if [ "${DEVICE}" = "lo" ]; then
+-    	SCOPE="scope host"
+-    else
+-        SCOPE=${SCOPE:-}
+-    fi
+-    
+-    if [ -n "$SRCADDR" ]; then
+-       SRC="src $SRCADDR"
+-    else
+-       SRC=
+-    fi
+-    
+-    # set IP address(es)
+-    for idx in {0..256} ; do
+-	if [ -z "${ipaddr[$idx]}" ]; then
+-            break
++        if ! ip link set dev ${REALDEVICE} up ; then
++            net_log $"Failed to bring up ${DEVICE}."
++            exit 1
++        fi
++
++        ethtool_set
++
++        [ -n "${LINKDELAY}" ] && /bin/sleep ${LINKDELAY}
++
++        if [ "${DEVICE}" = "lo" ]; then
++            SCOPE="scope host"
++        else
++            SCOPE=${SCOPE:-}
++        fi
++
++        if [ -n "$SRCADDR" ]; then
++            SRC="src $SRCADDR"
++        else
++            SRC=
+         fi
+ 
+-        if ! LC_ALL=C ip addr ls ${REALDEVICE} | LC_ALL=C grep -q "${ipaddr[$idx]}/${prefix[$idx]}" ; then
+-            if [ "${REALDEVICE}" != "lo" ] && [ "${arpcheck[$idx]}" != "no" ] ; then
+-                    /sbin/arping -q -c 2 -w 3 -D -I ${REALDEVICE} ${ipaddr[$idx]}
++        # set IP address(es)
++        for idx in {0..256} ; do
++            if [ -z "${ipaddr[$idx]}" ]; then
++                break
++            fi
++
++            if ! LC_ALL=C ip addr ls ${REALDEVICE} | LC_ALL=C grep -q "${ipaddr[$idx]}/${prefix[$idx]}" ; then
++                if [ "${REALDEVICE}" != "lo" ] && [ "${arpcheck[$idx]}" != "no" ] ; then
++                    ARPING=$(/sbin/arping -c 2 -w ${ARPING_WAIT:-3} -D -I ${REALDEVICE} ${ipaddr[$idx]})
+                     if [ $? = 1 ]; then
+-                        net_log $"Error, some other host already uses address ${ipaddr[$idx]}."
++                        ARPINGMAC=$(echo $ARPING |  sed -ne 's/.*\[\(.*\)\].*/\1/p')
++                        net_log $"Error, some other host ($ARPINGMAC) already uses address ${ipaddr[$idx]}."
+                         exit 1
+                     fi
++                fi
++
++                if ! ip addr add ${ipaddr[$idx]}/${prefix[$idx]} \
++                    brd ${broadcast[$idx]:-+} dev ${REALDEVICE} ${SCOPE} label ${DEVICE}; then
++                    net_log $"Error adding address ${ipaddr[$idx]} for ${DEVICE}."
++                fi
+             fi
+ 
+-            if ! ip addr add ${ipaddr[$idx]}/${prefix[$idx]} \
+-              brd ${broadcast[$idx]:-+} dev ${REALDEVICE} ${SCOPE} label ${DEVICE}; then
+-                net_log $"Error adding address ${ipaddr[$idx]} for ${DEVICE}."
++            if [ -n "$SRCADDR" ]; then
++                sysctl -w "net.ipv4.conf.${SYSCTLDEVICE}.arp_filter=1" >/dev/null 2>&1
+             fi
+-        fi
+ 
+-        if [ -n "$SRCADDR" ]; then
+-               sysctl -w "net.ipv4.conf.${SYSCTLDEVICE}.arp_filter=1" >/dev/null 2>&1
+-        fi
++            # update ARP cache of neighboring computers
++            if [ "${REALDEVICE}" != "lo" ]; then
++                /sbin/arping -q -A -c 1 -I ${REALDEVICE} ${ipaddr[$idx]}
++                ( sleep 2;
++                /sbin/arping -q -U -c 1 -I ${REALDEVICE} ${ipaddr[$idx]} ) > /dev/null 2>&1 < /dev/null &
++            fi
+ 
+-        # update ARP cache of neighboring computers
+-        if [ "${REALDEVICE}" != "lo" ]; then
+-          /sbin/arping -q -A -c 1 -I ${REALDEVICE} ${ipaddr[$idx]}
+-          ( sleep 2;
+-            /sbin/arping -q -U -c 1 -I ${REALDEVICE} ${ipaddr[$idx]} ) > /dev/null 2>&1 < /dev/null &
++            # set lifetime of address to forever
++            ip addr change ${ipaddr[$idx]}/${prefix[$idx]} dev ${REALDEVICE} valid_lft forever preferred_lft forever
++        done
++
++        # Set a default route.
++        if [ "${DEFROUTE}" != "no" ] && [ -z "${GATEWAYDEV}" -o "${GATEWAYDEV}" = "${REALDEVICE}" ]; then
++            # set up default gateway. replace if one already exists
++            if [ -n "${GATEWAY}" ] && [ "$(ipcalc --network ${GATEWAY} ${netmask[0]} 2>/dev/null)" = "NETWORK=${NETWORK}" ]; then
++                ip route replace default ${METRIC:+metric $METRIC} \
++                    ${EXTRA_ROUTE_OPTS} \
++                    via ${GATEWAY} ${WINDOW:+window $WINDOW} ${SRC} \
++                    ${GATEWAYDEV:+dev $GATEWAYDEV} ||
++                    net_log $"Error adding default gateway ${GATEWAY} for ${DEVICE}."
++            elif [ "${GATEWAYDEV}" = "${DEVICE}" ]; then
++                ip route replace default ${METRIC:+metric $METRIC} \
++                    ${EXTRA_ROUTE_OPTS} \
++                    ${SRC} ${WINDOW:+window $WINDOW} dev ${REALDEVICE} ||
++                    net_log $"Error adding default gateway for ${REALDEVICE}."
++            fi
+         fi
+-    done
+-
+-    # Set a default route.
+-    if [ "${DEFROUTE}" != "no" ] && [ -z "${GATEWAYDEV}" -o "${GATEWAYDEV}" = "${REALDEVICE}" ]; then
+-	# set up default gateway. replace if one already exists
+-	if [ -n "${GATEWAY}" ] && [ "$(ipcalc --network ${GATEWAY} ${netmask[0]} 2>/dev/null)" = "NETWORK=${NETWORK}" ]; then
+-	    ip route replace default ${METRIC:+metric $METRIC} \
+-		via ${GATEWAY} ${WINDOW:+window $WINDOW} ${SRC} \
+-		${GATEWAYDEV:+dev $GATEWAYDEV} ||
+-			net_log $"Error adding default gateway ${GATEWAY} for ${DEVICE}."
+-	elif [ "${GATEWAYDEV}" = "${DEVICE}" ]; then
+-	    ip route replace default ${METRIC:+metric $METRIC} \
+-		${SRC} ${WINDOW:+window $WINDOW} dev ${REALDEVICE} ||
+-			net_log $"Erorr adding default gateway for ${REALDEVICE}."
+-	fi
+-    fi
+     fi
+ fi
+ 
+@@ -315,7 +321,7 @@ fi
+ 
+ # IPv6 initialisation?
+ /etc/sysconfig/network-scripts/ifup-ipv6 ${CONFIG}
+-if [[ "${DHCPV6C}"  = [Yy1]* ]] && [ -x /sbin/dhclient ]; then
++if is_true "${DHCPV6C}" && [ -x /sbin/dhclient ]; then
+     generate_config_file_name 6
+     generate_lease_file_name 6
+     echo
+@@ -333,4 +339,3 @@ if [[ "${DHCPV6C}"  = [Yy1]* ]] && [ -x /sbin/dhclient ]; then
+ fi
+ 
+ exec /etc/sysconfig/network-scripts/ifup-post ${CONFIG} ${2}
+-
+diff --git a/sysconfig/network-scripts/ifup-ippp b/sysconfig/network-scripts/ifup-ippp
+index 8405c8d..082b422 100755
+--- a/sysconfig/network-scripts/ifup-ippp
++++ b/sysconfig/network-scripts/ifup-ippp
+@@ -20,7 +20,7 @@ CONFIG=$1
+ source_config
+ 
+ if [ "${2}" = "boot" -a "${ONBOOT}" = "no" ]; then
+-  exit
++    exit
+ fi
+ 
+ if [ ! -f /var/lock/subsys/isdn ] && [ -x /etc/init.d/isdn ] ; then
+@@ -46,7 +46,7 @@ if ! isdnctrl list all >/dev/null 2>&1 ; then
+     /usr/bin/logger -p daemon.info -t ifup-ippp "cannot list ISDN devices"
+     exit 1
+ fi
+-		
++
+ # check if device already is configured
+ isdnctrl list $DEVICE >/dev/null 2>&1 && exit 0
+ 
+@@ -116,15 +116,15 @@ function addprovider()
+             return 1
+         fi
+         if [ "$DIALIN" != "on" ]; then
+-        # we should hide the user name, so i add user name to option file.
+-        if [ "$AUTH" = "-pap +chap" ]; then
+-            create_option_file "name \"$USER\""
+-        else
+-            create_option_file "user \"$USER\""
+-        fi
+-        options="$options file /etc/ppp/ioption-secret-$DEVICE"
++            # we should hide the user name, so i add user name to option file.
++            if [ "$AUTH" = "-pap +chap" ]; then
++                create_option_file "name \"$USER\""
++            else
++                create_option_file "user \"$USER\""
++            fi
++            options="$options file /etc/ppp/ioption-secret-$DEVICE"
+         fi
+- 
++
+         # authentication options:
+         # +pap and/or +chap does not work correct by dialout - remove
+         # them if it's configured as dialout
+@@ -160,7 +160,7 @@ function addprovider()
+ 
+     # set dialmode
+     log_isdnctrl dialmode $DEVICE $DIALMODE
+- 
++
+     [ -n "$SECURE" ] && log_isdnctrl secure $DEVICE $SECURE
+     [ -n "$HUPTIMEOUT" ] && log_isdnctrl huptimeout $DEVICE $HUPTIMEOUT
+     [ -n "$CHARGEHUP" ] && log_isdnctrl chargehup $DEVICE $CHARGEHUP
+@@ -179,7 +179,7 @@ function addprovider()
+     fi
+     [ -n "$CBDELAY" ] && log_isdnctrl cbdelay $DEVICE $CBDELAY
+     [ -n "$CBHUP" ] && log_isdnctrl cbhup $DEVICE $CBHUP
+- 
++
+     options="$options ipparam $DEVNAME"
+ 
+     [ "$ENCAP" = "syncppp" ] && log_isdnctrl pppbind $DEVICE
+@@ -188,12 +188,12 @@ function addprovider()
+         options="$options ipcp-accept-local"
+     else
+         if [ "$DIALIN" != "on" ]; then
+-        options="$options noipdefault"
++            options="$options noipdefault"
+         fi
+     fi
+     # Add device
+     options="$options /dev/$DEVICE"
+- 
++
+     # set channel bundling
+     if [ "$BUNDLING" = "yes" -o "$BUNDLING" = "on" ] && [ -n "$SLAVE_DEVICE" ]; then
+         [ -z "$SLAVE_MSN" ] && SLAVE_MSN="$MSN"
+@@ -208,10 +208,10 @@ function addprovider()
+         [ -z "$SLAVE_CALLBACK" ] && SLAVE_CALLBACK="$CALLBACK"
+         [ -z "$SLAVE_CBDELAY" ] && SLAVE_CBDELAY="$CBDELAY"
+         if [ "$DIALIN" != "on" ] ; then
+-               [ -z "$SLAVE_DIALMODE" ] && SLAVE_DIALMODE="auto"
++            [ -z "$SLAVE_DIALMODE" ] && SLAVE_DIALMODE="auto"
+         else
+-               # Master should not dial by default on incoming MPPP
+-               [ -z "$SLAVE_DIALMODE" ] && SLAVE_DIALMODE="$DIALMODE"
++            # Master should not dial by default on incoming MPPP
++            [ -z "$SLAVE_DIALMODE" ] && SLAVE_DIALMODE="$DIALMODE"
+         fi
+ 
+         slave=$SLAVE_DEVICE
+@@ -259,7 +259,7 @@ function addprovider()
+ 
+     if [ "$GATEWAY" = "0.0.0.0" ]; then
+         if [ "$DIALIN" != "on" ]; then
+-        options="$options ipcp-accept-remote"
++            options="$options ipcp-accept-remote"
+         fi
+         options="$IPADDR:$GATEWAY $options"
+     else
+@@ -277,16 +277,16 @@ function addprovider()
+ 
+     # BSD-Compression scheme
+     if [ "$BSDCOMP" = "on" ] ; then
+-         options="$options bsdcomp 9,9"
++        options="$options bsdcomp 9,9"
+     else
+-         options="$options -bsdcomp"
++        options="$options -bsdcomp"
+     fi
+     # Stac compression
+     if [ "$LZS" = "on" ] ; then
+-         # supports LZS check mode 3 and 4
+-         [ -n "$LZS_MODE" ] || LZS_MODE="4"
+-         [ "$LZS_MODE" = "3" ] && options="$options lzs 1"
+-         [ "$LZS_MODE" = "4" ] && options="$options lzs 1:4"
++        # supports LZS check mode 3 and 4
++        [ -n "$LZS_MODE" ] || LZS_MODE="4"
++        [ "$LZS_MODE" = "3" ] && options="$options lzs 1"
++        [ "$LZS_MODE" = "4" ] && options="$options lzs 1:4"
+     fi
+ 
+     # Set max receive and max transmit units
+@@ -309,10 +309,10 @@ function addprovider()
+ 
+     # set CCP protocoll
+     [ "$CCP" = "off" ] && options="$options noccp"
+- 
++
+     # set host name
+     [ -n "$ISDN_HOSTNAME" ] && options="$options remotename $ISDN_HOSTNAME"
+- 
++
+     # Set authentication
+     for i in $AUTH ; do
+         options="$options $i"
+@@ -368,13 +368,13 @@ function addprovider()
+     fi
+ 
+     # Setup IPv6
+-    if [[ "$IPV6INIT" != [nN0]* && ! -z "$IPV6ADDR" ]]; then
+-	    # Native IPv6 use of device configured, check of encapsulation required		
+-            if [ "$ENCAP" = "syncppp" ]; then
+-		echo $"Warning: ipppd (kernel 2.4.x and below) doesn't support IPv6 using encapsulation 'syncppp'"
+-            elif [ "$ENCAP" = "rawip" ]; then
+-		echo $"Warning: link doesn't support IPv6 using encapsulation 'rawip'"
+-	    fi
++    if ! is_false "$IPV6INIT" && ! [[ -z "$IPV6ADDR" ]]; then
++        # Native IPv6 use of device configured, check of encapsulation required    
++        if [ "$ENCAP" = "syncppp" ]; then
++            echo $"Warning: ipppd (kernel 2.4.x and below) doesn't support IPv6 using encapsulation 'syncppp'"
++        elif [ "$ENCAP" = "rawip" ]; then
++            echo $"Warning: link doesn't support IPv6 using encapsulation 'rawip'"
++        fi
+     fi
+     /etc/sysconfig/network-scripts/ifup-ipv6 $CONFIG
+ }
+diff --git a/sysconfig/network-scripts/ifup-ipv6 b/sysconfig/network-scripts/ifup-ipv6
+index 31b3b64..c4a9b1d 100755
+--- a/sysconfig/network-scripts/ifup-ipv6
++++ b/sysconfig/network-scripts/ifup-ipv6
+@@ -66,7 +66,7 @@ REALDEVICE=${DEVICE%%:*}
+ DEVICE=$REALDEVICE
+ 
+ # Test whether IPv6 configuration is disabled for this interface
+-[[ "$IPV6INIT" = [nN0]* ]] && exit 0
++is_false "$IPV6INIT" && exit 0
+ 
+ [ -f /etc/sysconfig/network-scripts/network-functions-ipv6 ] || exit 1
+ . /etc/sysconfig/network-scripts/network-functions-ipv6
+@@ -78,13 +78,13 @@ ipv6_test || exit 1
+ # Test device status
+ ipv6_test_device_status $DEVICE
+ if [ $? != 0 -a $? != 11 ]; then
+-	# device doesn't exist or other problem occurs
+-	exit 1
++    # device doesn't exist or other problem occurs
++    exit 1
+ fi
+ 
+ # Setup IPv6 address on specified interface
+ if [ -n "$IPV6ADDR" ]; then
+-	ipv6_add_addr_on_device $DEVICE $IPV6ADDR || exit 1
++    ipv6_add_addr_on_device $DEVICE $IPV6ADDR || exit 1
+ fi
+ 
+ # Get current global IPv6 forwarding
+@@ -92,212 +92,225 @@ ipv6_global_forwarding_current="$(/sbin/sysctl -e -n net.ipv6.conf.all.forwardin
+ 
+ # Set some proc switches depending on defines
+ if [ "$IPV6FORWARDING" = "yes" ]; then
+-	# Global forwarding should be enabled
+-
+-	# Check, if global IPv6 forwarding was already set by global script
+-	if [ $ipv6_global_forwarding_current -ne 1 ]; then
+-		net_log $"Global IPv6 forwarding is enabled in configuration, but not currently enabled in kernel"
+-		net_log $"Please restart network with '/sbin/service network restart'"
+-	fi
+-
+-	ipv6_local_forwarding=1
+-	ipv6_local_auto=0
+-	if [ "$IPV6_ROUTER" = "no" ]; then
+-		ipv6_local_forwarding=0
+-	fi
+-	if [ "$IPV6_AUTOCONF" = "yes" ]; then
+-		ipv6_local_auto=1
+-	fi
++    # Global forwarding should be enabled
++
++    # Check, if global IPv6 forwarding was already set by global script
++    if [ $ipv6_global_forwarding_current -ne 1 ]; then
++        net_log $"Global IPv6 forwarding is enabled in configuration, but not currently enabled in kernel"
++        net_log $"Please restart network with '/sbin/service network restart'"
++    fi
++
++    ipv6_local_forwarding=1
++    ipv6_local_auto=0
++    ipv6_local_accept_ra=0
++    if [ "$IPV6_ROUTER" = "no" ]; then
++        ipv6_local_forwarding=0
++    fi
++    if [ "$IPV6_AUTOCONF" = "yes" ]; then
++        ipv6_local_auto=1
++        ipv6_local_accept_ra=2
++    fi
+ else
+-	# Global forwarding should be disabled
+-
+-	# Check, if global IPv6 forwarding was already set by global script
+-	if [ $ipv6_global_forwarding_current -ne 0 ]; then
+-		net_log $"Global IPv6 forwarding is disabled in configuration, but not currently disabled in kernel"
+-		net_log $"Please restart network with '/sbin/service network restart'"
+-	fi
+-
+-	ipv6_local_forwarding=0
+-	ipv6_local_auto=1
+-	if [ "$IPV6_AUTOCONF" = "no" ]; then
+-		ipv6_local_auto=0
+-	fi
++    # Global forwarding should be disabled
++
++    # Check, if global IPv6 forwarding was already set by global script
++    if [ $ipv6_global_forwarding_current -ne 0 ]; then
++        net_log $"Global IPv6 forwarding is disabled in configuration, but not currently disabled in kernel"
++        net_log $"Please restart network with '/sbin/service network restart'"
++    fi
++
++    ipv6_local_forwarding=0
++    ipv6_local_auto=1
++    ipv6_local_accept_ra=1
++    if [ "$IPV6_AUTOCONF" = "no" ]; then
++        ipv6_local_auto=0
++        if [ ! "$IPV6_FORCE_ACCEPT_RA" = "yes" ]; then
++            ipv6_local_accept_ra=0
++        fi
++    fi
++fi
++
++if [ ! "$IPV6_SET_SYSCTLS" = "no" ]; then
++    /sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.forwarding=$ipv6_local_forwarding >/dev/null 2>&1
++    /sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.accept_ra=$ipv6_local_accept_ra >/dev/null 2>&1
++    /sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.accept_redirects=$ipv6_local_auto >/dev/null 2>&1
++    /sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.autoconf=$ipv6_local_auto >/dev/null 2>&1
+ fi
+-/sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.forwarding=$ipv6_local_forwarding >/dev/null 2>&1
+-/sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.accept_ra=$ipv6_local_auto >/dev/null 2>&1
+-/sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.accept_redirects=$ipv6_local_auto >/dev/null 2>&1
+-/sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.autoconf=$ipv6_local_auto >/dev/null 2>&1
+ 
+ # Set IPv6 MTU, if given
+ if [ -n "$IPV6_MTU" ]; then
+-	ipv6_set_mtu $DEVICE $IPV6_MTU
++    ipv6_set_mtu $DEVICE $IPV6_MTU
+ fi
+ 
+ # Setup additional IPv6 addresses from list, if given
+ if [ -n "$IPV6ADDR_SECONDARIES" ]; then
+-	for ipv6addr in $IPV6ADDR_SECONDARIES; do
+-		ipv6_add_addr_on_device $DEVICE $ipv6addr
+-	done
++    for ipv6addr in $IPV6ADDR_SECONDARIES; do
++        ipv6_add_addr_on_device $DEVICE $ipv6addr
++    done
+ fi
+ 
+ # Enable IPv6 RFC3041 privacy extensions if desired
+ if [ "$IPV6_PRIVACY" = "rfc3041" ]; then
+-	/sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.use_tempaddr=2 >/dev/null 2>&1
+-	if [ $? -ne 0 ]; then
+-		net_log $"Cannot enable IPv6 privacy method '$IPV6_PRIVACY', not supported by kernel"
+-	fi
++    if [ ! "$IPV6_SET_SYSCTLS" = "no" ]; then
++        /sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.use_tempaddr=2 >/dev/null 2>&1
++        if [ $? -ne 0 ]; then
++            net_log $"Cannot enable IPv6 privacy method '$IPV6_PRIVACY', not supported by kernel"
++        fi
++    fi
+ fi
+ 
+ # Setup default IPv6 route, check are done by function
+ if [ -n "$IPV6_DEFAULTDEV" -o -n "$IPV6_DEFAULTGW" ]; then
+-	ipv6_set_default_route "$IPV6_DEFAULTGW" "$IPV6_DEFAULTDEV" "$DEVICE"
++    ipv6_set_default_route "$IPV6_DEFAULTGW" "$IPV6_DEFAULTDEV" "$DEVICE"
+ fi
+ 
+ # Setup additional static IPv6 routes on specified interface, if given
+ if [ -f /etc/sysconfig/static-routes-ipv6 ]; then
+-	LC_ALL=C grep -w "^$DEVICE" /etc/sysconfig/static-routes-ipv6 | while read device args; do
+-		ipv6_add_route $args $DEVICE
+-	done
++    LC_ALL=C grep -w "^$DEVICE" /etc/sysconfig/static-routes-ipv6 | while read device args; do
++        ipv6_add_route $args $DEVICE
++    done
+ fi
+ 
+ # Setup of 6to4, if configured
+ if [ "$IPV6TO4INIT" = "yes" ]; then
+-	valid6to4config="yes"
+-
+-	# Test device status of 6to4 tunnel
+-	ipv6_test_device_status tun6to4
+-	if [ $? = 0 ]; then
+-		# device is already up
+-		net_log $"Device 'tun6to4' (from '$DEVICE') is already up, shutdown first"
+-		exit 1
+-	fi
+-
+-	# Get IPv4 address for global 6to4 prefix calculation
+-	if [ -n "$IPV6TO4_IPV4ADDR" ]; then
+-		# Take special configured from config file (precedence 1)
+-		ipv4addr="$IPV6TO4_IPV4ADDR"
+-
+-		# Get local IPv4 address from interface
+-		ipv4addrlocal="$(ipv6_get_ipv4addr_of_device $DEVICE)"
+-		if [ -z "$ipv4addrlocal" ]; then
+-			# Take configured from config file
+-			ipv4addrlocal="$IPADDR"
+-		fi
+-        else
+-		# Get IPv4 address from interface first (has precedence 2)
+-		ipv4addr="$(ipv6_get_ipv4addr_of_device $DEVICE)"
+-		if [ -z "$ipv4addr" ]; then
+-			# Take configured from config file (precedence 3)
+-			ipv4addr="$IPADDR"
+-		fi
+-		ipv4addrlocal="$ipv4addr"
++    valid6to4config="yes"
++
++    # Test device status of 6to4 tunnel
++    ipv6_test_device_status tun6to4
++    if [ $? = 0 ]; then
++        # device is already up
++        net_log $"Device 'tun6to4' (from '$DEVICE') is already up, shutdown first"
++        exit 1
++    fi
++
++    # Get IPv4 address for global 6to4 prefix calculation
++    if [ -n "$IPV6TO4_IPV4ADDR" ]; then
++        # Take special configured from config file (precedence 1)
++        ipv4addr="$IPV6TO4_IPV4ADDR"
++
++        # Get local IPv4 address from interface
++        ipv4addrlocal="$(ipv6_get_ipv4addr_of_device $DEVICE)"
++        if [ -z "$ipv4addrlocal" ]; then
++            # Take configured from config file
++            ipv4addrlocal="$IPADDR"
++        fi
++    else
++        # Get IPv4 address from interface first (has precedence 2)
++        ipv4addr="$(ipv6_get_ipv4addr_of_device $DEVICE)"
++        if [ -z "$ipv4addr" ]; then
++            # Take configured from config file (precedence 3)
++            ipv4addr="$IPADDR"
++        fi
++        ipv4addrlocal="$ipv4addr"
++    fi
++
++    if [ -n "$ipv4addr" ]; then
++        if ! ipv6_test_ipv4_addr_global_usable $ipv4addr; then
++            net_log $"Given IPv4 address '$ipv4addr' is not globally usable" info
++            valid6to4config="no"
++        fi
++        if [ -z "$IPV6TO4_RELAY" ]; then
++            IPV6TO4_RELAY="192.88.99.1"
++        fi
++
++        # Check/generate relay address
++        ipv6to4_relay="$(ipv6_create_6to4_relay_address $IPV6TO4_RELAY)"
++        if [ $? -ne 0 ]; then
++            valid6to4config="no"
++        fi
++    else
++        net_log $"IPv6to4 configuration needs an IPv4 address on related interface or otherwise specified" info
++        valid6to4config="no"
++    fi
++
++    # Setup 6to4 tunnel (hardwired name is "tun6to4"), if config is valid
++    if [ "$valid6to4config" = "yes" ]; then
++        # Get MTU of master device
++        ipv4mtu="$(/sbin/ip link show dev $DEVICE | awk '/\<mtu\>/ { print $5 }')"
++        if [ -n "$ipv4mtu" ]; then
++            # IPv6 tunnel MTU is IPv4 MTU minus 20 for IPv4 header
++            tunnelmtu=$(($ipv4mtu-20))
++        fi
++
++        if [ -n "$IPV6TO4_MTU" ]; then
++            if [ $IPV6TO4_MTU -gt $tunnelmtu ]; then
++                net_log $"Warning: configured MTU '$IPV6TO4_MTU' for 6to4 exceeds maximum limit of '$tunnelmtu', ignored" warning
++            else
++                tunnelmtu=$IPV6TO4_MTU
++            fi
++        fi
++
++        ipv6_add_6to4_tunnel tun6to4 $ipv4addr "" $tunnelmtu $ipv4addrlocal || exit 1
++
++        # Add route to for compatible addresses (removed later again)
++        ipv6_add_route "::/96" "::" tun6to4
++
++        # Add default route, if device matches
++        if [ "$IPV6_DEFAULTDEV" = "tun6to4" ]; then
++            if [ -n "$IPV6_DEFAULTGW" ]; then
++                net_log $"Warning: interface 'tun6to4' does not support 'IPV6_DEFAULTGW', ignored" warning
++            fi
++            ipv6_set_default_route $ipv6to4_relay tun6to4
++        fi
++
++        # Add static routes
++        if [ -f /etc/sysconfig/static-routes-ipv6 ]; then
++            LC_ALL=C grep -w "^tun6to4" /etc/sysconfig/static-routes-ipv6 | while read device network gateway; do
++                if [ -z "$network" ]; then
++                    continue
++                fi
++                if [ -z "$gateway" ]; then
++                    gateway="$ipv6to4_relay"
++                fi
++                ipv6_add_route $network $gateway tun6to4
++            done
++        fi
++
++        # Setup additional static IPv6 routes (newer config style)
++        if [ -f "/etc/sysconfig/network-scripts/route6-tun6to4" ]; then
++            sed -ne 's/#.*//' -e '/[^[:space:]]/p' /etc/sysconfig/network-scripts/route6-tun6to4 | while read line; do
++                if echo "$line" | LC_ALL=C grep -vq 'via'; then
++                    # Add gateway if missing
++                    line="$line via $ipv6to4_relay"
++                fi
++                /sbin/ip -6 route add $line
++            done
+         fi
+ 
+-	if [ -n "$ipv4addr" ]; then
+-		if ! ipv6_test_ipv4_addr_global_usable $ipv4addr; then
+-			net_log $"Given IPv4 address '$ipv4addr' is not globally usable" info
+-	                valid6to4config="no"
+-        	fi
+-		if [ -z "$IPV6TO4_RELAY" ]; then
+-			IPV6TO4_RELAY="192.88.99.1"
+-		fi
+-
+-		# Check/generate relay address
+-		ipv6to4_relay="$(ipv6_create_6to4_relay_address $IPV6TO4_RELAY)"
+-		if [ $? -ne 0 ]; then
+-			valid6to4config="no"
+-		fi
+-	else
+-        	net_log $"IPv6to4 configuration needs an IPv4 address on related interface or otherwise specified" info
+-		valid6to4config="no"
+-	fi
+-
+-	# Setup 6to4 tunnel (hardwired name is "tun6to4"), if config is valid
+-        if [ "$valid6to4config" = "yes" ]; then
+-		# Get MTU of master device
+-		ipv4mtu="$(/sbin/ip link show dev $DEVICE | awk '/\<mtu\>/ { print $5 }')"
+-		if [ -n "$ipv4mtu" ]; then
+-			# IPv6 tunnel MTU is IPv4 MTU minus 20 for IPv4 header
+-			tunnelmtu=$(($ipv4mtu-20))
+-		fi
+-
+-		if [ -n "$IPV6TO4_MTU" ]; then
+-			if [ $IPV6TO4_MTU -gt $tunnelmtu ]; then
+-				net_log $"Warning: configured MTU '$IPV6TO4_MTU' for 6to4 exceeds maximum limit of '$tunnelmtu', ignored" warning
+-			else
+-				tunnelmtu=$IPV6TO4_MTU
+-			fi
+-		fi
+-
+-		ipv6_add_6to4_tunnel tun6to4 $ipv4addr "" $tunnelmtu $ipv4addrlocal || exit 1
+-
+-		# Add route to for compatible addresses (removed later again)
+-		ipv6_add_route "::/96" "::" tun6to4
+-
+-		# Add default route, if device matches
+-		if [ "$IPV6_DEFAULTDEV" = "tun6to4" ]; then
+-			if [ -n "$IPV6_DEFAULTGW" ]; then
+-				net_log $"Warning: interface 'tun6to4' does not support 'IPV6_DEFAULTGW', ignored" warning
+-			fi
+-			ipv6_set_default_route $ipv6to4_relay tun6to4
+-		fi
+-
+-		# Add static routes
+-		if [ -f /etc/sysconfig/static-routes-ipv6 ]; then
+-			LC_ALL=C grep -w "^tun6to4" /etc/sysconfig/static-routes-ipv6 | while read device network gateway; do
+-				if [ -z "$network" ]; then
+-					continue
+-				fi
+-				if [ -z "$gateway" ]; then
+-					gateway="$ipv6to4_relay"
+-				fi
+-				ipv6_add_route $network $gateway tun6to4
+-			done
+-		fi
+-
+-		# Setup additional static IPv6 routes (newer config style)
+-		if [ -f "/etc/sysconfig/network-scripts/route6-tun6to4" ]; then
+-			sed -ne 's/#.*//' -e '/[^[:space:]]/p' /etc/sysconfig/network-scripts/route6-tun6to4 | while read line; do
+-				if echo "$line" | LC_ALL=C grep -vq 'via'; then
+-					# Add gateway if missing
+-					line="$line via $ipv6to4_relay"
+-				fi
+-				/sbin/ip -6 route add $line
+-			done
+-		fi
+-
+-		# Cleanup autmatically generated autotunnel (not needed for 6to4)
+-		/sbin/ip -6 route del ::/96 dev tun6to4
+-		/sbin/ip -6 addr del "::$ipv4addrlocal/128" dev tun6to4
+-
+-	        if [ "$IPV6_CONTROL_RADVD" = "yes" ]; then
+-			# RADVD is in use, so forwarding of IPv6 packets should be enabled, display warning
+-			if [ $ipv6_global_forwarding_current -ne 1 ]; then
+-				net_log $"Using 6to4 and RADVD IPv6 forwarding usually should be enabled, but it isn't" warning
+-			fi
+-
+-		        if [ -n "$IPV6TO4_ROUTING" ]; then
+-				ipv6to4prefix="$(ipv6_create_6to4_prefix $ipv4addr)"
+-				if [ -n "$ipv6to4prefix" ]; then
+-					# Add route to local networks
+-					for devsuf in $IPV6TO4_ROUTING; do
+-						dev="${devsuf%%-*}"
+-						suf="$(echo $devsuf | awk -F- '{ print $2 }')"
+-						ipv6_add_addr_on_device ${dev} ${ipv6to4prefix}${suf}
+-					done
+-				else
+-					net_log $"Error occurred while calculating the IPv6to4 prefix"
+-				fi
+-			else
+-				net_log $"radvd control enabled, but config is not complete"
+-			fi
+-
+-			# Control running radvd
+-			ipv6_trigger_radvd up "$IPV6_RADVD_TRIGGER_ACTION" $IPV6_RADVD_PIDFILE
+-		fi
+-	else
+-		net_log $"6to4 configuration is not valid"
+-		exit 1
++        # Cleanup autmatically generated autotunnel (not needed for 6to4)
++        /sbin/ip -6 route del ::/96 dev tun6to4
++        /sbin/ip -6 addr del "::$ipv4addrlocal/128" dev tun6to4
++
++        if [ "$IPV6_CONTROL_RADVD" = "yes" ]; then
++            # RADVD is in use, so forwarding of IPv6 packets should be enabled, display warning
++            if [ $ipv6_global_forwarding_current -ne 1 ]; then
++                net_log $"Using 6to4 and RADVD IPv6 forwarding usually should be enabled, but it isn't" warning
++            fi
++
++            if [ -n "$IPV6TO4_ROUTING" ]; then
++                ipv6to4prefix="$(ipv6_create_6to4_prefix $ipv4addr)"
++                if [ -n "$ipv6to4prefix" ]; then
++                    # Add route to local networks
++                    for devsuf in $IPV6TO4_ROUTING; do
++                        dev="${devsuf%%-*}"
++                        suf="$(echo $devsuf | awk -F- '{ print $2 }')"
++                        ipv6_add_addr_on_device ${dev} ${ipv6to4prefix}${suf}
++                    done
++                else
++                    net_log $"Error occurred while calculating the IPv6to4 prefix"
++                fi
++            else
++                net_log $"radvd control enabled, but config is not complete"
++            fi
++
++            # Control running radvd
++            ipv6_trigger_radvd up "$IPV6_RADVD_TRIGGER_ACTION" $IPV6_RADVD_PIDFILE
+         fi
++    else
++        net_log $"6to4 configuration is not valid"
++        exit 1
++    fi
+ fi
+ 
++#wait for all global IPv6 addresses to leave the "tentative" state
++ipv6_wait_tentative $DEVICE
+diff --git a/sysconfig/network-scripts/ifup-plip b/sysconfig/network-scripts/ifup-plip
+index c3b9efa..2cea68b 100755
+--- a/sysconfig/network-scripts/ifup-plip
++++ b/sysconfig/network-scripts/ifup-plip
+@@ -6,9 +6,8 @@ cd /etc/sysconfig/network-scripts
+ CONFIG=$1
+ source_config
+ 
+-if [ "foo$2" = "fooboot" -a "${ONBOOT}" = "no" ]
+-then
+-	exit
++if [ "foo$2" = "fooboot" -a "${ONBOOT}" = "no" ]; then
++    exit
+ fi
+ 
+ [ -z "$PREFIX" ] && eval $(/bin/ipcalc --prefix ${IPADDR} ${NETMASK})
+@@ -19,10 +18,10 @@ ip route add ${NETWORK} dev ${DEVICE}
+ . /etc/sysconfig/network
+ 
+ if [ "${GATEWAY}" != "" ]; then
+-	if [ "${GATEWAYDEV}" = "" -o "${GATEWAYDEV}" = "${DEVICE}" ]; then
+-		# set up default gateway
+-                ip route replace default ${METRIC:+metric $METRIC} via ${GATEWAY}
+-	fi
++    if [ "${GATEWAYDEV}" = "" -o "${GATEWAYDEV}" = "${DEVICE}" ]; then
++        # set up default gateway
++        ip route replace default ${METRIC:+metric $METRIC} via ${GATEWAY}
++    fi
+ fi
+ 
+ /etc/sysconfig/network-scripts/ifup-post $1
+diff --git a/sysconfig/network-scripts/ifup-plusb b/sysconfig/network-scripts/ifup-plusb
+index ce5a032..1b29afe 100755
+--- a/sysconfig/network-scripts/ifup-plusb
++++ b/sysconfig/network-scripts/ifup-plusb
+@@ -19,7 +19,7 @@ source_config
+ 
+ if [ "foo$2" = "fooboot" -a "${ONBOOT}" = "no" ]
+ then
+-	exit
++    exit
+ fi
+ 
+ [ -z "$PREFIX" ] && eval $(/bin/ipcalc --prefix ${IPADDR} ${NETMASK})
+@@ -34,10 +34,10 @@ ip link set up dev ${DEVICE}
+ . /etc/sysconfig/network
+ 
+ if [ "${GATEWAY}" != "" ]; then
+-	if [ "${GATEWAYDEV}" = "" -o "${GATEWAYDEV}" = "${DEVICE}" ]; then
+-		# set up default gateway
+-		ip route replace default ${METRIC:+metric $METRIC} via ${GATEWAY}
+-	fi
++    if [ "${GATEWAYDEV}" = "" -o "${GATEWAYDEV}" = "${DEVICE}" ]; then
++        # set up default gateway
++        ip route replace default ${METRIC:+metric $METRIC} via ${GATEWAY}
++    fi
+ fi
+ 
+ /etc/sysconfig/network-scripts/ifup-post $1
+diff --git a/sysconfig/network-scripts/ifup-post b/sysconfig/network-scripts/ifup-post
+index 2e93e00..ab0710b 100755
+--- a/sysconfig/network-scripts/ifup-post
++++ b/sysconfig/network-scripts/ifup-post
+@@ -1,4 +1,7 @@
+-#!/bin/sh
++#!/bin/bash
++
++# Source the general functions for is_true() and is_false():
++. /etc/init.d/functions
+ 
+ cd /etc/sysconfig/network-scripts
+ . ./network-functions
+@@ -16,80 +19,89 @@ source_config
+ 
+ [ -z "$REALDEVICE" ] && REALDEVICE=$DEVICE
+ 
+-if [ "$ISALIAS" = no ] ; then
++if is_false "$ISALIAS"; then
+     /etc/sysconfig/network-scripts/ifup-aliases ${DEVICE} ${CONFIG}
+ fi
+ 
+-/etc/sysconfig/network-scripts/ifup-routes ${REALDEVICE} ${DEVNAME}
+-
+-
+-if [ "$PEERDNS" != "no" ] ||[ -n "$RESOLV_MODS" -a "$RESOLV_MODS" != "no" ]; then
+-  [ -n "$MS_DNS1" ] && DNS1=$MS_DNS1
+-  [ -n "$MS_DNS2" ] && DNS2=$MS_DNS2
+-  if [ -n "$DNS1" ] && ! grep -q "^nameserver $DNS1" /etc/resolv.conf &&
+-   tr=$(mktemp /tmp/XXXXXX) ; then
+-    current_replacement="$DNS1"
+-    next_replacement="$DNS2"
+-    search=
+-    (cat /etc/resolv.conf ; echo EOF ; echo EOF) | while read answer ; do
+-	case $answer in
+-	    nameserver*|EOF)
+-		if [ -n "$current_replacement" ] ; then
+-		    echo "nameserver $current_replacement" >> $tr
+-		    if [ -n "$next_replacement" ] ; then
+-			current_replacement="$next_replacement"
+-			next_replacement=
+-		    else
+-			current_replacement=
+-		    fi
+-		else
+-		    if [ "$answer" != EOF ] ; then
+-			echo "$answer" >> $tr
+-		    fi
+-		fi
+-		;;
+-	    domain*|search*)
+-	        if [ -n "$DOMAIN" ]; then
+-	            echo "$answer" | while read key value ; do
+-		        search="$search $value"
+-		    done
+-		else
+-		    echo "$answer" >> $tr
+-		fi
+-		;;
+-	    *)
+-		echo "$answer" >> $tr
+-		;;
+-	esac
+-    done
+-    if [ -n "$DOMAIN" ]; then
+-        echo "search $DOMAIN $search" >> $tr
++if ! is_true "$NOROUTESET"; then
++    /etc/sysconfig/network-scripts/ifup-routes ${REALDEVICE} ${DEVNAME}
++fi
++
++
++if ! is_false "$PEERDNS" || [ -n "$RESOLV_MODS" ] && ! is_false "$RESOLV_MODS"; then
++    [ -n "$MS_DNS1" ] && DNS1=$MS_DNS1
++    [ -n "$MS_DNS2" ] && DNS2=$MS_DNS2
++
++    if [ -z "$DNS1" -a -n "$DNS2" ]; then
++        DNS1=$DNS2
++        DNS2=
+     fi
+ 
+-    # backup resolv.conf
+-    cp -af /etc/resolv.conf /etc/resolv.conf.save
+-
+-    # maintain permissions
+-    # but set umask in case it doesn't exist!
+-    oldumask=$(umask)
+-    umask 022
+-    change_resolv_conf $tr 
+-    rm -f $tr
+-    umask $oldumask
+-  fi
++    if ( [ -n "$DNS1" ] && ! grep -q "^nameserver $DNS1" /etc/resolv.conf ) ||
++            ( [ -n "$DNS2" ] && ! grep -q "^nameserver $DNS2" /etc/resolv.conf ) &&
++            tr=$(mktemp /tmp/XXXXXX) ; then
++        current_replacement="$DNS1"
++        next_replacement="$DNS2"
++        search=
++        (cat /etc/resolv.conf ; echo EOF ; echo EOF) | while read answer ; do
++            case $answer in
++            nameserver*|EOF)
++                if [ -n "$current_replacement" ] ; then
++                    echo "nameserver $current_replacement" >> $tr
++                    if [ -n "$next_replacement" ] ; then
++                        current_replacement="$next_replacement"
++                        next_replacement=
++                    else
++                        current_replacement=
++                    fi
++                else
++                    if [ "$answer" != EOF ] ; then
++                        echo "$answer" >> $tr
++                    fi
++                fi
++                ;;
++            domain*|search*)
++                if [ -n "$DOMAIN" ]; then
++                    echo "$answer" | while read key value ; do
++                        search="$search $value"
++                    done
++                else
++                    echo "$answer" >> $tr
++                fi
++                ;;
++            *)
++                echo "$answer" >> $tr
++                ;;
++            esac
++        done
++        if [ -n "$DOMAIN" ]; then
++            echo "search $DOMAIN $search" >> $tr
++        fi
++
++        # backup resolv.conf
++        cp -af /etc/resolv.conf /etc/resolv.conf.save
++
++        # maintain permissions
++        # but set umask in case it doesn't exist!
++        oldumask=$(umask)
++        umask 022
++        change_resolv_conf $tr 
++        rm -f $tr
++        umask $oldumask
++    fi
+ fi
+ 
+ # don't set hostname on ppp/slip connections
+ if [ "$2" = "boot" -a \
+-     "${DEVICE}" != lo -a \
+-     "${DEVICETYPE}" != "ppp" -a \
+-     "${DEVICETYPE}" != "slip" ]; then
++        "${DEVICE}" != lo -a \
++        "${DEVICETYPE}" != "ppp" -a \
++        "${DEVICETYPE}" != "slip" ]; then
+     if need_hostname; then
+-	IPADDR=$(LANG=C ip -o -4 addr ls dev ${DEVICE} | awk '{ print $4 ; exit }')
+-	eval $(/bin/ipcalc --silent --hostname ${IPADDR} ; echo "status=$?")
+-	if [ "$status" = "0" ]; then
+-	    set_hostname $HOSTNAME
+-	fi
++        IPADDR=$(LANG=C ip -o -4 addr ls dev ${DEVICE} | awk '{ print $4 ; exit }')
++        eval $(/bin/ipcalc --silent --hostname ${IPADDR} ; echo "status=$?")
++        if [ "$status" = "0" ]; then
++            set_hostname $HOSTNAME
++        fi
+     fi
+ fi
+ 
+diff --git a/sysconfig/network-scripts/ifup-routes b/sysconfig/network-scripts/ifup-routes
+index ff8d5b5..517c2bb 100755
+--- a/sysconfig/network-scripts/ifup-routes
++++ b/sysconfig/network-scripts/ifup-routes
+@@ -1,6 +1,7 @@
+ #! /bin/bash
+ #
+ # adds static routes which go through device $1
++
+ if [ -z "$1" ]; then
+     echo $"usage: ifup-routes <net-device> [<nickname>]"
+     exit 1
+@@ -12,14 +13,14 @@ handle_file () {
+     . $1
+     routenum=0
+     while [ "x$(eval echo '$'ADDRESS$routenum)x" != "xx" ]; do
+-	eval $(ipcalc -p $(eval echo '$'ADDRESS$routenum) $(eval echo '$'NETMASK$routenum))
+-	line="$(eval echo '$'ADDRESS$routenum)/$PREFIX"
+-	if [ "x$(eval echo '$'GATEWAY$routenum)x" != "xx" ]; then
+-	    line="$line via $(eval echo '$'GATEWAY$routenum)"
+-	fi
+-	line="$line dev $2"
+-	/sbin/ip route add $line
+-	routenum=$(($routenum+1))
++        eval $(ipcalc -p $(eval echo '$'ADDRESS$routenum) $(eval echo '$'NETMASK$routenum))
++        line="$(eval echo '$'ADDRESS$routenum)/$PREFIX"
++        if [ "x$(eval echo '$'GATEWAY$routenum)x" != "xx" ]; then
++            line="$line via $(eval echo '$'GATEWAY$routenum)"
++        fi
++        line="$line dev $2"
++        /sbin/ip route add $line
++        routenum=$(($routenum+1))
+     done
+ }
+ 
+@@ -44,15 +45,15 @@ if [ -n "$2" -a "$2" != "$1" ]; then
+ fi
+ 
+ for file in $FILES; do
+-   if [ -f "$file" ]; then
+-       if grep -Eq '^[[:space:]]*ADDRESS[0-9]+=' $file ; then
+-           # new format
+-	   handle_file $file ${1%:*}
+-       else
+-           # older format
+-           handle_ip_file $file
+-       fi
+-   fi
++    if [ -f "$file" ]; then
++        if grep -Eq '^[[:space:]]*ADDRESS[0-9]+=' $file ; then
++            # new format
++            handle_file $file ${1%:*}
++        else
++            # older format
++            handle_ip_file $file
++        fi
++    fi
+ done
+ 
+ 
+@@ -69,7 +70,7 @@ if [ -n "$2" -a "$2" != "$1" ]; then
+ fi
+ 
+ for file in $FILES; do
+-   if [ -f "$file" ]; then
+-       handle_ip_file $file
+-   fi
++    if [ -f "$file" ]; then
++        handle_ip_file $file
++    fi
+ done
+diff --git a/sysconfig/network-scripts/ifup-sit b/sysconfig/network-scripts/ifup-sit
+index 01c8756..3daa380 100755
+--- a/sysconfig/network-scripts/ifup-sit
++++ b/sysconfig/network-scripts/ifup-sit
+@@ -44,7 +44,7 @@ REALDEVICE=${DEVICE%%:*}
+ [ "$DEVICE" != "$REALDEVICE" ] && exit 0
+ 
+ # Test whether IPv6 configuration is disabled for this interface
+-[[ "$IPV6INIT" = [nN0]* ]] && exit 0
++is_false "$IPV6INIT" && exit 0
+ 
+ [ -f /etc/sysconfig/network-scripts/network-functions-ipv6 ] || exit 1
+ . /etc/sysconfig/network-scripts/network-functions-ipv6
+@@ -55,21 +55,21 @@ ipv6_test || exit 1
+ 
+ # Generic tunnel device sit0 is not supported here
+ if [ "$DEVICE" = "sit0" ]; then
+-	net_log $"Device '$DEVICE' isn't supported here, use IPV6_AUTOTUNNEL setting and restart (IPv6) networking"
+-	exit 1
++    net_log $"Device '$DEVICE' isn't supported here, use IPV6_AUTOTUNNEL setting and restart (IPv6) networking"
++    exit 1
+ fi
+ 
+ if [ -z "$IPV6TUNNELIPV4" ]; then
+-	net_log $"Missing remote IPv4 address of tunnel, configuration is not valid"
+-	exit 1
++    net_log $"Missing remote IPv4 address of tunnel, configuration is not valid"
++    exit 1
+ fi
+ 
+ # Test device status
+ ipv6_test_device_status $DEVICE
+ if [ $? = 0 ]; then
+-	# device is already up
+-	net_log $"Device '$DEVICE' is already up, please shutdown first"
+-	exit 1
++    # device is already up
++    net_log $"Device '$DEVICE' is already up, please shutdown first"
++    exit 1
+ fi
+ 
+ # Create tunnel
+@@ -77,31 +77,31 @@ ipv6_add_tunnel_device $DEVICE $IPV6TUNNELIPV4 "" $IPV6TUNNELIPV4LOCAL || exit 1
+ 
+ # Set IPv6 MTU, if given
+ if [ -n "$IPV6_MTU" ]; then
+-	ipv6_set_mtu $DEVICE $IPV6_MTU
++    ipv6_set_mtu $DEVICE $IPV6_MTU
+ fi
+ 
+ # Apply local IPv6 address, if given (numbered tunnel)
+ if [ -n "$IPV6ADDR" ]; then
+-	ipv6_add_addr_on_device $DEVICE $IPV6ADDR
++    ipv6_add_addr_on_device $DEVICE $IPV6ADDR
+ fi
+ 
+ # Setup additional IPv6 addresses from list, if given
+ if [ -n "$IPV6ADDR_SECONDARIES" ]; then
+-	for ipv6addr in $IPV6ADDR_SECONDARIES; do
+-		ipv6_add_addr_on_device $DEVICE $ipv6addr
+-	done
++    for ipv6addr in $IPV6ADDR_SECONDARIES; do
++        ipv6_add_addr_on_device $DEVICE $ipv6addr
++    done
+ fi
+ 
+ # Setup default IPv6 route, check are done by function
+ if [ -n "$IPV6_DEFAULTDEV" -o -n "$IPV6_DEFAULTGW" ]; then
+-	ipv6_set_default_route "$IPV6_DEFAULTGW" "$IPV6_DEFAULTDEV" "$DEVICE"
++    ipv6_set_default_route "$IPV6_DEFAULTGW" "$IPV6_DEFAULTDEV" "$DEVICE"
+ fi
+ 
+ # Setup additional static IPv6 routes on specified interface, if given
+ if [ -f /etc/sysconfig/static-routes-ipv6 ]; then
+-	LC_ALL=C grep -w "^$DEVICE" /etc/sysconfig/static-routes-ipv6 | while read device ipv6route args; do
+-		ipv6_add_route $ipv6route :: $DEVICE
+-	done
++    LC_ALL=C grep -w "^$DEVICE" /etc/sysconfig/static-routes-ipv6 | while read device ipv6route args; do
++    ipv6_add_route $ipv6route :: $DEVICE
++done
+ fi
+ 
+ # Setup static routes
+diff --git a/sysconfig/network-scripts/ifup-tunnel b/sysconfig/network-scripts/ifup-tunnel
+index af54a72..5a1df54 100755
+--- a/sysconfig/network-scripts/ifup-tunnel
++++ b/sysconfig/network-scripts/ifup-tunnel
+@@ -37,25 +37,25 @@ if [ "$PEER_OUTER_IPADDR" = "$PEER_INNER_IPADDR" ]; then
+ fi
+ 
+ case "$TYPE" in
+-    GRE)
+-	MODE=gre
+-	proto=-4
+-	/sbin/modprobe ip_gre
+-	;;
+-    IPIP)
+-	MODE=ipip
+-	proto=-4
+-	/sbin/modprobe ipip
+-	;;
+-    IPIP6)
+-	MODE=ipip6
+-	proto=-6
+-	/sbin/modprobe ip6_tunnel
+-	;;
+-    *)
+-	net_log $"Invalid tunnel type $TYPE"
+-	exit 1
+-	;;
++GRE)
++    MODE=gre
++    proto=-4
++    /sbin/modprobe ip_gre
++    ;;
++IPIP)
++    MODE=ipip
++    proto=-4
++    /sbin/modprobe ipip
++    ;;
++IPIP6)
++    MODE=ipip6
++    proto=-6
++    /sbin/modprobe ip6_tunnel
++    ;;
++*)
++    net_log $"Invalid tunnel type $TYPE"
++    exit 1
++    ;;
+ esac
+ 
+ # Generic tunnel devices are not supported here
+diff --git a/sysconfig/network-scripts/ifup-wireless b/sysconfig/network-scripts/ifup-wireless
+index 70e84a2..702b619 100755
+--- a/sysconfig/network-scripts/ifup-wireless
++++ b/sysconfig/network-scripts/ifup-wireless
+@@ -26,31 +26,37 @@
+ 
+ # Only meant to be called from ifup.
+ 
+-IW=iw
++cd /etc/sysconfig/network-scripts
++. ./network-functions
++
++IW=${IW:-iw}
+ 
+-[ "$DEVICE" -a "$MODE" ] || exit
+ [ "$KEY" ] && KEYS="key d:0:$KEY"
+ 
+ shopt -s nocasematch
+ 
+ case "$MODE" in
+ managed)
+-    [ "$ESSID" ] || exit
+-    $IW dev "$DEVICE" set type managed
+-    $IW dev "$DEVICE" connect -w "$ESSID" $FREQ $KEYS
++    if [ "$ESSID" ]; then
++        $IW dev "$DEVICE" set type managed
++        $IW dev "$DEVICE" connect -w "$ESSID" $FREQ $KEYS
++    fi
+     ;;
+ ad-hoc)
+-    [ "$ESSID" && "$FREQ" ] || exit
+-    $IW dev "$DEVICE" set type ibss
+-    $IW dev "$DEVICE" ibss join "$ESSID" "$FREQ" $KEYS
++    if [ -n "$ESSID" -a -n "$FREQ" ]; then
++        $IW dev "$DEVICE" set type ibss
++        $IW dev "$DEVICE" ibss join "$ESSID" "$FREQ" $KEYS
++    fi
+     ;;
+ monitor)
+-    [ "$FREQ" ] || exit
+-    $IW dev "$DEVICE" set type monitor
+-    $IW dev "$DEVICE" set freq "$FREQ"
++    if [ "$FREQ" ]; then 
++        $IW dev "$DEVICE" set type monitor
++        $IW dev "$DEVICE" set freq "$FREQ"
++    fi
++    ;;
+ esac
+ 
+ if [ -n "$WOWLAN" ] ; then
+-    PHYDEVICE=phy_wireless_device $DEVICE
++    PHYDEVICE=$(phy_wireless_device $DEVICE)
+     iw phy $PHYDEVICE wowlan enable ${WOWLAN}
+ fi
+diff --git a/sysconfig/network-scripts/init.ipv6-global b/sysconfig/network-scripts/init.ipv6-global
+index da1c174..8ec1d99 100755
+--- a/sysconfig/network-scripts/init.ipv6-global
++++ b/sysconfig/network-scripts/init.ipv6-global
+@@ -28,8 +28,6 @@
+ #  IPV6_DEFAULTDEV=<interface> [optional]
+ #
+ 
+-
+-
+ . /etc/sysconfig/network
+ 
+ cd /etc/sysconfig/network-scripts
+@@ -44,122 +42,123 @@ POSITION="$2"
+ 
+ # Initialize IPv6, depending on caller option
+ case $ACTION in
+-    start)
+-	case $POSITION in
+-	    pre)
+-		# IPv6 test, module loaded, exit if system is not IPv6-ready
+-		ipv6_test || exit 1
+-
+-
+-		if [ "$IPV6FORWARDING" = "yes" ]; then
+-			ipv6_global_forwarding=1
+-			ipv6_global_auto=0
+-		else
+-			ipv6_global_forwarding=0
+-			if [ "$IPV6_AUTOCONF" = "no" ]; then
+-				ipv6_global_auto=0
+-			else
+-				ipv6_global_auto=1
+-			fi
+-		fi
+-
+-		# Reset IPv6 sysctl switches for "all", "default" and still existing devices
+-		for i in /proc/sys/net/ipv6/conf/* ; do
+-			interface=${i##*/}
+-			sinterface=${interface/.//}
+-			# Host/Router behaviour for the interface
+-			/sbin/sysctl -e -w net.ipv6.conf.$sinterface.forwarding=$ipv6_global_forwarding >/dev/null 2>&1
+-
+-			# Autoconfiguration and redirect handling for Hosts
+-			/sbin/sysctl -e -w net.ipv6.conf.$sinterface.accept_ra=$ipv6_global_auto >/dev/null 2>&1
+-			/sbin/sysctl -e -w net.ipv6.conf.$sinterface.accept_redirects=$ipv6_global_auto >/dev/null 2>&1
+-		done
+-		;;
+-
+-	    post)
+-		# IPv6 test, module loaded, exit if system is not IPv6-ready
+-		ipv6_test || exit 1
+-
+-
+-		if [ "$IPV6_AUTOTUNNEL" = "yes" ]; then
+-			ipv6_enable_autotunnel
+-			# autotunnel interface doesn't require a MTU setup
+-		fi
+-
+-		## Add some routes which should never appear on the wire
+-		# Unreachable IPv4-only addresses, normally blocked by source address selection
+-		/sbin/ip route add unreach  ::ffff:0.0.0.0/96
+-		# Unreachable IPv4-mapped addresses
+-		/sbin/ip route add unreach  ::0.0.0.0/96
+-		# Unreachable 6to4: IPv4 multicast, reserved, limited broadcast
+-		/sbin/ip route add unreach  2002:e000::/19
+-		# Unreachable 6to4: IPv4 loopback
+-		/sbin/ip route add unreach  2002:7f00::/24
+-		# Unreachable 6to4: IPv4 private (RFC 1918)
+-		/sbin/ip route add unreach  2002:0a00::/24
+-		/sbin/ip route add unreach  2002:ac10::/28
+-		/sbin/ip route add unreach  2002:c0a8::/32
+-		# Unreachable 6to4: IPv4 private (APIPA / DHCP link-local)
+-		/sbin/ip route add unreach  2002:a9fe::/32
+-		# Unreachable IPv6: 6bone test addresses
+-		/sbin/ip route add unreach  3ffe:ffff::/32
+-
+-		# Set default route for autotunnel, if specified
+-		if [ "$IPV6_DEFAULTDEV" = "sit0" -a "$IPV6_AUTOTUNNEL" = "yes" ]; then
+-			if [ -n "$IPV6_DEFAULTGW" ]; then
+-				ipv6_set_default_route $IPV6_DEFAULTGW $IPV6_DEFAULTDEV sit0
+-			elif [ -n "$IPV6_DEFAULTDEV" ]; then
+-				ipv6_set_default_route "" $IPV6_DEFAULTDEV sit0
+-			fi
+-		fi
+-		;;
+-
+-	    *)
+-		echo "Usage: $0 $1 {pre|post}"
+-		;;
+-
+-	esac
+-	;;
+-
+-    stop)
+-	case $POSITION in
+-	    pre)
+-		;;
+-
+-	    post)
+-		# IPv6 test, no module loaded, exit if system is not IPv6-ready
+-		ipv6_test testonly || exit 0
+-
+-
+-		for i in /proc/sys/net/ipv6/conf/* ; do
+-			interface=${i##*/}
+-			sinterface=${interface/.//}
+-			# Assume Host behaviour
+-			/sbin/sysctl -e -w net.ipv6.conf.$sinterface.forwarding=0 >/dev/null 2>&1
+-
+-			# Disable autoconfiguration and redirects
+-			/sbin/sysctl -e -w net.ipv6.conf.$sinterface.accept_ra=0 >/dev/null 2>&1
+-			/sbin/sysctl -e -w net.ipv6.conf.$sinterface.accept_redirects=0 >/dev/null 2>&1
+-		done
+-
+-		# Cleanup still existing tunnel devices
+-		ipv6_cleanup_tunnel_devices
+-
+-		# Shut down generic tunnel interface now
+-		if ipv6_test_device_status sit0 ; then
+-			/sbin/ip link set sit0 down
+-		fi
+-		;;
+-
+-	    *)
+-		echo "Usage: $0 $1 {pre|post}"
+-		;;
+-
+-	esac
+-	;;
++start)
++    case $POSITION in
++    pre)
++        # IPv6 test, module loaded, exit if system is not IPv6-ready
++        ipv6_test || exit 1
++
++        if [ "$IPV6FORWARDING" = "yes" ]; then
++            ipv6_global_forwarding=1
++            ipv6_global_auto=0
++        else
++            ipv6_global_forwarding=0
++            if [ "$IPV6_AUTOCONF" = "no" ]; then
++                ipv6_global_auto=0
++            else
++                ipv6_global_auto=1
++            fi
++        fi
++
++        if [ ! "$IPV6_SET_SYSCTLS" = "no" ]; then
++            # Reset IPv6 sysctl switches for "all", "default" and still existing devices
++            for i in /proc/sys/net/ipv6/conf/* ; do
++                interface=${i##*/}
++                sinterface=${interface/.//}
++                # Host/Router behaviour for the interface
++                /sbin/sysctl -e -w net.ipv6.conf.$sinterface.forwarding=$ipv6_global_forwarding >/dev/null 2>&1
++
++                # Autoconfiguration and redirect handling for Hosts
++                /sbin/sysctl -e -w net.ipv6.conf.$sinterface.accept_ra=$ipv6_global_auto >/dev/null 2>&1
++                /sbin/sysctl -e -w net.ipv6.conf.$sinterface.accept_redirects=$ipv6_global_auto >/dev/null 2>&1
++            done
++        fi
++        ;;
++
++    post)
++        # IPv6 test, module loaded, exit if system is not IPv6-ready
++        ipv6_test || exit 1
++
++        if [ "$IPV6_AUTOTUNNEL" = "yes" ]; then
++            ipv6_enable_autotunnel
++            # autotunnel interface doesn't require a MTU setup
++        fi
++
++        ## Add some routes which should never appear on the wire
++        # Unreachable IPv4-only addresses, normally blocked by source address selection
++        /sbin/ip route add unreach    ::ffff:0.0.0.0/96
++        # Unreachable IPv4-mapped addresses
++        /sbin/ip route add unreach    ::0.0.0.0/96
++        # Unreachable 6to4: IPv4 multicast, reserved, limited broadcast
++        /sbin/ip route add unreach    2002:e000::/19
++        # Unreachable 6to4: IPv4 loopback
++        /sbin/ip route add unreach    2002:7f00::/24
++        # Unreachable 6to4: IPv4 private (RFC 1918)
++        /sbin/ip route add unreach    2002:0a00::/24
++        /sbin/ip route add unreach    2002:ac10::/28
++        /sbin/ip route add unreach    2002:c0a8::/32
++        # Unreachable 6to4: IPv4 private (APIPA / DHCP link-local)
++        /sbin/ip route add unreach    2002:a9fe::/32
++        # Unreachable IPv6: 6bone test addresses
++        /sbin/ip route add unreach    3ffe:ffff::/32
++
++        # Set default route for autotunnel, if specified
++        if [ "$IPV6_DEFAULTDEV" = "sit0" -a "$IPV6_AUTOTUNNEL" = "yes" ]; then
++            if [ -n "$IPV6_DEFAULTGW" ]; then
++                ipv6_set_default_route $IPV6_DEFAULTGW $IPV6_DEFAULTDEV sit0
++            elif [ -n "$IPV6_DEFAULTDEV" ]; then
++                ipv6_set_default_route "" $IPV6_DEFAULTDEV sit0
++            fi
++        fi
++        ;;
++
++    *)
++        echo "Usage: $0 $1 {pre|post}"
++        ;;
++
++    esac
++    ;;
++
++stop)
++    case $POSITION in
++    pre)
++        ;;
++
++    post)
++        # IPv6 test, no module loaded, exit if system is not IPv6-ready
++        ipv6_test testonly || exit 0
++
++        if [ ! "$IPV6_SET_SYSCTLS" = "no" ]; then
++            for i in /proc/sys/net/ipv6/conf/* ; do
++                interface=${i##*/}
++                sinterface=${interface/.//}
++                # Assume Host behaviour
++                /sbin/sysctl -e -w net.ipv6.conf.$sinterface.forwarding=0 >/dev/null 2>&1
++
++                # Disable autoconfiguration and redirects
++                /sbin/sysctl -e -w net.ipv6.conf.$sinterface.accept_ra=0 >/dev/null 2>&1
++                /sbin/sysctl -e -w net.ipv6.conf.$sinterface.accept_redirects=0 >/dev/null 2>&1
++            done
++        fi
++
++        # Cleanup still existing tunnel devices
++        ipv6_cleanup_tunnel_devices
++
++        # Shut down generic tunnel interface now
++        if ipv6_test_device_status sit0 ; then
++            /sbin/ip link set sit0 down
++        fi
++        ;;
+ 
+     *)
+-	echo $"Usage: $0 {start|stop|reload|restart|showsysctl}"
+-	exit 1
+-	;;
++        echo "Usage: $0 $1 {pre|post}"
++        ;;
++
++    esac
++    ;;
++
++*)
++    echo $"Usage: $0 {start|stop|reload|restart|showsysctl}"
++    exit 1
++    ;;
+ esac
+diff --git a/sysconfig/network-scripts/network-functions b/sysconfig/network-scripts/network-functions
+index aa9a4fb..7f753e2 100644
+--- a/sysconfig/network-scripts/network-functions
++++ b/sysconfig/network-scripts/network-functions
+@@ -12,41 +12,40 @@ export PATH
+ get_hwaddr ()
+ {
+     if [ -f /sys/class/net/${1}/address ]; then
+-	awk '{ print toupper($0) }' < /sys/class/net/${1}/address
++        awk '{ print toupper($0) }' < /sys/class/net/${1}/address
+     elif [ -d "/sys/class/net/${1}" ]; then
+-	LC_ALL= LANG= ip -o link show ${1} 2>/dev/null | \
+-      	    awk '{ print toupper(gensub(/.*link\/[^ ]* ([[:alnum:]:]*).*/,
+-					"\\1", 1)); }'
++        LC_ALL= LANG= ip -o link show ${1} 2>/dev/null | \
++            awk '{ print toupper(gensub(/.*link\/[^ ]* ([[:alnum:]:]*).*/,
++                                        "\\1", 1)); }'
+     fi
+ }
+ 
+ get_config_by_device ()
+ {
+-    LANG=C grep -l "^[[:space:]]*DEVICE=\"\?${1}\"\?\([[:space:]#]\|$\)" \
+-	/etc/sysconfig/network-scripts/ifcfg-* \
+-	| LC_ALL=C sed -e "$__sed_discard_ignored_files"
++    LANG=C grep -l "^[[:space:]]*DEVICE=['\"]\?${1}['\"]\?\([[:space:]#]\|$\)" \
++        /etc/sysconfig/network-scripts/ifcfg-* \
++        | LC_ALL=C sed -e "$__sed_discard_ignored_files"
+ }
+ 
+ get_config_by_hwaddr ()
+ {
+-    LANG=C grep -il "^[[:space:]]*HWADDR=\"\?${1}\"\?\([[:space:]#]\|$\)" /etc/sysconfig/network-scripts/ifcfg-* \
+-	| LC_ALL=C sed -e "$__sed_discard_ignored_files"
++    LANG=C grep -il "^[[:space:]]*HWADDR=['\"]\?${1}['\"]\?\([[:space:]#]\|$\)" /etc/sysconfig/network-scripts/ifcfg-* \
++        | LC_ALL=C sed -e "$__sed_discard_ignored_files"
+ }
+ 
+ get_config_by_subchannel ()
+ {
+     LANG=C grep -E -i -l \
+-	"^[[:space:]]*SUBCHANNELS=['\"]?([0-9]\.[0-9]\.[a-f0-9]+,){0,2}${1}(,[0-9]\.[0-9]\.[a-f0-9]+){0,2}['\"]?([[:space:]]+#|[[:space:]]*$)" \
+-	/etc/sysconfig/network-scripts/ifcfg-* \
+-	| LC_ALL=C sed -e "$__sed_discard_ignored_files"
++        "^[[:space:]]*SUBCHANNELS=['\"]?([0-9]\.[0-9]\.[a-f0-9]+,){0,2}${1}(,[0-9]\.[0-9]\.[a-f0-9]+){0,2}['\"]?([[:space:]]+#|[[:space:]]*$)" \
++        /etc/sysconfig/network-scripts/ifcfg-* \
++        | LC_ALL=C sed -e "$__sed_discard_ignored_files"
+ }
+ 
+ get_config_by_name ()
+ {
+-    LANG=C grep -E -i -l \
+-        "^[[:space:]]*NAME=\"(Auto |System )?${1}\"" \
++    LANG=C grep -E -i -l "^[[:space:]]*NAME=\"(Auto |System )?${1}\"" \
+         /etc/sysconfig/network-scripts/ifcfg-* \
+-	| LC_ALL=C sed -e "$__sed_discard_ignored_files"
++        | LC_ALL=C sed -e "$__sed_discard_ignored_files"
+ }
+ 
+ get_device_by_hwaddr ()
+@@ -59,24 +58,26 @@ get_uuid_by_config ()
+     dbus-send --system --print-reply --dest=com.redhat.ifcfgrh1 /com/redhat/ifcfgrh1 com.redhat.ifcfgrh1.GetIfcfgDetails string:"/etc/sysconfig/network-scripts/$1" 2>/dev/null | awk -F '"' '/string / { print $2 }'
+ }
+ 
+-generate_lease_file_name () {
+-	local ver=$1
+-	LEASEFILE="/var/lib/dhclient/dhclient$ver-${DEVICE}.leases"
+-	if [ -f $LEASEFILE ]; then
+-		 return
+-	fi
+-	LEASEFILE="/var/lib/dhclient/dhclient$ver-${UUID}-${DEVICE}.lease"
++generate_lease_file_name ()
++{
++    local ver=$1
++    LEASEFILE="/var/lib/dhclient/dhclient$ver-${DEVICE}.leases"
++    if [ -f $LEASEFILE ]; then
++         return
++    fi
++    LEASEFILE="/var/lib/dhclient/dhclient$ver-${UUID}-${DEVICE}.lease"
+ }
+ 
+-generate_config_file_name () {
+-	local ver=$1
+-	if [ -s /etc/dhcp/dhclient$ver-${DEVICE}.conf ]; then
+-		DHCLIENTCONF="-cf /etc/dhcp/dhclient$ver-${DEVICE}.conf";
+-	elif [ -s /etc/dhclient$ver-${DEVICE}.conf ]; then
+-		DHCLIENTCONF="-cf /etc/dhclient$ver-${DEVICE}.conf";
+-	else
+-		DHCLIENTCONF='';
+-	fi
++generate_config_file_name ()
++{
++    local ver=$1
++    if [ -s /etc/dhcp/dhclient$ver-${DEVICE}.conf ]; then
++        DHCLIENTCONF="-cf /etc/dhcp/dhclient$ver-${DEVICE}.conf";
++    elif [ -s /etc/dhclient$ver-${DEVICE}.conf ]; then
++        DHCLIENTCONF="-cf /etc/dhclient$ver-${DEVICE}.conf";
++    else
++        DHCLIENTCONF='';
++    fi
+ }
+ 
+ need_config ()
+@@ -89,21 +90,21 @@ need_config ()
+     [ -f "${CONFIG}" ] && return
+     nconfig=$(get_config_by_name "${1}")
+     if [ -n "$nconfig" ] && [ -f "$nconfig" ]; then
+-      CONFIG=${nconfig##*/}
+-      return
++        CONFIG=${nconfig##*/}
++        return
+     fi
+     local addr=$(get_hwaddr ${1})
+     if [ -n "$addr" ]; then
+-      nconfig=$(get_config_by_hwaddr ${addr})
+-      if [ -n "$nconfig" ] ; then
+-        CONFIG=${nconfig##*/}
+-	[ -f "${CONFIG}" ] && return
+-      fi
++        nconfig=$(get_config_by_hwaddr ${addr})
++        if [ -n "$nconfig" ] ; then
++            CONFIG=${nconfig##*/}
++            [ -f "${CONFIG}" ] && return
++        fi
+     fi
+     nconfig=$(get_config_by_device ${1})
+     if [ -n "$nconfig" ] && [ -f "$nconfig" ]; then
+-      CONFIG=${nconfig##*/}
+-      return
++        CONFIG=${nconfig##*/}
++        return
+     fi
+ }
+ 
+@@ -114,45 +115,45 @@ source_config ()
+     . /etc/sysconfig/network-scripts/$CONFIG
+     [ -r "keys-$DEVNAME" ] && . /etc/sysconfig/network-scripts/keys-$DEVNAME
+     case "$TYPE" in
+-    	Ethernet)
+-		DEVICETYPE="eth"
+-		;;
+-	CIPE)
+-		DEVICETYPE="cipcb"
+-		;;
+-	IPSEC)
+-		DEVICETYPE="ipsec"
+-		;;
+-	Modem)
+-		DEVICETYPE="ppp"
+-		;;
+-	xDSL)
+-		DEVICETYPE="ppp"
+-		;;
+-	ISDN)
+-		DEVICETYPE="ippp"
+-		;;
+-	Wireless)
+-		DEVICETYPE="eth"
+-		;;
+-	"Token Ring")
+-		DEVICETYPE="eth"
+-		;;
+-	CTC)
+-		DEVICETYPE="ctc"
+-		;;
+-	GRE | IPIP | IPIP6)
+-		DEVICETYPE="tunnel"
+-		;;
+-	SIT | sit)
+-		DEVICETYPE="sit"
+-		;;
+-	InfiniBand | infiniband)
+-		DEVICETYPE="ib"
+-		;;
+-	OVS*)
+-		DEVICETYPE="ovs"
+-		;;
++    Ethernet)
++        DEVICETYPE="eth"
++        ;;
++    CIPE)
++        DEVICETYPE="cipcb"
++        ;;
++    IPSEC)
++        DEVICETYPE="ipsec"
++        ;;
++    Modem)
++        DEVICETYPE="ppp"
++        ;;
++    xDSL)
++        DEVICETYPE="ppp"
++        ;;
++    ISDN)
++        DEVICETYPE="ippp"
++        ;;
++    Wireless)
++        DEVICETYPE="eth"
++        ;;
++    "Token Ring")
++        DEVICETYPE="eth"
++        ;;
++    CTC)
++        DEVICETYPE="ctc"
++        ;;
++    GRE | IPIP | IPIP6)
++        DEVICETYPE="tunnel"
++        ;;
++    SIT | sit)
++        DEVICETYPE="sit"
++        ;;
++    InfiniBand | infiniband)
++        DEVICETYPE="ib"
++        ;;
++    OVS*)
++        DEVICETYPE="ovs"
++        ;;
+     esac
+     if [ -n "$HWADDR" ]; then
+         HWADDR=$(echo $HWADDR | awk '{ print toupper($0) }')
+@@ -168,9 +169,9 @@ source_config ()
+     if [ "${DEVICE}" != "${REALDEVICE}" ]; then
+         ISALIAS=yes
+     else
+-	ISALIAS=no
++        ISALIAS=no
+     fi
+-    if is_nm_running; then
++    if is_nm_running && [ "$REALDEVICE" != "lo" ] ; then
+         nmcli con load "/etc/sysconfig/network-scripts/$CONFIG"
+         if ! is_false $NM_CONTROLLED; then
+             UUID=$(get_uuid_by_config $CONFIG)
+@@ -185,13 +186,13 @@ ethtool_set()
+     IFS=';';
+     [ -n "${ETHTOOL_DELAY}" ] && /bin/usleep ${ETHTOOL_DELAY}
+     for opts in $ETHTOOL_OPTS ; do
+-	IFS=$oldifs;
++        IFS=$oldifs;
+         if [[ "${opts}" =~ [[:space:]]*- ]]; then
+-	    /sbin/ethtool $opts
++            /sbin/ethtool $opts
+         else
+-	    /sbin/ethtool -s ${REALDEVICE} $opts
++            /sbin/ethtool -s ${REALDEVICE} $opts
+         fi
+-	IFS=';';
++        IFS=';';
+     done
+     IFS=$oldifs;
+ }
+@@ -202,8 +203,8 @@ expand_config ()
+     for idx in '' {0..255} ; do
+         ipaddr[$i]=$(eval echo '$'IPADDR$idx)
+         if [ -z "${ipaddr[$i]}" ]; then
+-           [ "$idx" ] && [ $idx -ge 2 ] && break
+-           continue
++            [ "$idx" ] && [ $idx -ge 2 ] && break
++            continue
+         fi
+         prefix[$i]=$(eval echo '$'PREFIX$idx)
+         netmask[$i]=$(eval echo '$'NETMASK$idx)
+@@ -247,30 +248,31 @@ expand_config ()
+ 
+ toggle_value ()
+ {
+-    if [ "$2" = "yes"  -o "$2" = "YES" ] ; then
+-	echo "$1 on"
+-    elif [ "$2" = "no"  -o "$2" = "NO" ] ; then
+-	echo "$1 off"
++    if [ "$2" = "yes"    -o "$2" = "YES" ] ; then
++        echo "$1 on"
++    elif [ "$2" = "no"    -o "$2" = "NO" ] ; then
++        echo "$1 off"
+     else
+-	echo ''
++        echo ''
+     fi
+ }
+  
+ do_netreport ()
+ {
+-  # Notify programs that have requested notification
+-  ( cd /var/run/netreport || exit
+-    for i in * ; do
+-      if [ -f $i ]; then
+-        if [ "$(id -u)" = "0" ]; then
+-	  OWNER=$(stat -c %U $i)
+-	  su -s /bin/bash $OWNER -c "kill -SIGIO $i >/dev/null 2>&1 || rm -f $i >/dev/null 2>&1" > /dev/null 2>&1
+-	else
+-	  kill -SIGIO $i >/dev/null 2>&1 || rm -f $i >/dev/null 2>&1
+-	fi
+-      fi
+-    done
+-  )
++    # Notify programs that have requested notification
++    (
++        cd /var/run/netreport || exit
++        for i in * ; do
++            if [ -f $i ]; then
++                if [ "$(id -u)" = "0" ]; then
++                    OWNER=$(stat -c %U $i)
++                    su -s /bin/bash $OWNER -c "kill -SIGIO $i >/dev/null 2>&1 || rm -f $i >/dev/null 2>&1" > /dev/null 2>&1
++                else
++                    kill -SIGIO $i >/dev/null 2>&1 || rm -f $i >/dev/null 2>&1
++                fi
++            fi
++        done
++    )
+ }
+ 
+ is_nm_running ()
+@@ -280,17 +282,17 @@ is_nm_running ()
+ 
+ is_nm_active ()
+ {
+-    LANG=C nmcli -t --fields device,state  dev status 2>/dev/null | grep -q "^${1}:connected$"
++    LANG=C nmcli -t --fields device,state dev status 2>/dev/null | grep -q "^${1}:connected$"
+ }
+ 
+ is_nm_handling ()
+ {
+-    LANG=C nmcli -t --fields device,state  dev status 2>/dev/null | grep -q "^\(${1}:connected\)\|\(${1}:connecting.*\)$"
++    LANG=C nmcli -t --fields device,state dev status 2>/dev/null | grep -q "^\(${1}:connected\)\|\(${1}:connecting.*\)$"
+ }
+ 
+ is_nm_device_unmanaged ()
+ {
+-    LANG=C nmcli -t --fields GENERAL dev show "${1}"  2>/dev/null | awk -F ':' '/GENERAL.STATE/ { if ($2 == "unmanaged") exit 0 ; else exit 1; }'
++    LANG=C nmcli -t --fields GENERAL dev show "${1}" 2>/dev/null | awk -F ':' '/GENERAL.STATE/ { if ($2 == "unmanaged") exit 0 ; else exit 1; }'
+ }
+ 
+ # Sets $alias to the device module if $? != 0
+@@ -303,30 +305,31 @@ is_available ()
+     [ -n "$BONDING_OPTS" ] && install_bonding_driver $1
+ 
+     alias=$(modprobe -c | awk \
+-'BEGIN { alias = ""; }
+-$1 == "alias" && $2 == "'"$1"'" { alias = $3; }
+-$1 == "install" { install[$2] = $3; }
+-END {
+-    cmd = install[alias];
+-    print alias;
+-    if (alias == "" || alias == "off" || cmd == "/bin/true" || cmd == ":")
+-        exit 1;
+-    exit 0;
+-}')
++        'BEGIN { alias = ""; }
++        $1 == "alias" && $2 == "'"$1"'" { alias = $3; }
++        $1 == "install" { install[$2] = $3; }
++        END {
++            cmd = install[alias];
++            print alias;
++            if (alias == "" || alias == "off" || cmd == "/bin/true" || cmd == ":")
++                exit 1;
++            exit 0;
++        }
++    ')
+     [ $? -eq 0 ] || return 2
+ 
+     modprobe $1 > /dev/null 2>&1 || {
+-      return 1
++        return 1
+     }
+     if [ -n "$HWADDR" ]; then
+-       local curdev=$(get_device_by_hwaddr "$HWADDR")
+-       if [ -z "$curdev" ]; then
+-          return 1
+-       fi
++        local curdev=$(get_device_by_hwaddr "$HWADDR")
++        if [ -z "$curdev" ]; then
++            return 1
++        fi
+     fi
+ 
+     if [ ${alias} = "bonding" ]; then
+-	install_bonding_driver $1
++        install_bonding_driver $1
+     fi
+ 
+     [ -d "/sys/class/net/$1" ] && return 0 || return 1
+@@ -338,28 +341,26 @@ is_available_wait ()
+ 
+     local retry=${2##*[!0-9]*}
+ 
+-    is_available $1
++    is_available $1 && return 0
+     ret=$?
+ 
+-    [ 0"$ret" -ne 1 ] && return $ret
+-
+     while [ 0"$retry" -gt 0 ]; do
+         sleep 1
+         [ -d "/sys/class/net/$1" ] && return 0
+         retry=$(($retry -1))
+     done
+ 
+-    return 1
++    return $ret
+ }
+ 
+ need_hostname ()
+ {
+     CHECK_HOSTNAME=$(hostname)
+     if [ "$CHECK_HOSTNAME" = "(none)" -o "$CHECK_HOSTNAME" = "localhost" -o \
+-	"$CHECK_HOSTNAME" = "localhost.localdomain" ]; then
+-	return 0
++             "$CHECK_HOSTNAME" = "localhost.localdomain" ]; then
++        return 0
+     else
+-	return 1
++        return 1
+     fi
+ }
+ 
+@@ -367,41 +368,41 @@ set_hostname ()
+ {
+     hostname $1
+     if ! grep search /etc/resolv.conf >/dev/null 2>&1; then
+-	domain=$(echo $1 | sed 's/^[^\.]*\.//')
+-	if [ -n "$domain" ]; then
+-		rsctmp=$(mktemp /tmp/XXXXXX);
+-		cat /etc/resolv.conf > $rsctmp
+-		echo "search $domain" >> $rsctmp
+-		change_resolv_conf $rsctmp
+-		/bin/rm -f $rsctmp
+-	fi	
++        domain=$(echo $1 | sed 's/^[^\.]*\.//')
++        if [ -n "$domain" ]; then
++            rsctmp=$(mktemp /tmp/XXXXXX);
++            cat /etc/resolv.conf > $rsctmp
++            echo "search $domain" >> $rsctmp
++            change_resolv_conf $rsctmp
++            /bin/rm -f $rsctmp
++        fi    
+     fi
+ }
+ 
+ check_device_down ()
+ {
+-     [ ! -d /sys/class/net/$1 ] && return 0
+-     if LC_ALL=C ip -o link show dev $1 2>/dev/null | grep -q ",UP" ; then
+-	return 1
+-     else
+-	return 0
+-     fi
++    [ ! -d /sys/class/net/$1 ] && return 0
++    if LC_ALL=C ip -o link show dev $1 2>/dev/null | grep -q ",UP" ; then
++        return 1
++    else
++        return 0
++    fi
+ }
+ 
+ check_link_down ()
+ {
+-        if ! LC_ALL=C ip link show dev $1 2>/dev/null| grep -q ",UP" ; then
+-	   ip link set dev $1 up >/dev/null 2>&1
+-	fi
+-	timeout=0
+-	delay=10
+-	[ -n "$LINKDELAY" ] && delay=$(($LINKDELAY * 2))
+-	while [ $timeout -le $delay ]; do
+-	    [ "$(cat /sys/class/net/$REALDEVICE/carrier 2>/dev/null)" != "0" ] && return 1
+-	    usleep 500000
+-	    timeout=$((timeout+1))
+-	done
+-	return 0
++    if ! LC_ALL=C ip link show dev $1 2>/dev/null| grep -q ",UP" ; then
++        ip link set dev $1 up >/dev/null 2>&1
++    fi
++    timeout=0
++    delay=10
++    [ -n "$LINKDELAY" ] && delay=$(($LINKDELAY * 2))
++    while [ $timeout -le $delay ]; do
++        [ "$(cat /sys/class/net/$REALDEVICE/carrier 2>/dev/null)" != "0" ] && return 1
++        usleep 500000
++        timeout=$((timeout+1))
++    done
++    return 0
+ }
+ 
+ check_default_route ()
+@@ -413,10 +414,10 @@ find_gateway_dev ()
+ {
+     . /etc/sysconfig/network
+     if [ -n "${GATEWAY}" -a "${GATEWAY}" != "none" ] ; then
+-	dev=$(LC_ALL=C /sbin/ip route get to "${GATEWAY}" 2>/dev/null | \
+-	    sed -n 's/.* dev \([[:alnum:]]*\) .*/\1/p')
+-	if [ -n "$dev" ]; then
+-	    GATEWAYDEV="$dev"
++        dev=$(LC_ALL=C /sbin/ip route get to "${GATEWAY}" 2>/dev/null | \
++        sed -n 's/.* dev \([[:alnum:]]*\) .*/\1/p')
++        if [ -n "$dev" ]; then
++            GATEWAYDEV="$dev"
+         fi
+     fi
+ }
+@@ -432,7 +433,7 @@ add_default_route ()
+     check_default_route && return 0
+     find_gateway_dev
+     if [ "$GATEWAYDEV" != "" -a -n "${GATEWAY}" -a \
+- 		"${GATEWAY}" != "none" ]; then
++             "${GATEWAY}" != "none" ]; then
+         if ! check_device_down $1; then
+             if [ "$GATEWAY" = "0.0.0.0" ]; then
+                 /sbin/ip route add default dev ${GATEWAYDEV}
+@@ -441,10 +442,10 @@ add_default_route ()
+             fi
+         fi
+     elif [ -f /etc/default-routes ]; then
+-	while read spec; do
+-	    /sbin/ip route add $spec
+-	done < /etc/default-routes
+-	rm -f /etc/default-routes
++        while read spec; do
++            /sbin/ip route add $spec
++        done < /etc/default-routes
++        rm -f /etc/default-routes
+     fi
+ }
+ 
+@@ -457,117 +458,130 @@ is_wireless_device ()
+ 
+ phy_wireless_device ()
+ {
+-	cat /sys/class/net/$1/phy80211/name
++    cat /sys/class/net/$1/phy80211/name
++}
++
++bond_master_exists ()
++{
++    local bond_name
++    [ -z "${1}" ] && return 1
++    [ ! -f /sys/class/net/bonding_masters ] && return 1
++
++    for bond_name in $(< /sys/class/net/bonding_masters); do
++        [ "${bond_name}" == "${1}" ] && return 0
++    done
++    return 1
+ }
+ 
+ install_bonding_driver ()
+ {
+-   [ ! -f /sys/class/net/bonding_masters ] && ( modprobe bonding || return 1 )
+-   if ! fgrep -sqx "$1" /sys/class/net/bonding_masters; then
+-       echo "+$1" > /sys/class/net/bonding_masters 2>/dev/null
+-   fi
+-   (
+-	# Set config here
+-	need_config "$1"
+-	source_config
+-	if [ -f /sys/class/net/${DEVICE}/bonding/slaves ] && [ $(wc -l < /sys/class/net/${DEVICE}/bonding/slaves) -eq 0 ]; then
+-	        /sbin/ip link set dev ${DEVICE} down
+-
+-	        # parse options and put them to arrays
+-	        for arg in $BONDING_OPTS ; do
+-	            bopts_keys[${#bopts_keys[*]}]=${arg%%=*}
+-	            bopts_vals[${#bopts_vals[*]}]=${arg##*=}
+-	        done
+-
+-	        # add the bits to setup driver parameters here
+-	        # first set mode, miimon
+-	        for (( idx=0; idx < ${#bopts_keys[*]}; idx++ )) ; do
+-	            key=${bopts_keys[$idx]}
+-	            value=${bopts_vals[$idx]}
+-
+-	            if [ "${key}" = "mode" ] ; then
+-	                echo "${value}" > /sys/class/net/${DEVICE}/bonding/$key
+-	                bopts_keys[$idx]=""
+-	            fi
+-	            if [ "${key}" = "miimon" ] ; then
+-	                echo "${value}" > /sys/class/net/${DEVICE}/bonding/$key
+-	                bopts_keys[$idx]=""
+-	            fi
+-	        done
+-
+-	        # set all other remaining options
+-	        for (( idx=0; idx < ${#bopts_keys[*]}; idx++ )) ; do
+-	            key=${bopts_keys[$idx]}
+-	            value=${bopts_vals[$idx]}
+-
+-	            # option already set; take next
+-	            [[ -z "$key" ]] && continue
+-
+-	            if [ "${key}" = "arp_ip_target" -a "${value:0:1}" != "+" ]; then
+-	                OLDIFS=$IFS;
+-	                IFS=',';
+-	                for arp_ip in $value; do
+-			    if ! grep -q $arp_ip /sys/class/net/${DEVICE}/bonding/$key; then
+-	                        echo +$arp_ip > /sys/class/net/${DEVICE}/bonding/$key
+-			    fi
+-	                done
+-	                IFS=$OLDIFS;
+-	            elif [ "${key}" = "arp_ip_target" ]; then
+-		        if ! grep -q ${value#+} /sys/class/net/${DEVICE}/bonding/$key; then
+-	                    echo "$value" > /sys/class/net/${DEVICE}/bonding/$key
+-		        fi
+-		    elif [ "${key}" != "primary" ]; then
+-	                echo $value > /sys/class/net/${DEVICE}/bonding/$key
+-	            fi
+-	        done
+-	fi
+-   )
+-   return 0
++    if ! bond_master_exists ${1}; then
++        modprobe bonding || return 1
++        echo "+$1" > /sys/class/net/bonding_masters 2>/dev/null
++    fi
++    (
++        # Set config here
++        need_config "$1"
++        source_config
++        if [ -f /sys/class/net/${DEVICE}/bonding/slaves ] && [ $(wc -l < /sys/class/net/${DEVICE}/bonding/slaves) -eq 0 ]; then
++            /sbin/ip link set dev ${DEVICE} down
++
++            # parse options and put them to arrays
++            for arg in $BONDING_OPTS ; do
++                bopts_keys[${#bopts_keys[*]}]=${arg%%=*}
++                bopts_vals[${#bopts_vals[*]}]=${arg##*=}
++            done
++
++            # add the bits to setup driver parameters here
++            # first set mode, miimon
++            for (( idx=0; idx < ${#bopts_keys[*]}; idx++ )) ; do
++                key=${bopts_keys[$idx]}
++                value=${bopts_vals[$idx]}
++
++                if [ "${key}" = "mode" ] ; then
++                    echo "${value}" > /sys/class/net/${DEVICE}/bonding/$key
++                    bopts_keys[$idx]=""
++                fi
++                if [ "${key}" = "miimon" ] ; then
++                    echo "${value}" > /sys/class/net/${DEVICE}/bonding/$key
++                    bopts_keys[$idx]=""
++                fi
++            done
++
++            # set all other remaining options
++            for (( idx=0; idx < ${#bopts_keys[*]}; idx++ )) ; do
++                key=${bopts_keys[$idx]}
++                value=${bopts_vals[$idx]}
++
++                # option already set; take next
++                [[ -z "$key" ]] && continue
++
++                if [ "${key}" = "arp_ip_target" -a "${value:0:1}" != "+" ]; then
++                    OLDIFS=$IFS;
++                    IFS=',';
++                    for arp_ip in $value; do
++                        if ! grep -q $arp_ip /sys/class/net/${DEVICE}/bonding/$key; then
++                            echo +$arp_ip > /sys/class/net/${DEVICE}/bonding/$key
++                        fi
++                    done
++                    IFS=$OLDIFS;
++                elif [ "${key}" = "arp_ip_target" ]; then
++                    if ! grep -q ${value#+} /sys/class/net/${DEVICE}/bonding/$key; then
++                        echo "$value" > /sys/class/net/${DEVICE}/bonding/$key
++                    fi
++                elif [ "${key}" != "primary" ]; then
++                    echo $value > /sys/class/net/${DEVICE}/bonding/$key
++                fi
++            done
++        fi
++    )
++    return 0
+ }
+ 
+ is_bonding_device ()
+ {
+-   [ -f "/sys/class/net/$1/bonding/slaves" ]
++    [ -f "/sys/class/net/$1/bonding/slaves" ]
+ }
+ 
+ # Invoke this when /etc/resolv.conf has changed:
+ change_resolv_conf ()
+ {
+-    s=$(/bin/grep '^[\ \	]*option' /etc/resolv.conf 2>/dev/null);
++    s=$(/bin/grep '^[\ \       ]*option' /etc/resolv.conf 2>/dev/null)
+     if [ $# -gt 1 ]; then
+-       if [ "x$s" != "x" ]; then
+-          s="$s"$'\n';
+-       fi;
+-       n_args=$#;
+-       while [ $n_args -gt 0 ]; 
+-	 do 
+-	    case "$s" in *$1*)
+-	       shift;
+-	       n_args=$(($n_args-1));
+-               continue;;
+-            esac;
+-	    s="$s$1";
+-            shift; 
+-	    if [ $# -gt 0 ]; then
+-		s="$s"$'\n';
+-	    fi;
+-	    n_args=$(($n_args-1));
+-         done;       
++        if [ "x$s" != "x" ]; then
++            s="$s"$'\n'
++        fi
++        n_args=$#
++        while [ $n_args -gt 0 ]; do 
++            case "$s" in
++            *$1*)
++                shift
++                n_args=$(($n_args-1))
++                continue
++                ;;
++            esac
++            s="$s$1"
++            shift
++            if [ $# -gt 0 ]; then
++                s="$s"$'\n'
++            fi
++            n_args=$(($n_args-1))
++        done             
+     elif [ $# -eq 1 ]; then
+-       if [ "x$s" != "x" ]; then
+-	  s="$s"$'\n'$(/bin/grep -vF "$s" $1);
+-       else
+-	  s=$(cat $1);
+-       fi;
+-    fi;
+-    (echo "$s" > /etc/resolv.conf;) >/dev/null 2>&1;
++        if [ "x$s" != "x" ]; then
++            s="$s"$'\n'$(/bin/grep -vF "$s" $1)
++        else
++            s=$(cat $1)
++        fi
++    fi
++    (echo "$s" > /etc/resolv.conf) >/dev/null 2>&1;
+     r=$?
+     if [ $r -eq 0 ]; then
+-	[ -x /sbin/restorecon ] && /sbin/restorecon /etc/resolv.conf >/dev/null 2>&1 # reset the correct context
+-	/usr/bin/logger -p local7.notice -t "NET" -i "$0 : updated /etc/resolv.conf";
+-	[ -e /var/run/nscd/socket ] && /usr/sbin/nscd -i hosts; # invalidate cache
+-    fi;
+-    return $r;
++        [ -x /sbin/restorecon ] && /sbin/restorecon /etc/resolv.conf >/dev/null 2>&1 # reset the correct context
++        /usr/bin/logger -p local7.notice -t "NET" -i "$0 : updated /etc/resolv.conf"
++        [ -e /var/run/nscd/socket ] && /usr/sbin/nscd -i hosts # invalidate cache
++    fi
++    return $r
+ }
+ 
+ # Logging function
+@@ -576,34 +590,35 @@ change_resolv_conf ()
+ #
+ # Default level is 'err'.
+ 
+-net_log() {
+-	local message="$1"
+-	local level="$2"
+-	local name="$3"
+-
+-	[ -z "$message" ] && return 1
+-	[ -z "$level" ] && level=err
+-	[ -z "$name" ] && name=$0
+-
+-	case $level in
+-	    'debug')
+-		local txt_level=$"DEBUG    "
+-		;;
+-	    'err')
+-		local txt_level=$"ERROR    "
+-		;;
+-	    'warning')
+-		local txt_level=$"WARN     "
+-		;;
+-	    'info')
+-		local txt_level=$"INFO     "
+-		;;
+-	esac
+-
+-	echo "$txt_level: [$name] $message"
+-
+-	if [ -x /usr/bin/logger ]; then
+-		/usr/bin/logger -p daemon.$level -t "$name" "$message"
+-	fi
+-	return 0
++net_log()
++{
++    local message="$1"
++    local level="$2"
++    local name="$3"
++
++    [ -z "$message" ] && return 1
++    [ -z "$level" ] && level=err
++    [ -z "$name" ] && name=$0
++
++    case $level in
++    'debug')
++        local txt_level=$"DEBUG     "
++        ;;
++    'err')
++        local txt_level=$"ERROR     "
++        ;;
++    'warning')
++        local txt_level=$"WARN      "
++        ;;
++    'info')
++        local txt_level=$"INFO      "
++        ;;
++    esac
++
++    echo "$txt_level: [$name] $message"
++
++    if [ -x /usr/bin/logger ]; then
++        /usr/bin/logger -p daemon.$level -t "$name" "$message"
++    fi
++    return 0
+ }
+diff --git a/sysconfig/network-scripts/network-functions-ipv6 b/sysconfig/network-scripts/network-functions-ipv6
+index 394367b..4fe75e7 100644
+--- a/sysconfig/network-scripts/network-functions-ipv6
++++ b/sysconfig/network-scripts/network-functions-ipv6
+@@ -15,27 +15,27 @@
+ # $1: (optional) testflag: currently supported: "testonly" (do not load a module)
+ # return code: 0=ok 2=IPv6 test fails
+ ipv6_test() {
+-	local fn="ipv6_test"
++    local fn="ipv6_test"
+ 
+-	local testflag=$1
++    local testflag=$1
+ 
+-	if ! [ -f /proc/net/if_inet6 ]; then
+-		if [ "$testflag" = "testonly" ]; then
+-			return 2
+-		else
+-			modprobe ipv6
++    if ! [ -f /proc/net/if_inet6 ]; then
++        if [ "$testflag" = "testonly" ]; then
++            return 2
++        else
++            modprobe ipv6
+ 
+-			if ! [ -f /proc/net/if_inet6 ]; then
+-				return 2
+-			fi
+-		fi
+-	fi
++            if ! [ -f /proc/net/if_inet6 ]; then
++                return 2
++            fi
++        fi
++    fi
+ 
+-	if ! [ -d /proc/sys/net/ipv6/conf/ ]; then
+-		return 2
+-	fi
++    if ! [ -d /proc/sys/net/ipv6/conf/ ]; then
++        return 2
++    fi
+ 
+-	return 0
++    return 0
+ }
+ 
+ ##### Static IPv6 route configuration
+@@ -46,52 +46,52 @@ ipv6_test() {
+ #  $3: [<Interface>] : (optional)
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem adding route
+ ipv6_add_route() {
+-	local fn="ipv6_add_route"
+-
+-	local networkipv6=$1
+-	local gatewayipv6=$2
+-	local device=$3		# maybe empty
+-
+-	if [ -z "$networkipv6" ]; then
+-		net_log $"Missing parameter 'IPv6-network' (arg 1)" err $fn
+-		return 1
+-	fi
+-
+-	if [ -z "$gatewayipv6" ]; then
+-		net_log $"Missing parameter 'IPv6-gateway' (arg 2)" err $fn
+-		return 1
+-	fi
+-
+-	ipv6_test || return 2
+-
+-	ipv6_test_ipv6_addr_valid $networkipv6 || return 2
+-	ipv6_test_ipv6_addr_valid $gatewayipv6 || return 2
+-
+-	if [ -z "$device" ]; then
+-		local returntxt="$(/sbin/ip -6 route add $networkipv6 via $gatewayipv6 metric 1 2>&1)"
+-	else
+-		if [ "$gatewayipv6" = "::" ]; then
+-			local returntxt="$(/sbin/ip -6 route add $networkipv6 dev $device metric 1 2>&1)"
+-		else
+-			local returntxt="$(/sbin/ip -6 route add $networkipv6 via $gatewayipv6 dev $device metric 1 2>&1)"
+-		fi
+-	fi
+-
+-	if [ -n "$returntxt" ]; then
+-		if echo $returntxt | LC_ALL=C grep -q "File exists"; then
+-			# Netlink: "File exists"
+-			true
+-		elif echo $returntxt | LC_ALL=C grep -q "No route to host"; then
+-			# Netlink: "No route to host"
+-			net_log $"'No route to host' adding route '$networkipv6' via gateway '$gatewayipv6' through device '$device'" err $fn
+-			return 3
+-		else
+-			net_log $"Unknown error" err $fn
+-			return 3
+-		fi
+-	fi
+-
+-	return 0
++    local fn="ipv6_add_route"
++
++    local networkipv6=$1
++    local gatewayipv6=$2
++    local device=$3        # maybe empty
++
++    if [ -z "$networkipv6" ]; then
++        net_log $"Missing parameter 'IPv6-network' (arg 1)" err $fn
++        return 1
++    fi
++
++    if [ -z "$gatewayipv6" ]; then
++        net_log $"Missing parameter 'IPv6-gateway' (arg 2)" err $fn
++        return 1
++    fi
++
++    ipv6_test || return 2
++
++    ipv6_test_ipv6_addr_valid $networkipv6 || return 2
++    ipv6_test_ipv6_addr_valid $gatewayipv6 || return 2
++
++    if [ -z "$device" ]; then
++        local returntxt="$(/sbin/ip -6 route add $networkipv6 via $gatewayipv6 metric 1 2>&1)"
++    else
++        if [ "$gatewayipv6" = "::" ]; then
++            local returntxt="$(/sbin/ip -6 route add $networkipv6 dev $device metric 1 2>&1)"
++        else
++            local returntxt="$(/sbin/ip -6 route add $networkipv6 via $gatewayipv6 dev $device metric 1 2>&1)"
++        fi
++    fi
++
++    if [ -n "$returntxt" ]; then
++        if echo $returntxt | LC_ALL=C grep -q "File exists"; then
++            # Netlink: "File exists"
++            true
++        elif echo $returntxt | LC_ALL=C grep -q "No route to host"; then
++            # Netlink: "No route to host"
++            net_log $"'No route to host' adding route '$networkipv6' via gateway '$gatewayipv6' through device '$device'" err $fn
++            return 3
++        else
++            net_log $"Unknown error" err $fn
++            return 3
++        fi
++    fi
++
++    return 0
+ }
+ 
+ ##### automatic tunneling configuration
+@@ -99,29 +99,29 @@ ipv6_add_route() {
+ ## Configure automatic tunneling up
+ # return code: 0=ok 2=IPv6 test fails 3=major problem
+ ipv6_enable_autotunnel() {
+-	local fn="ipv6_enable_autotunnel"
++    local fn="ipv6_enable_autotunnel"
+ 
+-	ipv6_test || return 2
++    ipv6_test || return 2
+ 
+-	# enable IPv6-over-IPv4 tunnels
+-	if ipv6_test_device_status sit0; then
+-		true
+-	else
+-		# bring up basic tunnel device
+-		/sbin/ip link set sit0 up
++    # enable IPv6-over-IPv4 tunnels
++    if ipv6_test_device_status sit0; then
++        true
++    else
++        # bring up basic tunnel device
++        /sbin/ip link set sit0 up
+ 
+-			if ! ipv6_test_device_status sit0; then
+-				net_log $"Tunnel device 'sit0' enabling didn't work" err $fn
+-				return 3
+-			fi
++            if ! ipv6_test_device_status sit0; then
++                net_log $"Tunnel device 'sit0' enabling didn't work" err $fn
++                return 3
++            fi
+ 
+-		# Set sysctls proper (regardless "default")
+-		/sbin/sysctl -e -w net.ipv6.conf.sit0.forwarding=1 >/dev/null 2>&1
+-		/sbin/sysctl -e -w net.ipv6.conf.sit0.accept_ra=0 >/dev/null 2>&1
+-		/sbin/sysctl -e -w net.ipv6.conf.sit0.accept_redirects=0 >/dev/null 2>&1
+-	fi
++        # Set sysctls proper (regardless "default")
++        /sbin/sysctl -e -w net.ipv6.conf.sit0.forwarding=1 >/dev/null 2>&1
++        /sbin/sysctl -e -w net.ipv6.conf.sit0.accept_ra=0 >/dev/null 2>&1
++        /sbin/sysctl -e -w net.ipv6.conf.sit0.accept_redirects=0 >/dev/null 2>&1
++    fi
+ 
+-	return 0
++    return 0
+ }
+ 
+ ##### Interface configuration
+@@ -131,63 +131,63 @@ ipv6_enable_autotunnel() {
+ #  $2: <IPv6 address[/prefix]>
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem
+ ipv6_add_addr_on_device() {
+-	local fn="ipv6_add_addr_on_device"
+-
+-	local device=$1
+-	local address=$2
+-
+-	if [ -z "$device" ]; then
+-		net_log $"Missing parameter 'device' (arg 1)" err $fn
+-		return 1
+-	fi
+-
+-	if [ -z "$address" ]; then
+-		net_log $"Missing parameter 'IPv6-address' (arg 2)" err $fn
+-		return 1
+-	fi
+-
+-	ipv6_test || return 2
+-
+-	ipv6_test_ipv6_addr_valid $address || return 1
+-
+-	ipv6_test_device_status $device
+-	local result=$?
+-
+-	if [ "$result" = "0" ]; then
+-		true
+-	elif [ "$result" != "11" ]; then
+-		net_log $"Device '$device' doesn't exist" err $fn
+-		return 3
+-	else
+-		/sbin/ip link set $device up
+-
+-			if ! ipv6_test_device_status $device; then
+-				net_log $"Device '$device' enabling didn't work" err $fn
+-				return 3
+-			fi
+-	fi
+-
+-	# Extract address parts
+-	local prefixlength_implicit="$(echo $address | awk -F/ '{ print $2 }')"
+-	local address_implicit="${address%%/*}"
+-
+-	# Check prefix length and using '64' as default
+-	if [ -z "$prefixlength_implicit" ]; then
+-		local prefixlength_implicit="64"
+-		local address="$address_implicit/$prefixlength_implicit"
+-	fi
+-
+-	/sbin/ip -6 addr add $address dev $device
+-	local result=$?
+-
+-	if [ $result -eq 2 ]; then
+-		return 0
+-	elif [ $result -ne 0 ]; then
+-		net_log $"Cannot add IPv6 address '$address' on dev '$device'" err $fn
+-		return 3
+-	fi
+-
+-	return 0
++    local fn="ipv6_add_addr_on_device"
++
++    local device=$1
++    local address=$2
++
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
++
++    if [ -z "$address" ]; then
++        net_log $"Missing parameter 'IPv6-address' (arg 2)" err $fn
++        return 1
++    fi
++
++    ipv6_test || return 2
++
++    ipv6_test_ipv6_addr_valid $address || return 1
++
++    ipv6_test_device_status $device
++    local result=$?
++
++    if [ "$result" = "0" ]; then
++        true
++    elif [ "$result" != "11" ]; then
++        net_log $"Device '$device' doesn't exist" err $fn
++        return 3
++    else
++        /sbin/ip link set $device up
++
++            if ! ipv6_test_device_status $device; then
++                net_log $"Device '$device' enabling didn't work" err $fn
++                return 3
++            fi
++    fi
++
++    # Extract address parts
++    local prefixlength_implicit="$(echo $address | awk -F/ '{ print $2 }')"
++    local address_implicit="${address%%/*}"
++
++    # Check prefix length and using '64' as default
++    if [ -z "$prefixlength_implicit" ]; then
++        local prefixlength_implicit="64"
++        local address="$address_implicit/$prefixlength_implicit"
++    fi
++
++    /sbin/ip -6 addr add $address dev $device
++    local result=$?
++
++    if [ $result -eq 2 ]; then
++        return 0
++    elif [ $result -ne 0 ]; then
++        net_log $"Cannot add IPv6 address '$address' on dev '$device'" err $fn
++        return 3
++    fi
++
++    return 0
+ }
+ 
+ 
+@@ -195,28 +195,28 @@ ipv6_add_addr_on_device() {
+ #  $1: <Interface>
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem
+ ipv6_cleanup_device() {
+-	local fn="ipv6_cleanup_device"
++    local fn="ipv6_cleanup_device"
+ 
+-	local device=$1
++    local device=$1
+ 
+-	if [ -z "$device" ]; then
+-		net_log $"Missing parameter 'device' (arg 1)" err $fn
+-		return 1
+-	fi
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
+ 
+-	ipv6_test testonly || return 2
++    ipv6_test testonly || return 2
+ 
+-	# Remove all IPv6 routes through this device (but not "lo")
+-	if [ "$device" != "lo" ]; then
+-		/sbin/ip -6 route flush dev $device scope global >/dev/null 2>&1
+-		/sbin/ip -6 route flush dev $device scope site   >/dev/null 2>&1
+-	fi
++    # Remove all IPv6 routes through this device (but not "lo")
++    if [ "$device" != "lo" ]; then
++        /sbin/ip -6 route flush dev $device scope global >/dev/null 2>&1
++        /sbin/ip -6 route flush dev $device scope site     >/dev/null 2>&1
++    fi
+ 
+-	# Remove all IPv6 addresses on this interface
+-	/sbin/ip -6 addr flush dev $device scope global >/dev/null 2>&1
+-	/sbin/ip -6 addr flush dev $device scope site   >/dev/null 2>&1
++    # Remove all IPv6 addresses on this interface
++    /sbin/ip -6 addr flush dev $device scope global >/dev/null 2>&1
++    /sbin/ip -6 addr flush dev $device scope site     >/dev/null 2>&1
+ 
+-	return 0
++    return 0
+ }
+ 
+ 
+@@ -224,28 +224,28 @@ ipv6_cleanup_device() {
+ #  $1: <Interface>
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem
+ ipv6_cleanup_6to4_device() {
+-	local fn="ipv6_cleanup_6to4_device"
++    local fn="ipv6_cleanup_6to4_device"
+ 
+-	local device=$1
++    local device=$1
+ 
+-	if [ -z "$device" ]; then
+-		net_log $"Missing parameter 'device' (arg 1)" err $fn
+-		return 1
+-	fi
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
+ 
+-	ipv6_test testonly || return 2
++    ipv6_test testonly || return 2
+ 
+-	# Cleanup 6to4 addresses on this device
+-	/sbin/ip -6 addr show dev $dev scope global permanent | awk '/\<inet6\>/ && $2 ~ /^2002:/ { print $2 }' | while read addr; do
+-		/sbin/ip -6 addr del ${addr} dev ${dev}
+-	done
++    # Cleanup 6to4 addresses on this device
++    /sbin/ip -6 addr show dev $device scope global permanent | awk '/\<inet6\>/ && $2 ~ /^2002:/ { print $2 }' | while read addr; do
++        /sbin/ip -6 addr del ${addr} dev ${device}
++    done
+ 
+-	# Get all IPv6 routes through given interface related to 6to4 and remove them
+-	/sbin/ip -6 route show dev $device | LC_ALL=C grep "^2002:" | while read ipv6net dummy; do
+-		/sbin/ip -6 route del $ipv6net dev $device
+-	done
++    # Get all IPv6 routes through given interface related to 6to4 and remove them
++    /sbin/ip -6 route show dev $device | LC_ALL=C grep "^2002:" | while read ipv6net dummy; do
++        /sbin/ip -6 route del $ipv6net dev $device
++    done
+ 
+-	return 0
++    return 0
+ }
+ 
+ 
+@@ -255,7 +255,7 @@ ipv6_cleanup_6to4_device() {
+ #  $1: <IPv6 address>
+ # return code: 0=ok 1=not valid
+ ipv6_test_ipv6_addr_valid() {
+-	ipcalc -cs6 $1
++    ipcalc -cs6 $1
+ }
+ 
+ 
+@@ -263,7 +263,7 @@ ipv6_test_ipv6_addr_valid() {
+ #  $1: <IPv4 address>
+ # return code: 0=ok 1=not valid
+ ipv6_test_ipv4_addr_valid() {
+-	ipcalc -cs4 $1
++    ipcalc -cs4 $1
+ }
+ 
+ 
+@@ -271,32 +271,32 @@ ipv6_test_ipv4_addr_valid() {
+ #  $1: <IPv4 address>
+ # return code: 0=ok 1=argument error 10=private or not unicast
+ ipv6_test_ipv4_addr_global_usable() {
+-	local fn="ipv6_test_ipv4_addr_global_usable"
+-
+-	local testipv4addr_globalusable=$1
+-
+-
+-	if [ -z "$testipv4addr_globalusable" ]; then
+-		return 1
+-	fi
+-
+-	# Test for a globally usable IPv4 address now
+-		# test 0.0.0.0/8
+-		/bin/ipcalc --network $testipv4addr_globalusable 255.0.0.0   | LC_ALL=C grep -q "NETWORK=0\.0\.0\.0"     && return 10
+-		# test 10.0.0.0/8     (RFC 1918 / private)
+-		/bin/ipcalc --network $testipv4addr_globalusable 255.0.0.0   | LC_ALL=C grep -q "NETWORK=10\.0\.0\.0"    && return 10
+-		# test 127.0.0.0/8    (loopback)
+-		/bin/ipcalc --network $testipv4addr_globalusable 255.0.0.0   | LC_ALL=C grep -q "NETWORK=127\.0\.0\.0"   && return 10
+-		# test 169.254.0.0/16 (APIPA / DHCP link local)
+-		/bin/ipcalc --network $testipv4addr_globalusable 255.255.0.0 | LC_ALL=C grep -q "NETWORK=169\.254\.0\.0" && return 10
+-		# test 172.16.0.0/12  (RFC 1918 / private)
+-		/bin/ipcalc --network $testipv4addr_globalusable 255.240.0.0 | LC_ALL=C grep -q "NETWORK=172\.16\.0\.0"  && return 10
+-		# test 192.168.0.0/16 (RFC 1918 / private)
+-		/bin/ipcalc --network $testipv4addr_globalusable 255.255.0.0 | LC_ALL=C grep -q "NETWORK=192\.168\.0\.0" && return 10
+-		# test 224.0.0.0/3    (multicast and reserved, broadcast)
+-		/bin/ipcalc --network $testipv4addr_globalusable 224.0.0.0   | LC_ALL=C grep -q "NETWORK=224\.0\.0\.0"   && return 10
+-
+-	return 0
++    local fn="ipv6_test_ipv4_addr_global_usable"
++
++    local testipv4addr_globalusable=$1
++
++
++    if [ -z "$testipv4addr_globalusable" ]; then
++        return 1
++    fi
++
++    # Test for a globally usable IPv4 address now
++        # test 0.0.0.0/8
++        /bin/ipcalc --network $testipv4addr_globalusable 255.0.0.0     | LC_ALL=C grep -q "NETWORK=0\.0\.0\.0"         && return 10
++        # test 10.0.0.0/8         (RFC 1918 / private)
++        /bin/ipcalc --network $testipv4addr_globalusable 255.0.0.0     | LC_ALL=C grep -q "NETWORK=10\.0\.0\.0"        && return 10
++        # test 127.0.0.0/8        (loopback)
++        /bin/ipcalc --network $testipv4addr_globalusable 255.0.0.0     | LC_ALL=C grep -q "NETWORK=127\.0\.0\.0"     && return 10
++        # test 169.254.0.0/16 (APIPA / DHCP link local)
++        /bin/ipcalc --network $testipv4addr_globalusable 255.255.0.0 | LC_ALL=C grep -q "NETWORK=169\.254\.0\.0" && return 10
++        # test 172.16.0.0/12    (RFC 1918 / private)
++        /bin/ipcalc --network $testipv4addr_globalusable 255.240.0.0 | LC_ALL=C grep -q "NETWORK=172\.16\.0\.0"    && return 10
++        # test 192.168.0.0/16 (RFC 1918 / private)
++        /bin/ipcalc --network $testipv4addr_globalusable 255.255.0.0 | LC_ALL=C grep -q "NETWORK=192\.168\.0\.0" && return 10
++        # test 224.0.0.0/3        (multicast and reserved, broadcast)
++        /bin/ipcalc --network $testipv4addr_globalusable 224.0.0.0     | LC_ALL=C grep -q "NETWORK=224\.0\.0\.0"     && return 10
++
++    return 0
+ }
+ 
+ 
+@@ -304,29 +304,29 @@ ipv6_test_ipv4_addr_global_usable() {
+ #  $1: <Interface>
+ # return code: 0=ok 1=argument error 10=not exists 11=down
+ ipv6_test_device_status() {
+-	local fn="ipv6_test_device_status"
+-
+-	local device=$1
+-
+-	if [ -z "$device" ]; then
+-		net_log $"Missing parameter 'device' (arg 1)" err $fn
+-		return 1
+-	fi
+-
+-	# Test if device exists
+-	if [ ! -d "/sys/class/net/${device}" ]; then
+-		# not exists
+-		return 10
+-	fi
+-
+-	# Test if device is up
+-	if /sbin/ip link show dev $device 2>/dev/null | LC_ALL=C grep -q "UP"; then
+-		# up
+-		return 0
+-	else
+-		# down
+-		return 11
+-	fi
++    local fn="ipv6_test_device_status"
++
++    local device=$1
++
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
++
++    # Test if device exists
++    if [ ! -d "/sys/class/net/${device}" ]; then
++        # not exists
++        return 10
++    fi
++
++    # Test if device is up
++    if /sbin/ip link show dev $device 2>/dev/null | LC_ALL=C grep -q "UP"; then
++        # up
++        return 0
++    else
++        # down
++        return 11
++    fi
+ }
+ 
+ 
+@@ -335,38 +335,38 @@ ipv6_test_device_status() {
+ # stdout: <6to4address>
+ # return code: 0=ok 1=argument error
+ ipv6_create_6to4_prefix() {
+-	local fn="ipv6_create_6to4_prefix"
+-
+-	local ipv4addr=$1
+-
+-	if [ -z "$ipv4addr" ]; then
+-		net_log $"Missing parameter 'IPv4 address' (arg 1)" err $fn
+-	fi
+-
+-	local major1="${ipv4addr%%.*}"
+-	local minor1="$(echo $ipv4addr | awk -F. '{ print $2 }')"
+-	local major2="$(echo $ipv4addr | awk -F. '{ print $3 }')"
+-	local minor2="$(echo $ipv4addr | awk -F. '{ print $4 }')"
+-
+-	if [ -z "$major1" -o -z "$minor1" -o -z "$major2" -o -z "$minor2" ]; then
+-		return 1
+-	fi
+-
+-	if [ $major1 -eq 0 ]; then
+-		local block1="$(printf "%x" $minor1)"
+-	else
+-		local block1="$(printf "%x%02x" $major1 $minor1)"
+-	fi
+-	if [ $major2 -eq 0 ]; then
+-		local block2="$(printf "%x" $minor2)"
+-	else
+-		local block2="$(printf "%x%02x" $major2 $minor2)"
+-	fi
+-
+-	local prefix6to4="2002:$block1:$block2"
+-
+-	echo "$prefix6to4"
+-	return 0
++    local fn="ipv6_create_6to4_prefix"
++
++    local ipv4addr=$1
++
++    if [ -z "$ipv4addr" ]; then
++        net_log $"Missing parameter 'IPv4 address' (arg 1)" err $fn
++    fi
++
++    local major1="${ipv4addr%%.*}"
++    local minor1="$(echo $ipv4addr | awk -F. '{ print $2 }')"
++    local major2="$(echo $ipv4addr | awk -F. '{ print $3 }')"
++    local minor2="$(echo $ipv4addr | awk -F. '{ print $4 }')"
++
++    if [ -z "$major1" -o -z "$minor1" -o -z "$major2" -o -z "$minor2" ]; then
++        return 1
++    fi
++
++    if [ $major1 -eq 0 ]; then
++        local block1="$(printf "%x" $minor1)"
++    else
++        local block1="$(printf "%x%02x" $major1 $minor1)"
++    fi
++    if [ $major2 -eq 0 ]; then
++        local block2="$(printf "%x" $minor2)"
++    else
++        local block2="$(printf "%x%02x" $major2 $minor2)"
++    fi
++
++    local prefix6to4="2002:$block1:$block2"
++
++    echo "$prefix6to4"
++    return 0
+ }
+ 
+ 
+@@ -375,33 +375,33 @@ ipv6_create_6to4_prefix() {
+ # stdout: <tunnel relay address>
+ # return code: 0=ok 1=argument error
+ ipv6_create_6to4_relay_address() {
+-	local fn="ipv6_create_6to4_relay_address"
+-
+-	local addr=$1
+-
+-	if [ -z "$addr" ]; then
+-		net_log $"Missing parameter 'address' (arg 1)" err $fn
+-		return 1
+-	fi
+-
+-	# Check
+-	if ipv6_test_ipv4_addr_valid $addr ; then
+-		# ok, a IPv4 one
+-		if ipv6_test_ipv4_addr_global_usable $addr; then
+-			# IPv4 globally usable
+-			local ipv6to4_relay="::$addr"
+-		else
+-			net_log $"Given address '$addr' is not a global IPv4 one (arg 1)" err $fn
+-			return 1
+-		fi
+-	else
+-		net_log $"Given address '$addr' is not a valid IPv4 one (arg 1)" err $fn
+-		return 1
+-	fi
+-
+-	echo "$ipv6to4_relay"
+-
+-	return 0
++    local fn="ipv6_create_6to4_relay_address"
++
++    local addr=$1
++
++    if [ -z "$addr" ]; then
++        net_log $"Missing parameter 'address' (arg 1)" err $fn
++        return 1
++    fi
++
++    # Check
++    if ipv6_test_ipv4_addr_valid $addr ; then
++        # ok, a IPv4 one
++        if ipv6_test_ipv4_addr_global_usable $addr; then
++            # IPv4 globally usable
++            local ipv6to4_relay="::$addr"
++        else
++            net_log $"Given address '$addr' is not a global IPv4 one (arg 1)" err $fn
++            return 1
++        fi
++    else
++        net_log $"Given address '$addr' is not a valid IPv4 one (arg 1)" err $fn
++        return 1
++    fi
++
++    echo "$ipv6to4_relay"
++
++    return 0
+ }
+ 
+ 
+@@ -415,65 +415,65 @@ ipv6_create_6to4_relay_address() {
+ #  $5: [<IPv4 address>] : local IPv4 address of tunnel interface (required in case of 6to4 behind NAT)
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem
+ ipv6_add_6to4_tunnel() {
+-	local fn="ipv6_add_6to4_tunnel"
+-
+-	local device=$1
+-	local globalipv4=$2
+-	local globalipv6to4suffix=$3
+-	local mtu=$4
+-	local localipv4=$5
+-
+-	if [ -z "$device" ]; then
+-		net_log $"Missing parameter 'device' (arg 1)" err $fn
+-		return 1
+-	fi
+-
+-	if [ -z "$globalipv4" ]; then
+-		net_log $"Missing parameter 'global IPv4 address' (arg 2)" err $fn
+-		return 1
+-	fi
+-
+-	# Check device
+-	if [ "$device" != "tun6to4" ]; then
+-		net_log $"Given device '$device' is not supported (arg 1)" err $fn
+-		return 1
+-	fi
+-
+-	# Copy global IPv4 address to local if last one is not given
+-	if [ -z "$localipv4" ]; then
+-		localipv4="$globalipv4"
+-	fi
+-
+-	ipv6_test || return 2
+-
+-	# Generate 6to4 address
+-	local prefix6to4="$(ipv6_create_6to4_prefix $globalipv4)"
+-	if [ $? -ne 0 -o -z "$prefix6to4" ]; then
+-		return 3
+-	fi
+-
+-	if [ -z "$globalipv6to4suffix" ]; then
+-		local address6to4="${prefix6to4}::1/16"
+-	else
+-		local address6to4="${prefix6to4}::${globalipv6to4suffix}/16"
+-	fi
+-
+-		ipv6_add_tunnel_device tun6to4 0.0.0.0 $address6to4 $localipv4
+-		if [ $? -ne 0 ]; then
+-			local retval=3
+-		else
+-			local retval=0
+-		fi
+-
+-		# Add unspecific unreachable route for local 6to4 address space
+-		/sbin/ip route add unreach ${prefix6to4}::/48
+-
+-	# Set MTU, if given
+-	if [ -n "$mtu" ]; then
+-		ipv6_set_mtu $device $mtu
+-	fi
+-
+-	return $retval
++    local fn="ipv6_add_6to4_tunnel"
++
++    local device=$1
++    local globalipv4=$2
++    local globalipv6to4suffix=$3
++    local mtu=$4
++    local localipv4=$5
++
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
++
++    if [ -z "$globalipv4" ]; then
++        net_log $"Missing parameter 'global IPv4 address' (arg 2)" err $fn
++        return 1
++    fi
++
++    # Check device
++    if [ "$device" != "tun6to4" ]; then
++        net_log $"Given device '$device' is not supported (arg 1)" err $fn
++        return 1
++    fi
++
++    # Copy global IPv4 address to local if last one is not given
++    if [ -z "$localipv4" ]; then
++        localipv4="$globalipv4"
++    fi
++
++    ipv6_test || return 2
++
++    # Generate 6to4 address
++    local prefix6to4="$(ipv6_create_6to4_prefix $globalipv4)"
++    if [ $? -ne 0 -o -z "$prefix6to4" ]; then
++        return 3
++    fi
++
++    if [ -z "$globalipv6to4suffix" ]; then
++        local address6to4="${prefix6to4}::1/16"
++    else
++        local address6to4="${prefix6to4}::${globalipv6to4suffix}/16"
++    fi
++
++        ipv6_add_tunnel_device tun6to4 0.0.0.0 $address6to4 $localipv4
++        if [ $? -ne 0 ]; then
++            local retval=3
++        else
++            local retval=0
++        fi
++
++        # Add unspecific unreachable route for local 6to4 address space
++        /sbin/ip route add unreach ${prefix6to4}::/48
++
++    # Set MTU, if given
++    if [ -n "$mtu" ]; then
++        ipv6_set_mtu $device $mtu
++    fi
++
++    return $retval
+ }
+ 
+ 
+@@ -481,31 +481,31 @@ ipv6_add_6to4_tunnel() {
+ #  $1: <Interface> : only "tun6to4" is supported
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem
+ ipv6_cleanup_6to4_tunnels() {
+-	local fn="ipv6_cleanup_6to4_tunnels"
++    local fn="ipv6_cleanup_6to4_tunnels"
+ 
+-	local device=$1
++    local device=$1
+ 
+-	if [ -z "$device" ]; then
+-		net_log $"Missing parameter 'device' (arg 1)" err $fn
+-		return 1
+-	fi
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
+ 
+-	# Check device
+-	if [ "$device" != "tun6to4" ]; then
+-		net_log $"Given device '$device' is not supported (arg 1)" err $fn
+-		return 1
+-	fi
++    # Check device
++    if [ "$device" != "tun6to4" ]; then
++        net_log $"Given device '$device' is not supported (arg 1)" err $fn
++        return 1
++    fi
+ 
+-	ipv6_test testonly || return 2
++    ipv6_test testonly || return 2
+ 
+-		ipv6_del_tunnel_device tun6to4
++        ipv6_del_tunnel_device tun6to4
+ 
+-		# Remove all unspecific unreachable routes for local 6to4 address space
+-		/sbin/ip -6 route | LC_ALL=C grep "^unreachable 2002:.*/48 dev lo" | while read token net rest; do
+-			/sbin/ip route del unreach $net
+-		done
++        # Remove all unspecific unreachable routes for local 6to4 address space
++        /sbin/ip -6 route | LC_ALL=C grep "^unreachable 2002:.*/48 dev lo" | while read token net rest; do
++            /sbin/ip route del unreach $net
++        done
+ 
+-	return 0
++    return 0
+ }
+ 
+ 
+@@ -514,36 +514,36 @@ ipv6_cleanup_6to4_tunnels() {
+ #  $2: <IPv4 address> : global address of local interface
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem
+ ipv6_del_6to4_tunnel() {
+-	local fn="ipv6_del_6to4_tunnel"
++    local fn="ipv6_del_6to4_tunnel"
+ 
+-	local device=$1
+-	local localipv4=$2
++    local device=$1
++    local localipv4=$2
+ 
+-	if [ -z "$device" ]; then
+-		net_log $"Missing parameter 'device' (arg 1)" err $fn
+-		return 1
+-	fi
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
+ 
+-	if [ -z "$localipv4" ]; then
+-		net_log $"Missing parameter 'local IPv4 address' (arg 2)" err $fn
+-		return 1
+-	fi
++    if [ -z "$localipv4" ]; then
++        net_log $"Missing parameter 'local IPv4 address' (arg 2)" err $fn
++        return 1
++    fi
+ 
+-	# Check device
+-	if [ "$device" != "tun6to4" ]; then
+-		net_log $"Given device '$device' is not supported (arg 1)" err $fn
+-		return 1
+-	fi
++    # Check device
++    if [ "$device" != "tun6to4" ]; then
++        net_log $"Given device '$device' is not supported (arg 1)" err $fn
++        return 1
++    fi
+ 
+-	ipv6_test || return 2
++    ipv6_test || return 2
+ 
+-		ipv6_del_tunnel_device tun6to4
+-		local retval=$?
++        ipv6_del_tunnel_device tun6to4
++        local retval=$?
+ 
+-		# Remove unspecific unreachable route for local 6to4 address space
+-		/sbin/ip route del unreach ${prefix6to4}::/48
++        # Remove unspecific unreachable route for local 6to4 address space
++        /sbin/ip route del unreach ${prefix6to4}::/48
+ 
+-	return $retval
++    return $retval
+ }
+ 
+ 
+@@ -554,80 +554,80 @@ ipv6_del_6to4_tunnel() {
+ #  $4: [<IPv4 address>] : local one of tunnel (optional)
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem
+ ipv6_add_tunnel_device() {
+-	local fn="ipv6_add_tunnel_device"
+-
+-	local device=$1
+-	local addressipv4tunnel=$2
+-	local addressipv6local=$3
+-	local addressipv4tunnellocal=$4
+-
+-	if [ -z "$device" ]; then
+-		net_log $"Missing parameter 'device' (arg 1)" err $fn
+-		return 1
+-	fi
+-
+-	if [ -z "$addressipv4tunnel" ]; then
+-		net_log $"Missing parameter 'IPv4-tunnel address' (arg 2)" err $fn
+-		return 1
+-	fi
+-
+-	if [ -z "$addressipv4tunnellocal" ]; then
+-		local addressipv4tunnellocal="any"
+-	fi
+-
+-	ipv6_test || return 2
+-
+-	if ! ipv6_test_device_status $device; then
+-		local ttldefault="$(/sbin/sysctl -e net.ipv4.ip_default_ttl | awk '{ print $3 }')"
+-		if [ -z "$ttldefault" ]; then
+-			local ttldefault=64
+-		fi
+-
+-		# Test whether remote IPv4 address was already applied to another tunnel
+-		if [ "$addressipv4tunnel" != "0.0.0.0" -a "$addressipv4tunnel" != "any" ]; then
+-			/sbin/ip tunnel show remote $addressipv4tunnel 2>/dev/null | LC_ALL=C grep -w "ipv6/ip" | while IFS=":" read devnew rest; do
+-				if [ "$devnew" != "$device" ]; then
+-					net_log $"Given remote address '$addressipv4tunnel' on tunnel device '$device' is already configured on device '$devnew'" err $fn
+-					return 3
+-				fi
+-			done
+-		fi
+-
+-		/sbin/ip tunnel add $device mode sit ttl $ttldefault remote $addressipv4tunnel local $addressipv4tunnellocal
+-		if [ $? -ne 0 ]; then
+-			return 3
+-		fi
+-
+-		# Test, whether "ip tunnel show" reports valid content
+-		if ! /sbin/ip tunnel show $device 2>/dev/null | LC_ALL=C grep -q -w "remote"; then
+-			net_log $"Tunnel device '$device' creation didn't work" err $fn
+-			return 3
+-		fi
+-
+-		/sbin/ip link set $device up
+-
+-		if ! ipv6_test_device_status $device; then
+-			net_log $"Tunnel device '$device' bringing up didn't work" err $fn
+-			return 3
+-		fi
+-
+-		# Set sysctls proper (regardless "default")
+-		/sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.forwarding=1 >/dev/null 2>&1
+-		/sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.accept_ra=0 >/dev/null 2>&1
+-		/sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.accept_redirects=0 >/dev/null 2>&1
+-
+-		if [ -n "$addressipv6local" ]; then
+-			# Setup P-t-P address
+-			ipv6_add_addr_on_device $device $addressipv6local
+-			if [ $? -ne 0 ]; then
+-				return 3
+-			fi
+-		fi
+-	else
+-		false
+-	fi
+-
+-	return 0
++    local fn="ipv6_add_tunnel_device"
++
++    local device=$1
++    local addressipv4tunnel=$2
++    local addressipv6local=$3
++    local addressipv4tunnellocal=$4
++
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
++
++    if [ -z "$addressipv4tunnel" ]; then
++        net_log $"Missing parameter 'IPv4-tunnel address' (arg 2)" err $fn
++        return 1
++    fi
++
++    if [ -z "$addressipv4tunnellocal" ]; then
++        local addressipv4tunnellocal="any"
++    fi
++
++    ipv6_test || return 2
++
++    if ! ipv6_test_device_status $device; then
++        local ttldefault="$(/sbin/sysctl -e net.ipv4.ip_default_ttl | awk '{ print $3 }')"
++        if [ -z "$ttldefault" ]; then
++            local ttldefault=64
++        fi
++
++        # Test whether remote IPv4 address was already applied to another tunnel
++        if [ "$addressipv4tunnel" != "0.0.0.0" -a "$addressipv4tunnel" != "any" ]; then
++            /sbin/ip tunnel show remote $addressipv4tunnel 2>/dev/null | LC_ALL=C grep -w "ipv6/ip" | while IFS=":" read devnew rest; do
++                if [ "$devnew" != "$device" ]; then
++                    net_log $"Given remote address '$addressipv4tunnel' on tunnel device '$device' is already configured on device '$devnew'" err $fn
++                    return 3
++                fi
++            done
++        fi
++
++        /sbin/ip tunnel add $device mode sit ttl $ttldefault remote $addressipv4tunnel local $addressipv4tunnellocal
++        if [ $? -ne 0 ]; then
++            return 3
++        fi
++
++        # Test, whether "ip tunnel show" reports valid content
++        if ! /sbin/ip tunnel show $device 2>/dev/null | LC_ALL=C grep -q -w "remote"; then
++            net_log $"Tunnel device '$device' creation didn't work" err $fn
++            return 3
++        fi
++
++        /sbin/ip link set $device up
++
++        if ! ipv6_test_device_status $device; then
++            net_log $"Tunnel device '$device' bringing up didn't work" err $fn
++            return 3
++        fi
++
++        # Set sysctls proper (regardless "default")
++        /sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.forwarding=1 >/dev/null 2>&1
++        /sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.accept_ra=0 >/dev/null 2>&1
++        /sbin/sysctl -e -w net.ipv6.conf.$SYSCTLDEVICE.accept_redirects=0 >/dev/null 2>&1
++
++        if [ -n "$addressipv6local" ]; then
++            # Setup P-t-P address
++            ipv6_add_addr_on_device $device $addressipv6local
++            if [ $? -ne 0 ]; then
++                return 3
++            fi
++        fi
++    else
++        false
++    fi
++
++    return 0
+ }
+ 
+ 
+@@ -635,54 +635,54 @@ ipv6_add_tunnel_device() {
+ #  $1: <Interface>
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem
+ ipv6_del_tunnel_device() {
+-	local fn="ipv6_del_tunnel_device"
+-
+-	local device=$1
+-
+-	if [ -z "$device" ]; then
+-		net_log $"Missing parameter 'device' (arg 1)" err $fn
+-		return 1
+-	fi
+-
+-	ipv6_test testonly || return 2
+-
+-	if ipv6_test_device_status $device; then
+-		ipv6_cleanup_device $device
+-	else
+-		if [ "$device" != "sit0" ]; then
+-			false
+-		fi
+-	fi
+-
+-	if [ "$device" != "sit0" ]; then
+-		if /sbin/ip tunnel show $device 2>/dev/null | LC_ALL=C grep -q -w "ipv6/ip"; then
+-			/sbin/ip tunnel del $device
+-
+-				if ipv6_test_device_status $device; then
+-					return 3
+-				fi
+-		else
+-			false
+-		fi
+-	fi
+-
+-	return 0
++    local fn="ipv6_del_tunnel_device"
++
++    local device=$1
++
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
++
++    ipv6_test testonly || return 2
++
++    if ipv6_test_device_status $device; then
++        ipv6_cleanup_device $device
++    else
++        if [ "$device" != "sit0" ]; then
++            false
++        fi
++    fi
++
++    if [ "$device" != "sit0" ]; then
++        if /sbin/ip tunnel show $device 2>/dev/null | LC_ALL=C grep -q -w "ipv6/ip"; then
++            /sbin/ip tunnel del $device
++
++            if ipv6_test_device_status $device; then
++                return 3
++            fi
++        else
++            false
++        fi
++    fi
++
++    return 0
+ }
+ 
+ 
+ ## Cleanup all dedicated tunnel devices
+ ipv6_cleanup_tunnel_devices() {
+-	local fn="ipv6_cleanup_tunnel_devices"
++    local fn="ipv6_cleanup_tunnel_devices"
+ 
+-	ipv6_test testonly || return 2
++    ipv6_test testonly || return 2
+ 
+-	# Find still existing tunnel devices and shutdown and delete them
++    # Find still existing tunnel devices and shutdown and delete them
+ 
+-	/sbin/ip tunnel show | awk -F: '/\<ipv6\/ip\>/ { print $1 }' | while read device; do
+-		ipv6_del_tunnel_device $device
+-	done
++    /sbin/ip tunnel show | awk -F: '/\<ipv6\/ip\>/ { print $1 }' | while read device; do
++        ipv6_del_tunnel_device $device
++    done
+ 
+-	return 0
++    return 0
+ }
+ 
+ 
+@@ -692,52 +692,52 @@ ipv6_cleanup_tunnel_devices() {
+ # stdout: <IPv4 address> if available
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem
+ ipv6_get_ipv4addr_of_tunnel() {
+-	local fn="ipv6_get_local_ipv4_of_tunnel"
++    local fn="ipv6_get_local_ipv4_of_tunnel"
+ 
+-	local device=$1
+-	local selection=$2
++    local device=$1
++    local selection=$2
+ 
+-	if [ -z "$device" ]; then
+-		net_log $"Missing parameter 'device' (arg 1)" err $fn
+-		return 1
+-	fi
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
+ 
+-	if [ -z "$selection" ]; then
+-		net_log $"Missing parameter 'selection' (arg 2)" err $fn
+-		return 1
+-	fi
+-	if [ "$selection" != "local" -a "$selection" != "remote" ]; then
+-		net_log $"Unsupported selection '$selection' specified (arg 2)" err $fn
+-		return 1
+-	fi
++    if [ -z "$selection" ]; then
++        net_log $"Missing parameter 'selection' (arg 2)" err $fn
++        return 1
++    fi
++    if [ "$selection" != "local" -a "$selection" != "remote" ]; then
++        net_log $"Unsupported selection '$selection' specified (arg 2)" err $fn
++        return 1
++    fi
+ 
+-	ipv6_test testonly || return 2
++    ipv6_test testonly || return 2
+ 
+-	ipv6_test_device_status $device
++    ipv6_test_device_status $device
+ 
+-	if [ $? != 0 -a $? != 11 ]; then
+-		# Device doesn't exist
+-		return 3
+-	fi
++    if [ $? != 0 -a $? != 11 ]; then
++        # Device doesn't exist
++        return 3
++    fi
+ 
+-	# Device exists, retrieve address
+-	if [ "$selection" = "local" ]; then
+-		local tunnel_local_ipv4addr="$(/sbin/ip tunnel show $device | awk '{ print $6 }')"
+-	elif [ "$selection" = "remote" ]; then
+-		local tunnel_local_ipv4addr="$(/sbin/ip tunnel show $device | awk '{ print $4 }')"
+-	fi
++    # Device exists, retrieve address
++    if [ "$selection" = "local" ]; then
++        local tunnel_local_ipv4addr="$(/sbin/ip tunnel show $device | awk '{ print $6 }')"
++    elif [ "$selection" = "remote" ]; then
++        local tunnel_local_ipv4addr="$(/sbin/ip tunnel show $device | awk '{ print $4 }')"
++    fi
+ 
+-	if [ $? != 0 ]; then
+-		return 3
+-	fi
++    if [ $? != 0 ]; then
++        return 3
++    fi
+ 
+-	if [ "$tunnel_local_ipv4addr" = "any" ]; then
+-		local tunnel_local_ipv4addr="0.0.0.0"
+-	fi
++    if [ "$tunnel_local_ipv4addr" = "any" ]; then
++        local tunnel_local_ipv4addr="0.0.0.0"
++    fi
+ 
+-	echo "$tunnel_local_ipv4addr"
++    echo "$tunnel_local_ipv4addr"
+ 
+-	return 0
++    return 0
+ }
+ 
+ 
+@@ -746,36 +746,36 @@ ipv6_get_ipv4addr_of_tunnel() {
+ # stdout: <IPv4 address> if available
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem (more than one IPv4 address applied)
+ ipv6_get_ipv4addr_of_device() {
+-	local fn="ipv6_get_ipv4addr_of_device"
++    local fn="ipv6_get_ipv4addr_of_device"
+ 
+-	local device=$1
++    local device=$1
+ 
+-	if [ -z "$device" ]; then
+-		net_log $"Missing parameter 'device' (arg 1)" err $fn
+-		return 1
+-	fi
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
+ 
+-	ipv6_test_device_status $device
++    ipv6_test_device_status $device
+ 
+-	if [ $? != 0 -a $? != 11 ]; then
+-		# Device doesn't exist
+-		return 3
+-	fi
++    if [ $? != 0 -a $? != 11 ]; then
++        # Device doesn't exist
++        return 3
++    fi
+ 
+-	# Device exists, retrieve the first address only
+-	local ipv4addr="$(/sbin/ip -o -4 addr show dev $device | awk '{ print $4 }' | awk -F/ '{ print $1; exit }')"
++    # Device exists, retrieve the first address only
++    local ipv4addr="$(/sbin/ip -o -4 addr show dev $device | awk '{ print $4 }' | awk -F/ '{ print $1; exit }')"
+ 
+-	if [ $? != 0 ]; then
+-		return 3
+-	fi
++    if [ $? != 0 ]; then
++        return 3
++    fi
+ 
+-	if [ "$ipv4addr" = "any" ]; then
+-		local ipv4addr="0.0.0.0"
+-	fi
++    if [ "$ipv4addr" = "any" ]; then
++        local ipv4addr="0.0.0.0"
++    fi
+ 
+-	echo "$ipv4addr"
++    echo "$ipv4addr"
+ 
+-	return 0
++    return 0
+ }
+ 
+ 
+@@ -784,33 +784,33 @@ ipv6_get_ipv4addr_of_device() {
+ #  $2: <IPv6 MTU>
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem
+ ipv6_set_mtu() {
+-	local fn="ipv6_set_mtu"
++    local fn="ipv6_set_mtu"
+ 
+-	local device=$1
+-	local ipv6_mtu=$2
++    local device=$1
++    local ipv6_mtu=$2
+ 
+-	if [ -z "$device" ]; then
+-		net_log $"Missing parameter 'device' (arg 1)" err $fn
+-		return 1
+-	fi
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
+ 
+-	if [ -z "$ipv6_mtu" ]; then
+-		net_log $"Missing parameter 'IPv6 MTU' (arg 2)" err $fn
+-		return 1
+-	fi
++    if [ -z "$ipv6_mtu" ]; then
++        net_log $"Missing parameter 'IPv6 MTU' (arg 2)" err $fn
++        return 1
++    fi
+ 
+-	# Check range
+-	if [ $ipv6_mtu -lt 1280 -o $ipv6_mtu -gt 65535 ]; then
+-		net_log $"Given IPv6 MTU '$ipv6_mtu' is out of range" err $fn
+-		return 1
+-	fi
++    # Check range
++    if [ $ipv6_mtu -lt 1280 -o $ipv6_mtu -gt 65535 ]; then
++        net_log $"Given IPv6 MTU '$ipv6_mtu' is out of range" err $fn
++        return 1
++    fi
+ 
+-	ipv6_test testonly || return 2
++    ipv6_test testonly || return 2
+ 
+-	# Set value
+-	/sbin/ip link set dev $device mtu $ipv6_mtu
++    # Set value
++    /sbin/ip link set dev $device mtu $ipv6_mtu
+ 
+-	return 0
++    return 0
+ }
+ 
+ 
+@@ -820,92 +820,92 @@ ipv6_set_mtu() {
+ #  $3: <check device>: (optional) device to check scope and gateway device against (setup is skipped, if not matching)
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem
+ ipv6_set_default_route() {
+-	local fn="ipv6_set_default_route"
+-
+-	local address=$1
+-	local device=$2
+-	local device_check=$3
+-
+-	ipv6_test testonly || return 2
+-
+-	# Map the unspecified address to nothing
+-	if [ "$address" = "::" ]; then
+-		local address=""
+-	fi
+-
+-	if [ -n "$address" ]; then
+-		local addressgw=${address%%%*}
+-		local device_scope=$(echo $address | awk -F% '{ print $2 }')
+-
+-		if [ -z "$addressgw" ]; then
+-			net_log $"Given IPv6 default gateway '$address' is not in proper format" err $fn
+-			return 3
+-		fi
+-
+-		# Scope device has precedence
+-		if [ -n "$device_scope" -a -n "$device" -a "$device_scope" != "$device" ]; then
+-			net_log $"Given IPv6 default gateway '$address' has scope '$device_scope' defined, given default gateway device '$device' will be not used" info $fn
+-			local device=""
+-		fi
+-
+-		# Link local addresses require a device
+-		if echo $addressgw | LC_ALL=C grep -qi "^fe80:"; then
+-			if [ -z "$device_scope" ]; then
+-				if [ -z "$device" ]; then
+-					net_log $"Given IPv6 default gateway '$address' is link-local, but no scope or gateway device is specified" err $fn
+-					return 3
+-				fi
+-			fi
+-		fi
+-
+-		# Check whether the route belongs to the specific given interface
+-		if [ -n "$device_check" ]; then
+-			# Check whether scope device matches given check device
+-			if [ -n "$device_scope" -a "$device_check" != "$device_scope" ]; then
+-				# scope device != specific given -> skip
+-				return 0
+-			elif [ -n "$device" -a "$device_check" != "$device" ]; then
+-				# gateway device != specific given -> skip
+-				return 0
+-			fi
+-		fi
+-
+-		# Set device now, if not given
+-		if [ -z "$device" ]; then
+-			local device="$device_scope"
+-		fi
+-
+-		if [ -z "$device" ]; then
+-			# Note: this can cause a warning and a not installed route, if given address is not reachable on the link
+-			ipv6_add_route ::/0 $addressgw
+-		else
+-			ipv6_add_route ::/0 $addressgw $device
+-		fi
+-	elif [ -n "$device" ]; then
+-		# Check whether the route belongs to the specific given interface
+-		if [ -n "$device_check" -a "$device_check" != "$device" ]; then
+-			# gateway device != specific given -> skip
+-			return 0
+-		fi
+-
+-		ipv6_test_route_requires_next_hop $device
+-		local result=$?
+-
+-		if [ $result = 0 ]; then
+-			net_log $"Given IPv6 default device '$device' requires an explicit nexthop" err $fn
+-			return 3
+-		elif [ $result != 10 ]; then
+-			net_log $"Given IPv6 default device '$device' doesn't exist or isn't up" err $fn
+-			return 3
+-		fi
+-
+-		ipv6_add_route ::/0 :: $device
+-	else
+-		net_log $"No parameters given to setup a default route" err $fn
+-		return 3
+-	fi
+-
+-	return 0
++    local fn="ipv6_set_default_route"
++
++    local address=$1
++    local device=$2
++    local device_check=$3
++
++    ipv6_test testonly || return 2
++
++    # Map the unspecified address to nothing
++    if [ "$address" = "::" ]; then
++        local address=""
++    fi
++
++    if [ -n "$address" ]; then
++        local addressgw=${address%%%*}
++        local device_scope=$(echo $address | awk -F% '{ print $2 }')
++
++        if [ -z "$addressgw" ]; then
++            net_log $"Given IPv6 default gateway '$address' is not in proper format" err $fn
++            return 3
++        fi
++
++        # Scope device has precedence
++        if [ -n "$device_scope" -a -n "$device" -a "$device_scope" != "$device" ]; then
++            net_log $"Given IPv6 default gateway '$address' has scope '$device_scope' defined, given default gateway device '$device' will be not used" info $fn
++            local device=""
++        fi
++
++        # Link local addresses require a device
++        if echo $addressgw | LC_ALL=C grep -qi "^fe80:"; then
++            if [ -z "$device_scope" ]; then
++                if [ -z "$device" ]; then
++                    net_log $"Given IPv6 default gateway '$address' is link-local, but no scope or gateway device is specified" err $fn
++                    return 3
++                fi
++            fi
++        fi
++
++        # Check whether the route belongs to the specific given interface
++        if [ -n "$device_check" ]; then
++            # Check whether scope device matches given check device
++            if [ -n "$device_scope" -a "$device_check" != "$device_scope" ]; then
++                # scope device != specific given -> skip
++                return 0
++            elif [ -n "$device" -a "$device_check" != "$device" ]; then
++                # gateway device != specific given -> skip
++                return 0
++            fi
++        fi
++
++        # Set device now, if not given
++        if [ -z "$device" ]; then
++            local device="$device_scope"
++        fi
++
++        if [ -z "$device" ]; then
++            # Note: this can cause a warning and a not installed route, if given address is not reachable on the link
++            ipv6_add_route ::/0 $addressgw
++        else
++            ipv6_add_route ::/0 $addressgw $device
++        fi
++    elif [ -n "$device" ]; then
++        # Check whether the route belongs to the specific given interface
++        if [ -n "$device_check" -a "$device_check" != "$device" ]; then
++            # gateway device != specific given -> skip
++            return 0
++        fi
++
++        ipv6_test_route_requires_next_hop $device
++        local result=$?
++
++        if [ $result = 0 ]; then
++            net_log $"Given IPv6 default device '$device' requires an explicit nexthop" err $fn
++            return 3
++        elif [ $result != 10 ]; then
++            net_log $"Given IPv6 default device '$device' doesn't exist or isn't up" err $fn
++            return 3
++        fi
++
++        ipv6_add_route ::/0 :: $device
++    else
++        net_log $"No parameters given to setup a default route" err $fn
++        return 3
++    fi
++
++    return 0
+ }
+ 
+ 
+@@ -913,32 +913,32 @@ ipv6_set_default_route() {
+ #  $1: <Interface>
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem 10=needs no explicit hop
+ ipv6_test_route_requires_next_hop() {
+-	local fn="ipv6_test_route_requires_next_hop"
++    local fn="ipv6_test_route_requires_next_hop"
+ 
+-	local device=$1
++    local device=$1
+ 
+-	if [ -z "$device" ]; then
+-		net_log $"Missing parameter 'device' (arg 1)" err $fn
+-		return 1
+-	fi
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
+ 
+-	ipv6_test testonly || return 2
++    ipv6_test testonly || return 2
+ 
+-	ipv6_test_device_status $device
++    ipv6_test_device_status $device
+ 
+-	if [ $? != 0 ]; then
+-		return 3
+-	fi
++    if [ $? != 0 ]; then
++        return 3
++    fi
+ 
+-	if [ "$device" = "sit0" ]; then
+-		return 10
+-	fi
++    if [ "$device" = "sit0" ]; then
++        return 10
++    fi
+ 
+-	if /sbin/ip -o link show $device 2>/dev/null |  LC_ALL=C grep -q "POINTOPOINT"; then
+-		return 10
+-	fi
++    if /sbin/ip -o link show $device 2>/dev/null |    LC_ALL=C grep -q "POINTOPOINT"; then
++        return 10
++    fi
+ 
+-	return 0
++    return 0
+ }
+ 
+ 
+@@ -946,99 +946,139 @@ ipv6_test_route_requires_next_hop() {
+ #  $1: up|down : device reason for triggering (coming up or going down)
+ #  $2: [startstop|restart|reload|SIGHUP] : triger mechanism (default is "SIGHUP")
+ #        "startstop" : reason=up -> start, reason=down -> stop
+-#  $3: [<filename>] : alternative pid file  [optional]
++#  $3: [<filename>] : alternative pid file    [optional]
+ # return code: 0=ok 1=argument error 2=IPv6 test fails 3=major problem
+ ipv6_trigger_radvd() {
+-	local fn="ipv6_trigger_radvd"
+-
+-	local reason=$1
+-	local mechanism=$2
+-	local pidfile=$3
+-
+-	if [ -z "$reason" ]; then
+-		net_log $"No reason given for sending trigger to radvd" err $fn
+-		return 1
+-	fi
+-
+-	if [ "$reason" != "up" -a "$reason" != "down" ]; then
+-		net_log $"Unsupported reason '$reason' for sending trigger to radvd" err $fn
+-		return 1
+-	fi
+-
+-	if [ -z "$mechanism" ]; then
+-		# Take default
+-		local mechanism="SIGHUP"
+-	fi
+-
+-	if [ -z "$pidfile" ]; then
+-		local pidfile="/var/run/radvd/radvd.pid"
+-	fi
+-
+-	# Print message and select action
+-	case $mechanism in
+-	    'startstop')
+-		case $reason in
+-		    up)
+-			local action="start"
+-			;;
+-		    down)
+-			local action="stop"
+-			;;
+-		esac
+-		;;
+-	    'reload'|'restart'|'SIGHUP')
+-		local action="$mechanism"
+-		;;
+-	    *)
+-		net_log $"Unsupported mechanism '$mechanism' for sending trigger to radvd" err $fn
+-		return 3
+-		;;
+-	esac
+-
+-	# PID file needed?
+-	if [ "$action" = "SIGHUP" ]; then
+-		if ! [ -f "$pidfile" ]; then
+-			if [ "$reason" = "down" ]; then
+-				# be quiet because triggering may have been disabled
+-				true
+-			else
+-				net_log $"Given pidfile '$pidfile' doesn't exist, cannot send trigger to radvd" err $fn
+-			fi
+-			return 3
+-		fi
+-
+-		# Get PID
+-		local pid="$(cat $pidfile)"
+-		if [ -z "$pid" ]; then
+-			# pidfile empty - strange
+-			net_log $"Pidfile '$pidfile' is empty, cannot send trigger to radvd" err $fn
+-			return 3
+-		fi
+-	fi
+-
+-
+-	# Do action
+-	case $action in
+-	    'SIGHUP')
+-		kill -HUP $pid
+-		;;
+-	    'reload'|'restart'|'stop'|'start')
+-			if ! /sbin/chkconfig --list radvd >/dev/null 2>&1; then
+-				if [ "$reason" = "down" ]; then
+-					# be quiet because triggering may have been disabled
+-					true
+-				else
+-					net_log $"radvd not (properly) installed, triggering failed" err $fn
+-				fi
+-				return 3
+-			else
+-				/sbin/service radvd $action >/dev/null 2>&1
+-			fi
+-		;;
+-	    *)
+-		# Normally not reached, "action" is set above to proper value
+-		;;
+-	esac
+-
+-	return 0
++    local fn="ipv6_trigger_radvd"
++
++    local reason=$1
++    local mechanism=$2
++    local pidfile=$3
++
++    if [ -z "$reason" ]; then
++        net_log $"No reason given for sending trigger to radvd" err $fn
++        return 1
++    fi
++
++    if [ "$reason" != "up" -a "$reason" != "down" ]; then
++        net_log $"Unsupported reason '$reason' for sending trigger to radvd" err $fn
++        return 1
++    fi
++
++    if [ -z "$mechanism" ]; then
++        # Take default
++        local mechanism="SIGHUP"
++    fi
++
++    if [ -z "$pidfile" ]; then
++        local pidfile="/var/run/radvd/radvd.pid"
++    fi
++
++    # Print message and select action
++    case $mechanism in
++        'startstop')
++            case $reason in
++            up)
++                local action="start"
++                ;;
++            down)
++                local action="stop"
++                ;;
++            esac
++            ;;
++        'reload'|'restart'|'SIGHUP')
++            local action="$mechanism"
++            ;;
++        *)
++            net_log $"Unsupported mechanism '$mechanism' for sending trigger to radvd" err $fn
++            return 3
++            ;;
++    esac
++
++    # PID file needed?
++    if [ "$action" = "SIGHUP" ]; then
++        if ! [ -f "$pidfile" ]; then
++            if [ "$reason" = "down" ]; then
++                # be quiet because triggering may have been disabled
++                true
++            else
++                net_log $"Given pidfile '$pidfile' doesn't exist, cannot send trigger to radvd" err $fn
++            fi
++            return 3
++        fi
++
++        # Get PID
++        local pid="$(cat $pidfile)"
++        if [ -z "$pid" ]; then
++            # pidfile empty - strange
++            net_log $"Pidfile '$pidfile' is empty, cannot send trigger to radvd" err $fn
++            return 3
++        fi
++    fi
++
++
++    # Do action
++    case $action in
++        'SIGHUP')
++            kill -HUP $pid
++            ;;
++        'reload'|'restart'|'stop'|'start')
++            if ! /sbin/chkconfig --list radvd >/dev/null 2>&1; then
++                if [ "$reason" = "down" ]; then
++                    # be quiet because triggering may have been disabled
++                    true
++                else
++                    net_log $"radvd not (properly) installed, triggering failed" err $fn
++                fi
++                return 3
++            else
++                /sbin/service radvd $action >/dev/null 2>&1
++            fi
++            ;;
++        *)
++            # Normally not reached, "action" is set above to proper value
++            ;;
++    esac
++
++    return 0
++}
++
++#https://www.vaspects.com/2013/12/11/services-dont-bind-to-ipv6-address/
++ipv6_wait_tentative() {
++    local fn="ipv6_wait_tentative"
++    local device=$1
++    local countdown=30
++    local ip_output=""
++
++    if [ -z "$device" ]; then
++        net_log $"Missing parameter 'device' (arg 1)" err $fn
++        return 1
++    fi
++
++    [ "$device" = lo ] && return 0
++
++    while [ ${countdown} -gt 0 ]; do
++        ip_output="$(ip -6 addr show dev ${device} scope global tentative)"
++
++        if [ -z "$ip_output" ]; then
++            return 0;
++        elif echo "$ip_output" | grep "dadfailed" > /dev/null; then
++            net_log $"Duplicate Address Detection: Duplicate addresses detected" err $fn
++            net_log $"Duplicate Address Detection: Please, fix your network configuration" err $fn
++            return 1
++        fi
++
++        net_log $"Waiting for interface ${device} IPv6 address(es) to leave the 'tentative' state" info $fn
++        sleep 1
++        countdown=$(($countdown - 1))
++    done
++
++    ip_output="$(ip -6 addr show dev ${device} scope global tentative)"
++
++    if [ -n "$ip_output" ]; then
++        net_log $"Some IPv6 address(es) of ${device} remain still in 'tentative' state" warning $fn
++        net_log $"Run 'ip -6 addr show dev ${device} scope global tentative' to see more" warning $fn
++    fi
++
++    return 0
+ }

@@ -1,0 +1,24 @@
+From b399247905d9d4a9d12bb3f17b6d085dfbd674c8 Mon Sep 17 00:00:00 2001
+From: Lukas Nykryn <lnykryn@redhat.com>
+Date: Mon, 14 Mar 2016 20:24:31 +0100
+Subject: [PATCH] autorelabel: turn quota off before relabeling
+
+---
+ systemd/rhel-autorelabel | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/systemd/rhel-autorelabel b/systemd/rhel-autorelabel
+index 924df8e..d87acd2 100755
+--- a/systemd/rhel-autorelabel
++++ b/systemd/rhel-autorelabel
+@@ -28,6 +28,7 @@ relabel_selinux() {
+ 	echo $"*** system size and speed of hard drives."
+ 
+ 	FORCE=`cat /.autorelabel`
++        [ -x "/usr/sbin/quotaoff" ] && /usr/sbin/quotaoff -aug
+ 	/sbin/fixfiles $FORCE restore > /dev/null 2>&1
+     fi
+     rm -f  /.autorelabel
+-- 
+2.4.3
+
