@@ -1,0 +1,25 @@
+From 46f5c65d242efafcc27c5da23d0f0d8387ba7250 Mon Sep 17 00:00:00 2001
+From: Michal Sekletar <msekleta@redhat.com>
+Date: Mon, 1 Feb 2016 17:00:43 +0100
+Subject: [PATCH] autorelabel: call dracut-initramfs-restore before forced
+ reboot
+
+---
+ systemd/rhel-autorelabel | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/systemd/rhel-autorelabel b/systemd/rhel-autorelabel
+index 7cb9b40..924df8e 100755
+--- a/systemd/rhel-autorelabel
++++ b/systemd/rhel-autorelabel
+@@ -31,6 +31,7 @@ relabel_selinux() {
+ 	/sbin/fixfiles $FORCE restore > /dev/null 2>&1
+     fi
+     rm -f  /.autorelabel
++    /usr/lib/dracut/dracut-initramfs-restore
+     systemctl --force reboot
+ }
+ 
+-- 
+2.4.3
+
