@@ -9,7 +9,7 @@ usually safe to use the latest release, but feel free to file an issue as well.
 In our environment we import the `src.rpm` for these dependencies and rebuild
 them in [mock](https://github.com/rpm-software-management/mock).
 
-## Packages
+## Dependencies
 
 `systemd` depends on the `dbus`, `python34-csselect` and `python34-lxml`
 packages from this repo. It also requires the following packages from Rawhide:
