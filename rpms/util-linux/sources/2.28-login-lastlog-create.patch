@@ -1,0 +1,12 @@
+diff -up util-linux-2.28/login-utils/login.c.kzak util-linux-2.28/login-utils/login.c
+--- util-linux-2.28/login-utils/login.c.kzak	2016-03-08 14:28:16.724156218 +0100
++++ util-linux-2.28/login-utils/login.c	2016-04-26 12:45:29.235326017 +0200
+@@ -510,7 +510,7 @@ static void log_lastlog(struct login_con
+ 	sa.sa_handler = SIG_IGN;
+ 	sigaction(SIGXFSZ, &sa, &oldsa_xfsz);
+ 
+-	fd = open(_PATH_LASTLOG, O_RDWR, 0);
++	fd = open(_PATH_LASTLOG, O_RDWR | O_CREAT, 0);
+ 	if (fd < 0)
+ 		goto done;
+ 
