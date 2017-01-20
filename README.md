@@ -11,13 +11,13 @@ them in [mock](https://github.com/rpm-software-management/mock).
 
 ## Dependencies
 
-`systemd` depends on the `dbus`, `python34-csselect` and `python34-lxml`
-packages from this repo. It also requires the following packages from Rawhide:
+`systemd` depends on the `dbus`, `python34-csselect`, `python34-lxml`, and
+`util-linux` packages from this repo. It also requires the following packages
+from Rawhide:
 * curl-7.49.0-1.fc25
 * dracut-044-75.fc25
 * kmod-22-4.fc25
 * libgudev-230-2.fc23
-* util-linux-2.28-2.fc23
 
 `mkosi` requires the following packages from Rawhide:
 * arch-install-scripts-15-3.fc24
