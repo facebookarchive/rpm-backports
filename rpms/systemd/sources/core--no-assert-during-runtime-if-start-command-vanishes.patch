@@ -1,0 +1,35 @@
+From 47fffb3530af3e3ad4048570611685635fde062e Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Fri, 21 Oct 2016 12:27:46 +0200
+Subject: [PATCH] core: if the start command vanishes during runtime don't hit
+ an assert
+
+This can happen when the configuration is changed and reloaded while we are
+executing a service. Let's not hit an assert in this case.
+
+Fixes: #4444
+---
+ src/core/service.c | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/src/core/service.c b/src/core/service.c
+index f9127d7..53c2698 100644
+--- a/src/core/service.c
++++ b/src/core/service.c
+@@ -1706,7 +1706,15 @@ static void service_enter_start(Service *s) {
+         }
+ 
+         if (!c) {
+-                assert(s->type == SERVICE_ONESHOT);
++                if (s->type != SERVICE_ONESHOT) {
++                        /* There's no command line configured for the main command? Hmm, that is strange. This can only
++                         * happen if the configuration changes at runtime. In this case, let's enter a failure
++                         * state. */
++                        log_unit_error(UNIT(s), "There's no 'start' task anymore we could start: %m");
++                        r = -ENXIO;
++                        goto fail;
++                }
++
+                 service_enter_start_post(s);
+                 return;
+         }

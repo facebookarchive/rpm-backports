@@ -13,7 +13,7 @@
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
 Version:        231
-Release:        2.fb3
+Release:        2.fb4
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        A System and Service Manager
@@ -112,6 +112,7 @@ Patch8: build-sys--conditionally-disable-LTO-if-requested.patch
 Patch9: logind--accept-empty-string-and--infinity--for-UserTasksMax.patch
 Patch10: core--add-cgroup-CPU-controller-support-on-the-unified-hierarchy.patch
 Patch11: core--introduce-UseRootFileSystemNamespace-option.patch
+Patch12: core--no-assert-during-runtime-if-start-command-vanishes.patch
 
 
 
@@ -244,6 +245,7 @@ systemd-journal-remote, and systemd-journal-upload.
 %patch9 -p1
 %patch10 -p1
 %patch11 -p1
+%patch12 -p1
 
 
 
@@ -971,6 +973,9 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %{_mandir}/man[1578]/systemd-nspawn.*
 
 %changelog
+* Tue Mar 14 2017 Patrick White <pwhite@fb.com> - 231-2.fb4
+- add poettering patch to fix hitting an assert (PR#4447)
+
 * Wed Aug 10 2016 Davide Cavalca <dcavalca@fb.com> - 231-2.fb3
 - add mpawlowski root filesystem namespace patch for #12621017
 - add htejun patch for cgroup2 cpu controller (PR#3905)
