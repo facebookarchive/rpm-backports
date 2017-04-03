@@ -1,0 +1,181 @@
+commit 386fae86f6876c8dc6237ede5dbff00d73984f3c
+Author: Tejun Heo <htejun@fb.com>
+Date:   Thu Aug 18 22:57:53 2016 -0400
+
+    yummy:patchX:logind--update-empty-and--infinity--handling-for--User-TasksMax---3835-.patch
+
+logind: update empty and "infinity" handling for [User]TasksMax (#3835)
+
+    
+    The parsing functions for [User]TasksMax were inconsistent.  Empty string and
+    "infinity" were interpreted as no limit for TasksMax but not accepted for
+    UserTasksMax.  Update them so that they're consistent with other knobs.
+    
+    * Empty string indicates the default value.
+    * "infinity" indicates no limit.
+    
+    While at it, replace opencoded (uint64_t) -1 with CGROUP_LIMIT_MAX in TasksMax
+    handling.
+    
+    v2: Update empty string to indicate the default value as suggested by Zbigniew
+        Jędrzejewski-Szmek.
+    
+    v3: Fixed empty UserTasksMax handling.
+
+diff --git a/man/logind.conf.xml b/man/logind.conf.xml
+index 5931832..9b0e181 100644
+--- a/man/logind.conf.xml
++++ b/man/logind.conf.xml
+@@ -328,8 +328,9 @@
+         <listitem><para>Sets the maximum number of OS tasks each user may run concurrently. This controls the
+         <varname>TasksMax=</varname> setting of the per-user slice unit, see
+         <citerefentry><refentrytitle>systemd.resource-control</refentrytitle><manvolnum>5</manvolnum></citerefentry>
+-        for details. Defaults to 33%, which equals 10813 with the kernel's defaults on the host, but might be smaller
+-        in OS containers.</para></listitem>
++        for details. If assigned the special value <literal>infinity</literal>, no tasks limit is applied.
++        Defaults to 33%, which equals 10813 with the kernel's defaults on the host, but might be smaller in
++        OS containers.</para></listitem>
+       </varlistentry>
+ 
+       <varlistentry>
+diff --git a/src/basic/cgroup-util.h b/src/basic/cgroup-util.h
+index 14ebde5..676b712 100644
+--- a/src/basic/cgroup-util.h
++++ b/src/basic/cgroup-util.h
+@@ -112,6 +112,10 @@ static inline bool CGROUP_BLKIO_WEIGHT_IS_OK(uint64_t x) {
+             (x >= CGROUP_BLKIO_WEIGHT_MIN && x <= CGROUP_BLKIO_WEIGHT_MAX);
+ }
+ 
++/* Default resource limits */
++#define DEFAULT_TASKS_MAX_PERCENTAGE            15U /* 15% of PIDs, 4915 on default settings */
++#define DEFAULT_USER_TASKS_MAX_PERCENTAGE       33U /* 33% of PIDs, 10813 on default settings */
++
+ /*
+  * General rules:
+  *
+diff --git a/src/core/cgroup.c b/src/core/cgroup.c
+index c19e43f..3fd6fce 100644
+--- a/src/core/cgroup.c
++++ b/src/core/cgroup.c
+@@ -844,7 +844,7 @@ static void cgroup_context_apply(Unit *u, CGroupMask mask, ManagerState state) {
+ 
+         if ((mask & CGROUP_MASK_PIDS) && !is_root) {
+ 
+-                if (c->tasks_max != (uint64_t) -1) {
++                if (c->tasks_max != CGROUP_LIMIT_MAX) {
+                         char buf[DECIMAL_STR_MAX(uint64_t) + 2];
+ 
+                         sprintf(buf, "%" PRIu64 "\n", c->tasks_max);
+diff --git a/src/core/load-fragment.c b/src/core/load-fragment.c
+index a36953f..95a495f 100644
+--- a/src/core/load-fragment.c
++++ b/src/core/load-fragment.c
+@@ -2853,30 +2853,36 @@ int config_parse_tasks_max(
+                 void *data,
+                 void *userdata) {
+ 
+-        uint64_t *tasks_max = data, u;
++        uint64_t *tasks_max = data, v;
++        Unit *u = userdata;
+         int r;
+ 
+-        if (isempty(rvalue) || streq(rvalue, "infinity")) {
+-                *tasks_max = (uint64_t) -1;
++        if (isempty(rvalue)) {
++                *tasks_max = u->manager->default_tasks_max;
++                return 0;
++        }
++
++        if (streq(rvalue, "infinity")) {
++                *tasks_max = CGROUP_LIMIT_MAX;
+                 return 0;
+         }
+ 
+         r = parse_percent(rvalue);
+         if (r < 0) {
+-                r = safe_atou64(rvalue, &u);
++                r = safe_atou64(rvalue, &v);
+                 if (r < 0) {
+                         log_syntax(unit, LOG_ERR, filename, line, r, "Maximum tasks value '%s' invalid. Ignoring.", rvalue);
+                         return 0;
+                 }
+         } else
+-                u = system_tasks_max_scale(r, 100U);
++                v = system_tasks_max_scale(r, 100U);
+ 
+-        if (u <= 0 || u >= UINT64_MAX) {
++        if (v <= 0 || v >= UINT64_MAX) {
+                 log_syntax(unit, LOG_ERR, filename, line, 0, "Maximum tasks value '%s' out of range. Ignoring.", rvalue);
+                 return 0;
+         }
+ 
+-        *tasks_max = u;
++        *tasks_max = v;
+         return 0;
+ }
+ 
+diff --git a/src/core/main.c b/src/core/main.c
+index f59a55f..99ce1c6 100644
+--- a/src/core/main.c
++++ b/src/core/main.c
+@@ -1560,7 +1560,7 @@ int main(int argc, char *argv[]) {
+         (void) reset_all_signal_handlers();
+         (void) ignore_signals(SIGNALS_IGNORE, -1);
+ 
+-        arg_default_tasks_max = system_tasks_max_scale(15U, 100U); /* 15% the system PIDs equals 4915 by default. */
++        arg_default_tasks_max = system_tasks_max_scale(DEFAULT_TASKS_MAX_PERCENTAGE, 100U);
+ 
+         if (parse_config_file() < 0) {
+                 error_message = "Failed to parse config file";
+diff --git a/src/login/logind-user.c b/src/login/logind-user.c
+index 6336303..93c3d30 100644
+--- a/src/login/logind-user.c
++++ b/src/login/logind-user.c
+@@ -26,6 +26,7 @@
+ #include "bus-common-errors.h"
+ #include "bus-error.h"
+ #include "bus-util.h"
++#include "cgroup-util.h"
+ #include "clean-ipc.h"
+ #include "conf-parser.h"
+ #include "escape.h"
+@@ -891,7 +892,17 @@ int config_parse_user_tasks_max(
+         assert(rvalue);
+         assert(data);
+ 
+-        /* First, try to parse as percentage */
++        if (isempty(rvalue)) {
++                *m = system_tasks_max_scale(DEFAULT_USER_TASKS_MAX_PERCENTAGE, 100U);
++                return 0;
++        }
++
++        if (streq(rvalue, "infinity")) {
++                *m = CGROUP_LIMIT_MAX;
++                return 0;
++        }
++
++        /* Try to parse as percentage */
+         r = parse_percent(rvalue);
+         if (r >= 0)
+                 k = system_tasks_max_scale(r, 100U);
+diff --git a/src/login/logind.c b/src/login/logind.c
+index 5ce36d2..bbbf4ae 100644
+--- a/src/login/logind.c
++++ b/src/login/logind.c
+@@ -38,6 +38,7 @@
+ #include "signal-util.h"
+ #include "strv.h"
+ #include "udev-util.h"
++#include "cgroup-util.h"
+ 
+ static void manager_free(Manager *m);
+ 
+@@ -62,7 +63,7 @@ static void manager_reset_config(Manager *m) {
+         m->idle_action = HANDLE_IGNORE;
+ 
+         m->runtime_dir_size = physical_memory_scale(10U, 100U); /* 10% */
+-        m->user_tasks_max = system_tasks_max_scale(33U, 100U); /* 33% */
++        m->user_tasks_max = system_tasks_max_scale(DEFAULT_USER_TASKS_MAX_PERCENTAGE, 100U); /* 33% */
+         m->sessions_max = 8192;
+         m->inhibitors_max = 8192;
+ 

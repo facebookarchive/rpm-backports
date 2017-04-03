@@ -1,0 +1,29 @@
+commit 4831cd044f68f83c3c47bf5ec2a482289402e8b3
+Author: Jorge Niedbalski <jorge.niedbalski@canonical.com>
+Date:   Wed Sep 28 18:25:50 2016 -0300
+
+    yummy:patchX:If-the-notification-message-length-is-0--ignore-the-message---4237-.patch
+
+If the notification message length is 0, ignore the message (#4237)
+
+    
+    Fixes #4234.
+    
+    Signed-off-by: Jorge Niedbalski <jnr@metaklass.org>
+    (cherry picked from commit 531ac2b2349da02acc9c382849758e07eb92b020)
+
+diff --git a/src/core/manager.c b/src/core/manager.c
+index 4d84a0b..a085ed8 100644
+--- a/src/core/manager.c
++++ b/src/core/manager.c
+@@ -1648,6 +1648,10 @@ static int manager_dispatch_notify_fd(sd_event_source *source, int fd, uint32_t
+ 
+                 return -errno;
+         }
++        if (n == 0) {
++                log_debug("Got zero-length notification message. Ignoring.");
++                return 0;
++        }
+ 
+         CMSG_FOREACH(cmsg, &msghdr) {
+                 if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {

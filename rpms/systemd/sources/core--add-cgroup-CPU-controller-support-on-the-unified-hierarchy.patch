@@ -1,4 +1,4 @@
-commit 0856a11e4d28039b4ce21a8ba9752286c70f8340
+commit 32722b243db4d752026d9b7bccd330620482b157
 Author: Tejun Heo <htejun@fb.com>
 Date:   Sun Aug 7 09:45:39 2016 -0400
 
@@ -243,10 +243,10 @@ index 472e24b..fc9608c 100644
          } else {
                  CGroupController c;
 diff --git a/src/basic/cgroup-util.h b/src/basic/cgroup-util.h
-index 14ebde5..d9173c9 100644
+index 676b712..d551572 100644
 --- a/src/basic/cgroup-util.h
 +++ b/src/basic/cgroup-util.h
-@@ -169,6 +169,7 @@ int cg_create_and_attach(const char *controller, const char *path, pid_t pid);
+@@ -173,6 +173,7 @@ int cg_create_and_attach(const char *controller, const char *path, pid_t pid);
  
  int cg_set_attribute(const char *controller, const char *path, const char *attribute, const char *value);
  int cg_get_attribute(const char *controller, const char *path, const char *attribute, char **ret);
@@ -709,7 +709,7 @@ index 6a5c16a..125c760 100644
  $1.StartupCPUShares,             config_parse_cpu_shares,            0,                             offsetof($1, cgroup_context.startup_cpu_shares)
  $1.CPUQuota,                     config_parse_cpu_quota,             0,                             offsetof($1, cgroup_context)
 diff --git a/src/core/load-fragment.c b/src/core/load-fragment.c
-index 9383aab..aa19e42 100644
+index 95a495f..e94843b 100644
 --- a/src/core/load-fragment.c
 +++ b/src/core/load-fragment.c
 @@ -2733,6 +2733,34 @@ int config_parse_unit_slice(
@@ -747,7 +747,7 @@ index 9383aab..aa19e42 100644
  int config_parse_cpu_shares(
                  const char *unit,
                  const char *filename,
-@@ -4073,6 +4101,7 @@ void unit_dump_config_items(FILE *f) {
+@@ -4079,6 +4107,7 @@ void unit_dump_config_items(FILE *f) {
                  { config_parse_address_families,      "FAMILIES" },
  #endif
                  { config_parse_cpu_shares,            "SHARES" },

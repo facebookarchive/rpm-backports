@@ -1,11 +1,21 @@
-commit 5d0a89edd8a53ecd51d1405b253d8b1909181d62
-Author: Davide Cavalca <dcavalca@fb.com>
-Date:   Wed Jul 27 09:51:02 2016 -0700
+commit e539116767ba7bfab01e2b0f510b5b6b8f12d051
+Author: Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl>
+Date:   Fri Mar 11 17:06:17 2016 -0500
 
-    yummy:patchX:0998-resolved-create-etc-resolv-conf-symlink-at-runtime-patch.patch
+    yummy:patchX:resolved--create--etc-resolv-conf-symlink-at-runtime.patch
 
-0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
+resolved: create /etc/resolv.conf symlink at runtime
 
+    
+    If the symlink doesn't exists, and we are being started, let's
+    create it to provie name resolution.
+    
+    If it exists, do nothing. In particular, if it is a broken symlink,
+    we cannot really know if the administator configured it to point to
+    a location used by some service that hasn't started yet, so we
+    don't touch it in that case either.
+    
+    https://bugzilla.redhat.com/show_bug.cgi?id=1313085
 
 diff --git a/src/resolve/resolved.c b/src/resolve/resolved.c
 index deb75f9..914d3b8 100644

@@ -1,10 +1,10 @@
-commit d2a940167fca5a7eaa6916e1054a4595db408179
-Author: Davide Cavalca <dcavalca@fb.com>
-Date:   Wed Jul 27 09:51:02 2016 -0700
+commit e50b9ac23715c842c6689c46dcdd74830ef0bb0b
+Author: Harald Hoyer <harald@redhat.com>
+Date:   Tue Jan 14 17:48:08 2014 -0500
 
-    yummy:patchX:kernel-install-grubby-patch.patch
+    yummy:patchX:kernel-install--add-fedora-specific-callouts-to-new-kernel-pkg.patch
 
-kernel-install-grubby.patch
+kernel-install: add fedora specific callouts to new-kernel-pkg
 
 
 diff --git a/src/kernel-install/kernel-install b/src/kernel-install/kernel-install

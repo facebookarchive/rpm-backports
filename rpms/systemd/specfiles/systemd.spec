@@ -1,5 +1,3 @@
-%global _hardened_build 1
-
 # We ship a .pc file but don't want to have a dep on pkg-config. We
 # strip the automatically generated dep here and instead co-own the
 # directory.
@@ -13,22 +11,28 @@
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
 Version:        231
-Release:        2.fb4
+Release:        11.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        A System and Service Manager
 
 # download tarballs with "spectool -g systemd.spec"
+%if %{defined gitcommit}
+Source0:        https://github.com/systemd/systemd/archive/%{?gitcommit}.tar.gz#/%{name}-%{gitcommitshort}.tar.gz
+%else
 Source0:        https://github.com/systemd/systemd/archive/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
-# This file must be available before %prep.
+%endif
+# This file must be available before %%prep.
 # It is generated during systemd build and can be found in src/core/.
 Source1:        triggers.systemd
 
 # Prevent accidental removal of the systemd package
 Source4:        yum-protect-systemd.conf
+
 Source7:        systemd-journal-remote.xml
 Source8:        systemd-journal-gatewayd.xml
 Source9:        20-yama-ptrace.conf
+Source10:       systemd-udev-trigger-no-reload.conf
 
 BuildRequires:  libcap-devel
 BuildRequires:  libmount-devel
@@ -69,6 +73,7 @@ BuildRequires:  libseccomp-devel
 BuildRequires:  automake
 BuildRequires:  autoconf
 BuildRequires:  libtool
+
 Requires(post): coreutils
 Requires(post): sed
 Requires(post): acl
@@ -79,17 +84,15 @@ Requires(pre):  /usr/sbin/groupadd
 Requires:       dbus
 Requires:       %{name}-pam = %{version}-%{release}
 Requires:       %{name}-libs = %{version}-%{release}
-Requires:       diffutils
+Recommends:     diffutils
 Requires:       util-linux
-Requires:       libxkbcommon%{?_isa}
+Recommends:     libxkbcommon%{?_isa}
 Provides:       /bin/systemctl
 Provides:       /sbin/shutdown
 Provides:       syslog
 Provides:       systemd-units = %{version}-%{release}
 Obsoletes:      system-setup-keyboard < 0.9
 Provides:       system-setup-keyboard = 0.9
-Obsoletes:      nss-myhostname < 0.4
-Provides:       nss-myhostname = 0.4
 # systemd-sysv-convert was removed in f20: https://fedorahosted.org/fpc/ticket/308
 Obsoletes:      systemd-sysv < 206
 # self-obsoletes so that dnf will install new subpackages on upgrade (#1260394)
@@ -100,19 +103,40 @@ Provides:       systemd-sysv = 206
 Conflicts:      fedora-release < 23-0.12
 %endif
 
-Patch0: 0998-resolved-create-etc-resolv-conf-symlink-at-runtime-patch.patch
-Patch1: kernel-install-grubby-patch.patch
-Patch2: FB--add-back-compat-libs.patch
-Patch3: FB--Add-FusionIO-device---dev-fio--persistent-storage-udev-rule.patch
-Patch4: tests--skip-udev-test-if-running-inside-a-chroot.patch
-Patch5: tests--don-t-test-hostname-if-it-looks-like-an-id128.patch
-Patch6: tests--skip-process-1-tests-if-systemd-not-is-running.patch
-Patch7: tests--don-t-run-private-device-tests-if-running-in-a-container.patch
-Patch8: build-sys--conditionally-disable-LTO-if-requested.patch
-Patch9: logind--accept-empty-string-and--infinity--for-UserTasksMax.patch
-Patch10: core--add-cgroup-CPU-controller-support-on-the-unified-hierarchy.patch
-Patch11: core--introduce-UseRootFileSystemNamespace-option.patch
-Patch12: core--no-assert-during-runtime-if-start-command-vanishes.patch
+Patch0: systemctl--be-sure-to-be-quiet-with--systemctl-is-enabled---quiet----3819-.patch
+Patch1: logind--0--and-100--should-be-valid-for-UserTasksMax---3836-.patch
+Patch2: systemd-ask-password--make-sure-directory-watch-is-started-before-cryptsetup---3850-.patch
+Patch3: Revert--logind--really-handle--KeyIgnoreInhibited-options-in-logind-conf-.patch
+Patch4: man--explain-that--KeyIgnoreInhibited-only-apply-to-a-subset-of-locks.patch
+Patch5: systemctl--fix-preset-all-with-missing--etc-systemd-system.patch
+Patch6: shared-install--remove-unused-paramater-and-add-more-comments.patch
+Patch7: shared-install--ignore-unit-symlinks-when-doing-preset-all.patch
+Patch8: man--describe-what-symlinks-to-unit-do--and-specify-that-presets-must-use-real-names.patch
+Patch9: shared-install--move-root-skipping-into-create_symlink--.patch
+Patch10: shared-install--when-creating-symlinks--keep-existing-relative-symlinks.patch
+Patch11: shared-install--properly-report-masked-units-listed-in-Also-.patch
+Patch12: Revert--pid1--reconnect-to-the-console-before-being-re-executed-.patch
+Patch13: systemd--ignore-lack-of-tty-when-checking-whether-colors-should-be-enabled.patch
+Patch14: shared-install--do-not-enable-masked-instances---4005-.patch
+Patch15: If-the-notification-message-length-is-0--ignore-the-message---4237-.patch
+Patch16: pid1--don-t-return-any-error-in-manager_dispatch_notify_fd-----4240-.patch
+Patch17: pid1--process-zero-length-notification-messages-again.patch
+Patch18: shared-install--fix-set-default-with-empty-root---4118-.patch
+Patch19: virt--add-possibility-to-skip-the-check-for-chroot---4374-.patch
+Patch20: resolved--create--etc-resolv-conf-symlink-at-runtime.patch
+Patch21: kernel-install--add-fedora-specific-callouts-to-new-kernel-pkg.patch
+Patch22: FB--add-back-compat-libs.patch
+Patch23: FB--Add-FusionIO-device--dev-fio-persistent-storage-udev-rule.patch
+Patch24: build-sys--conditionally-disable-LTO-if-requested---3823-.patch
+Patch25: tests--don-t-run-private-device-tests-if-running-in-a-container.patch
+Patch26: tests--don-t-test-hostname-if-it-looks-like-an-id128.patch
+Patch27: tests--skip-process-1-tests-if-systemd-not-is-running.patch
+Patch28: tests--skip-udev-test-if-running-inside-a-chroot.patch
+Patch29: logind--update-empty-and--infinity--handling-for--User-TasksMax---3835-.patch
+Patch30: core--add-cgroup-CPU-controller-support-on-the-unified-hierarchy.patch
+Patch31: core--no-assert-during-runtime-if-start-command-vanishes.patch
+
+
 
 
 
@@ -132,7 +156,8 @@ systemd is a system and service manager for Linux, compatible with
 SysV and LSB init scripts. systemd provides aggressive parallelization
 capabilities, uses socket and D-Bus activation for starting services,
 offers on-demand starting of daemons, keeps track of processes using
-Linux cgroups, maintains mount and automount points, and implements an
+Linux cgroups, supports snapshotting and restoring of the system
+state, maintains mount and automount points and implements an
 elaborate transactional dependency-based service control logic.
 
 %package libs
@@ -141,6 +166,8 @@ License:        LGPLv2+ and MIT
 Obsoletes:      libudev < 183
 Obsoletes:      systemd < 185-4
 Conflicts:      systemd < 185-4
+Obsoletes:      nss-myhostname < 0.4
+Provides:       nss-myhostname = 0.4
 
 %description libs
 Libraries for systemd and udev.
@@ -188,6 +215,8 @@ Requires:       kmod >= 18-4
 Obsoletes:      %{name} < 229-5
 Provides:       udev = %{version}
 Obsoletes:      udev < 183
+# https://bugzilla.redhat.com/show_bug.cgi?id=1377733#c9
+Recommends:     systemd-bootchart
 License:        LGPLv2+
 
 %description udev
@@ -246,6 +275,24 @@ systemd-journal-remote, and systemd-journal-upload.
 %patch10 -p1
 %patch11 -p1
 %patch12 -p1
+%patch13 -p1
+%patch14 -p1
+%patch15 -p1
+%patch16 -p1
+%patch17 -p1
+%patch18 -p1
+%patch19 -p1
+%patch20 -p1
+%patch21 -p1
+%patch22 -p1
+%patch23 -p1
+%patch24 -p1
+%patch25 -p1
+%patch26 -p1
+%patch27 -p1
+%patch28 -p1
+%patch29 -p1
+%patch30 -p1
 
 
 
@@ -260,10 +307,22 @@ systemd-journal-remote, and systemd-journal-upload.
 
 
 
-%ifarch ppc ppc64 ppc64le
-# Disable link warnings, somehow they cause the link to fail.
-sed -r -i 's/\blibsystemd-(login|journal|id128|daemon).c \\/\\/' Makefile.am
-%endif
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 %build
 ./autogen.sh
@@ -276,11 +335,17 @@ CONFIGURE_OPTS=(
         --libexecdir=%{_prefix}/lib
         --with-sysvinit-path=/etc/rc.d/init.d
         --with-rc-local-script-path-start=/etc/rc.d/rc.local
-        --with-ntp-servers='1.ntp.vip.facebook.com 2.ntp.vip.facebook.com 3.ntp.vip.facebook.com 4.ntp.vip.facebook.com'
-        --with-dns-servers='10.127.255.51 10.191.255.51 2401:db00:eef0:a53:: 2401:db00:eef0:b53::'
+        --with-ntp-servers='0.%{ntpvendor}.pool.ntp.org 1.%{ntpvendor}.pool.ntp.org 2.%{ntpvendor}.pool.ntp.org 3.%{ntpvendor}.pool.ntp.org'
         --without-kill-user-processes
         --disable-lto
 )
+
+%if 0%{?facebook}
+CONFIGURE_OPTS+=(
+        --with-ntp-servers='1.ntp.vip.facebook.com 2.ntp.vip.facebook.com 3.ntp.vip.facebook.com 4.ntp.vip.facebook.com'
+        --with-dns-servers='10.127.255.51 10.191.255.51 2401:db00:eef0:a53:: 2401:db00:eef0:b53::'
+)
+%endif
 
 %configure \
         "${CONFIGURE_OPTS[@]}" \
@@ -366,13 +431,13 @@ touch %{buildroot}%{_localstatedir}/lib/systemd/clock
 # Install yum protection fragment
 install -Dm0644 %{SOURCE4} %{buildroot}%{_sysconfdir}/yum/protected.d/systemd.conf
 
-mkdir -vp %{buildroot}/usr/lib/firewalld/services/
-install -Dm0644 %{SOURCE7} %{buildroot}/usr/lib/firewalld/services/
-install -Dm0644 %{SOURCE8} %{buildroot}/usr/lib/firewalld/services/
-
 # Install additional docs
 # https://bugzilla.redhat.com/show_bug.cgi?id=1234951
-install -Dm0644 %{SOURCE9} %{buildroot}%{_pkgdocdir}/
+install -Dm0644 -t %{buildroot}%{_pkgdocdir}/ %{SOURCE9}
+
+# https://bugzilla.redhat.com/show_bug.cgi?id=1378974
+mkdir -p %{buildroot}%{system_unit_dir}/systemd-udev-trigger.service.d/
+install -Dm0644 -t %{buildroot}%{system_unit_dir}/systemd-udev-trigger.service.d/ %{SOURCE10}
 
 %find_lang %{name}
 
@@ -384,8 +449,7 @@ test -z "$(grep -L xml:lang %{buildroot}%{_datadir}/polkit-1/actions/org.freedes
 
 #############################################################################################
 
-# FB: comment this out due to a bug in yummy (#12420310)
-#%include %{SOURCE1}
+%include %{SOURCE1}
 
 %pre
 getent group cdrom >/dev/null 2>&1 || groupadd -r -g 11 cdrom >/dev/null 2>&1 || :
@@ -396,18 +460,21 @@ getent group input >/dev/null 2>&1 || groupadd -r input >/dev/null 2>&1 || :
 getent group systemd-journal >/dev/null 2>&1 || groupadd -r -g 190 systemd-journal 2>&1 || :
 getent group systemd-timesync >/dev/null 2>&1 || groupadd -r systemd-timesync 2>&1 || :
 getent passwd systemd-timesync >/dev/null 2>&1 || useradd -r -l -g systemd-timesync -d / -s /sbin/nologin -c "systemd Time Synchronization" systemd-timesync >/dev/null 2>&1 || :
-getent group systemd-network >/dev/null 2>&1 || groupadd -r systemd-network 2>&1 || :
-getent passwd systemd-network >/dev/null 2>&1 || useradd -r -l -g systemd-network -d / -s /sbin/nologin -c "systemd Network Management" systemd-network >/dev/null 2>&1 || :
-getent group systemd-resolve >/dev/null 2>&1 || groupadd -r systemd-resolve 2>&1 || :
-getent passwd systemd-resolve >/dev/null 2>&1 || useradd -r -l -g systemd-resolve -d / -s /sbin/nologin -c "systemd Resolver" systemd-resolve >/dev/null 2>&1 || :
-getent group systemd-bus-proxy >/dev/null 2>&1 || groupadd -r systemd-bus-proxy 2>&1 || :
-getent passwd systemd-bus-proxy >/dev/null 2>&1 || useradd -r -l -g systemd-bus-proxy -d / -s /sbin/nologin -c "systemd Bus Proxy" systemd-bus-proxy >/dev/null 2>&1 || :
+getent group systemd-network >/dev/null 2>&1 || groupadd -r -g 192 systemd-network 2>&1 || :
+getent passwd systemd-network >/dev/null 2>&1 || useradd -r -u 192 -l -g systemd-network -d / -s /sbin/nologin -c "systemd Network Management" systemd-network >/dev/null 2>&1 || :
+getent group systemd-resolve >/dev/null 2>&1 || groupadd -r -g 193 systemd-resolve 2>&1 || :
+getent passwd systemd-resolve >/dev/null 2>&1 || useradd -r -u 193 -l -g systemd-resolve -d / -s /sbin/nologin -c "systemd Resolver" systemd-resolve >/dev/null 2>&1 || :
 
 %post
 systemd-machine-id-setup >/dev/null 2>&1 || :
 systemctl daemon-reexec >/dev/null 2>&1 || :
 journalctl --update-catalog >/dev/null 2>&1 || :
 systemd-tmpfiles --create >/dev/null 2>&1 || :
+
+if [ $1 -eq 1 ] ; then
+     # create /var/log/journal only on initial installation
+     mkdir -p %{_localstatedir}/log/journal
+fi
 
 # Make sure new journal files will be owned by the "systemd-journal" group
 chgrp systemd-journal /run/log/journal/ /run/log/journal/`cat /etc/machine-id 2> /dev/null` /var/log/journal/ /var/log/journal/`cat /etc/machine-id 2> /dev/null` >/dev/null 2>&1 || :
@@ -423,34 +490,23 @@ ln -s /usr/lib/systemd/system/rsyslog.service /etc/systemd/system/syslog.service
 # Remove spurious /etc/fstab entries from very old installations
 # https://bugzilla.redhat.com/show_bug.cgi?id=1009023
 if [ -e /etc/fstab ]; then
-grep -v -E -q '^(devpts|tmpfs|sysfs|proc)' /etc/fstab || \
-    sed -i.rpm.bak -r '/^devpts\s+\/dev\/pts\s+devpts\s+defaults\s+/d; /^tmpfs\s+\/dev\/shm\s+tmpfs\s+defaults\s+/d; /^sysfs\s+\/sys\s+sysfs\s+defaults\s+/d; /^proc\s+\/proc\s+proc\s+defaults\s+/d' /etc/fstab || :
+   grep -v -E -q '^(devpts|tmpfs|sysfs|proc)' /etc/fstab || \
+         sed -i.rpm.bak -r '/^devpts\s+\/dev\/pts\s+devpts\s+defaults\s+/d; /^tmpfs\s+\/dev\/shm\s+tmpfs\s+defaults\s+/d; /^sysfs\s+\/sys\s+sysfs\s+defaults\s+/d; /^proc\s+\/proc\s+proc\s+defaults\s+/d' /etc/fstab || :
 fi
 
-# We reset the enablement of all services upon initial installation
-# https://bugzilla.redhat.com/show_bug.cgi?id=1118740#c23
+# Services we install by default, and which are controlled by presets.
 if [ $1 -eq 1 ] ; then
-        systemctl preset-all &>/dev/null || :
-fi
-
-# sed-fu to add myhostanme to hosts line and remove mymachines
-# from passwd and group lines of /etc/nsswitch.conf
-# https://bugzilla.redhat.com/show_bug.cgi?id=1284325
-# https://meetbot.fedoraproject.org/fedora-meeting/2015-11-25/fesco.2015-11-25-18.00.html
-# To avoid the removal, e.g. add a space at the end of the line.
-if [ -f /etc/nsswitch.conf ] ; then
-        grep -v -E -q '^hosts:.* myhostname' /etc/nsswitch.conf &&
-        sed -i.bak -e '
-                /^hosts:/ !b
-                /\<myhostname\>/ b
-                s/[[:blank:]]*$/ myhostname/
-                ' /etc/nsswitch.conf >/dev/null 2>&1 || :
-
-        grep -E -q '^(passwd|group):.* mymachines$' /etc/nsswitch.conf &&
-        sed -i.bak -r -e '
-                s/^(passwd:.*) mymachines$/\1/;
-                s/^(group:.*) mymachines$/\1/;
-                ' /etc/nsswitch.conf >/dev/null 2>&1 || :
+        systemctl preset \
+                remote-fs.target \
+                getty@.service \
+                serial-getty@.service \
+                console-getty.service \
+                console-shell.service \
+                debug-shell.service \
+                systemd-networkd.service \
+                systemd-networkd-wait-online.service \
+                systemd-resolved.service \
+                >/dev/null 2>&1 || :
 fi
 
 # remove obsolete systemd-readahead file
@@ -473,25 +529,32 @@ if [ $1 -eq 0 ] ; then
                 >/dev/null 2>&1 || :
 
         rm -f /etc/systemd/system/default.target >/dev/null 2>&1 || :
-
-        if [ -f /etc/nsswitch.conf ] ; then
-                sed -i.bak -e '
-                        /^hosts:/ !b
-                        s/[[:blank:]]\+myhostname\>//
-                        ' /etc/nsswitch.conf >/dev/null 2>&1 || :
-
-                sed -i.bak -e '
-                        /^hosts:/ !b
-                        s/[[:blank:]]\+mymachines\>//
-                        ' /etc/nsswitch.conf >/dev/null 2>&1 || :
-        fi
 fi
 
-%post libs -p /sbin/ldconfig
-%postun libs -p /sbin/ldconfig
+%post libs
+/sbin/ldconfig
 
-%post compat-libs -p /sbin/ldconfig
-%postun compat-libs -p /sbin/ldconfig
+# sed-fu to add myhostanme to hosts line and remove mymachines
+# from passwd and group lines of /etc/nsswitch.conf
+# https://bugzilla.redhat.com/show_bug.cgi?id=1284325
+# https://meetbot.fedoraproject.org/fedora-meeting/2015-11-25/fesco.2015-11-25-18.00.html
+# To avoid the removal, e.g. add a space at the end of the line.
+if [ -f /etc/nsswitch.conf ] ; then
+        grep -v -E -q '^hosts:.* myhostname' /etc/nsswitch.conf &&
+        sed -i.bak -e '
+                /^hosts:/ !b
+                /\<myhostname\>/ b
+                s/[[:blank:]]*$/ myhostname/
+                ' /etc/nsswitch.conf >/dev/null 2>&1 || :
+
+        grep -E -q '^(passwd|group):.* mymachines$' /etc/nsswitch.conf &&
+        sed -i.bak -r -e '
+                s/^(passwd:.*) mymachines$/\1/;
+                s/^(group:.*) mymachines$/\1/;
+                ' /etc/nsswitch.conf >/dev/null 2>&1 || :
+fi
+
+%postun libs -p /sbin/ldconfig
 
 %global udev_services systemd-udev{d,-settle,-trigger}.service systemd-udevd-{control,kernel}.socket systemd-timesyncd.service
 
@@ -515,7 +578,9 @@ exit 0
 %systemd_preun %udev_services
 
 %postun udev
-%systemd_postun_with_restart %udev_services
+# Only restart systemd-udev, to run the upgraded dameon.
+# Others are either oneshot services, or sockets, and restarting them causes issues (#1378974)
+%systemd_postun_with_restart systemd-udevd.service
 
 %pre journal-remote
 getent group systemd-journal-gateway >/dev/null 2>&1 || groupadd -r -g 191 systemd-journal-gateway 2>&1 || :
@@ -543,7 +608,6 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %global _docdir_fmt %{name}
 
 %files -f %{name}.lang
-%{!?_licensedir:%global license %%doc}
 %doc %{_pkgdocdir}
 %exclude %{_pkgdocdir}/LICENSE.*
 %license LICENSE.GPL2 LICENSE.LGPL2.1
@@ -579,7 +643,7 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %dir %{_datadir}/pkgconfig
 %dir %{_datadir}/zsh
 %dir %{_datadir}/zsh/site-functions
-%dir %attr(2755,root,systemd-journal) %verify(not mode) %{_localstatedir}/log/journal
+%ghost %dir %{_localstatedir}/log/journal
 %dir %{_localstatedir}/lib/systemd
 %dir %{_localstatedir}/lib/systemd/catalog
 %ghost %dir %{_localstatedir}/lib/systemd/coredump
@@ -966,20 +1030,55 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %{_prefix}/lib/sysusers.d/systemd-remote.conf
 %dir %attr(0644,systemd-journal-upload,systemd-journal-upload) %{_localstatedir}/lib/systemd/journal-upload
 %{_datadir}/systemd/gatewayd
-/usr/lib/firewalld/services/*
 %{_mandir}/man[1578]/*journal-remote.*
 %{_mandir}/man[1578]/systemd-journal-upload*
 %{_mandir}/man[1578]/systemd-journal-gateway*
 %{_mandir}/man[1578]/systemd-nspawn.*
 
 %changelog
+* Mon Apr  3 2017 Davide Cavalca <dcavalca@fb.com> - 231-11.fb1
+- use facebook macro to gate Facebook-specific settings
+- rebuild against new RPM backport
+- update patches
+
 * Tue Mar 14 2017 Patrick White <pwhite@fb.com> - 231-2.fb4
 - add poettering patch to fix hitting an assert (PR#4447)
+
+* Tue Oct 18 2016 Jan Synáček <jsynacek@redhat.com> - 231-11
+- SPC - Cannot restart host operating from container (#1384523)
+
+* Sun Oct  9 2016 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 231-10
+- Do not recreate /var/log/journal on upgrades (#1383066)
+- Move nss-myhostname provides to systemd-libs (#1383271)
+
+* Fri Oct  7 2016 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 231-9
+- Fix systemctl set-default (#1374371)
+- Prevent systemd-udev-trigger.service from restarting (follow-up for #1378974)
+
+* Tue Oct  4 2016 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 231-8
+- Apply fix for #1378974
+
+* Mon Oct  3 2016 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 231-7
+- Apply patches properly
+
+* Thu Sep 29 2016 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 231-6
+- Better fix for (#1380286)
+
+* Thu Sep 29 2016 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 231-5
+- Denial-of-service bug against pid1 (#1380286)
+
+* Thu Aug 25 2016 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 231-4
+- Fix preset-all (#1363858)
+- Fix issue with daemon-reload messing up graphics (#1367766)
+- A few other bugfixes
 
 * Wed Aug 10 2016 Davide Cavalca <dcavalca@fb.com> - 231-2.fb3
 - add mpawlowski root filesystem namespace patch for #12621017
 - add htejun patch for cgroup2 cpu controller (PR#3905)
 - update htejun logind patch from PR#3835
+
+* Wed Aug 03 2016 Adam Williamson <awilliam@redhat.com> - 231-3
+- Revert preset-all change, it broke stuff (#1363858)
 
 * Thu Jul 28 2016 Davide Cavalca <dcavalca@fb.com> - 231-2.fb2
 - add /dev/fio patch from bwann for GH#3718

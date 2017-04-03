@@ -1,0 +1,92 @@
+commit 6c020f6f7227d751b523d0a43774d9d7987c333f
+Author: Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl>
+Date:   Sat Aug 13 09:38:12 2016 -0400
+
+    yummy:patchX:man--describe-what-symlinks-to-unit-do--and-specify-that-presets-must-use-real-names.patch
+
+man: describe what symlinks to unit do, and specify that presets must use real names
+
+    
+    The man pages didn't ever mention that symlinks to units can be created, and what
+    exactly this means. Fix that omission, and disallow presets on alias names.
+    
+    (cherry picked from commit d923e42eed9a29137821760dafecb13798264c07)
+
+diff --git a/man/systemctl.xml b/man/systemctl.xml
+index e7880d2..8b73e91 100644
+--- a/man/systemctl.xml
++++ b/man/systemctl.xml
+@@ -1088,7 +1088,8 @@ kobject-uevent 1 systemd-udevd-kernel.socket systemd-udevd.service
+             enabled and disabled, or only enabled, or only disabled.</para>
+ 
+             <para>If the unit carries no install information, it will be silently ignored
+-            by this command.</para>
++            by this command. <replaceable>NAME</replaceable> must be the real unit name,
++            any alias names are ignored silently.</para>
+ 
+             <para>For more information on the preset policy format, see
+             <citerefentry><refentrytitle>systemd.preset</refentrytitle><manvolnum>5</manvolnum></citerefentry>.
+diff --git a/man/systemd.preset.xml b/man/systemd.preset.xml
+index b716401..d09167b 100644
+--- a/man/systemd.preset.xml
++++ b/man/systemd.preset.xml
+@@ -98,6 +98,10 @@
+     Empty lines and lines whose first non-whitespace character is # or
+     ; are ignored.</para>
+ 
++    <para>Presets must refer to the "real" unit file, and not to any aliases. See
++    <citerefentry><refentrytitle>systemd.unit</refentrytitle><manvolnum>5</manvolnum></citerefentry>
++    for a description of unit aliasing.</para>
++
+     <para>Two different directives are understood:
+     <literal>enable</literal> may be used to enable units by default,
+     <literal>disable</literal> to disable units by default.</para>
+diff --git a/man/systemd.unit.xml b/man/systemd.unit.xml
+index 85a7b12..f818e77 100644
+--- a/man/systemd.unit.xml
++++ b/man/systemd.unit.xml
+@@ -144,21 +144,31 @@
+     <option>false</option> and <option>off</option> are
+     equivalent.</para>
+ 
+-    <para>Time span values encoded in unit files can be written in
+-    various formats. A stand-alone number specifies a time in seconds.
+-    If suffixed with a time unit, the unit is honored. A concatenation
+-    of multiple values with units is supported, in which case the
+-    values are added up. Example: "50" refers to 50 seconds; "2min
+-    200ms" refers to 2 minutes plus 200 milliseconds, i.e. 120200ms.
+-    The following time units are understood: s, min, h, d, w, ms, us.
+-    For details see
++    <para>Time span values encoded in unit files can be written in various formats. A stand-alone number specifies a
++    time in seconds.  If suffixed with a time unit, the unit is honored. A concatenation of multiple values with units
++    is supported, in which case the values are added up. Example: <literal>50</literal> refers to 50 seconds;
++    <literal>2min 200ms</literal> refers to 2 minutes and 200 milliseconds, i.e. 120200 ms.  The following time units
++    are understood: <literal>s</literal>, <literal>min</literal>, <literal>h</literal>, <literal>d</literal>,
++    <literal>w</literal>, <literal>ms</literal>, <literal>us</literal>.  For details see
+     <citerefentry><refentrytitle>systemd.time</refentrytitle><manvolnum>7</manvolnum></citerefentry>.</para>
+ 
+-    <para>Empty lines and lines starting with # or ; are
+-    ignored. This may be used for commenting. Lines ending
+-    in a backslash are concatenated with the following
+-    line while reading and the backslash is replaced by a
+-    space character. This may be used to wrap long lines.</para>
++    <para>Empty lines and lines starting with <literal>#</literal> or <literal>;</literal> are ignored. This may be
++    used for commenting. Lines ending in a backslash are concatenated with the following line while reading and the
++    backslash is replaced by a space character. This may be used to wrap long lines.</para>
++
++    <para>Units can be aliased (have an alternative name), by creating a symlink from the new name to the existing name
++    in one of the unit search paths. For example, <filename>systemd-networkd.service</filename> has the alias
++    <filename>dbus-org.freedesktop.network1.service</filename>, created during installation as the symlink
++    <filename>/usr/lib/systemd/system/dbus-org.freedesktop.network1.service</filename>. In addition, unit files may
++    specify aliases through the <varname>Alias=</varname> directive in the [Install] section; those aliases are only
++    effective when the unit is enabled. When the unit is enabled, symlinks will be created for those names, and removed
++    when the unit is disabled. For example, <filename>reboot.target</filename> specifies
++    <varname>Alias=ctrl-alt-del.target</varname>, so when enabled it will be invoked whenever CTRL+ALT+DEL is
++    pressed. Alias names may be used in commands like <command>enable</command>, <command>disable</command>,
++    <command>start</command>, <command>stop</command>, <command>status</command>, …, and in unit dependency directives
++    <varname>Wants=</varname>, <varname>Requires=</varname>, <varname>Before=</varname>, <varname>After=</varname>, …,
++    with the limitation that aliases specified through <varname>Alias=</varname> are only effective when the unit is
++    enabled. Aliases cannot be used with the <command>preset</command> command.</para>
+ 
+     <para>Along with a unit file <filename>foo.service</filename>, the
+     directory <filename>foo.service.wants/</filename> may exist. All

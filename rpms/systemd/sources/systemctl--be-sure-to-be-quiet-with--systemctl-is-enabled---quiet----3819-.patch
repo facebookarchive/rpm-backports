@@ -1,0 +1,33 @@
+commit 17f5ece6a9d241d994f7487f923d36969d5ae483
+Author: Christian Rebischke <Chris.Rebischke@posteo.de>
+Date:   Thu Jul 28 04:40:20 2016 +0200
+
+    yummy:patchX:systemctl--be-sure-to-be-quiet-with--systemctl-is-enabled---quiet----3819-.patch
+
+systemctl: be sure to be quiet with 'systemctl is-enabled --quiet' (#3819)
+
+    
+    Fixes #3813.
+    (cherry picked from commit 689e4e6a94222b4d58a8b9cb3c51cc2f82268aa9)
+
+diff --git a/src/systemctl/systemctl.c b/src/systemctl/systemctl.c
+index 6a0ed79..6e61eea 100644
+--- a/src/systemctl/systemctl.c
++++ b/src/systemctl/systemctl.c
+@@ -5566,10 +5566,12 @@ static int enable_sysv_units(const char *verb, char **args) {
+                 if (!found_sysv)
+                         continue;
+ 
+-                if (found_native)
+-                        log_info("Synchronizing state of %s with SysV service script with %s.", name, argv[0]);
+-                else
+-                        log_info("%s is not a native service, redirecting to systemd-sysv-install.", name);
++                if (!arg_quiet) {
++                        if (found_native)
++                                log_info("Synchronizing state of %s with SysV service script with %s.", name, argv[0]);
++                        else
++                                log_info("%s is not a native service, redirecting to systemd-sysv-install.", name);
++                }
+ 
+                 if (!isempty(arg_root))
+                         argv[c++] = q = strappend("--root=", arg_root);

@@ -1,0 +1,26 @@
+commit 869033f4e96c5092d910f0c1b16ca452d107a1f5
+Author: Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl>
+Date:   Thu Aug 11 21:53:32 2016 -0400
+
+    yummy:patchX:systemctl--fix-preset-all-with-missing--etc-systemd-system.patch
+
+systemctl: fix preset-all with missing /etc/systemd/system
+
+    
+    If the directory is missing, we can assume that those pesky symlinks are gone too.
+    
+    (cherry picked from commit 32d9493e593fed7fe5b4dd1e92fe4fd419042fe5)
+
+diff --git a/src/shared/install.c b/src/shared/install.c
+index 7b49e1e..2d93060 100644
+--- a/src/shared/install.c
++++ b/src/shared/install.c
+@@ -620,7 +620,7 @@ static int remove_marked_symlinks(
+ 
+         fd = open(config_path, O_RDONLY|O_NONBLOCK|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
+         if (fd < 0)
+-                return -errno;
++                return errno == ENOENT ? 0 : -errno;
+ 
+         do {
+                 int q, cfd;

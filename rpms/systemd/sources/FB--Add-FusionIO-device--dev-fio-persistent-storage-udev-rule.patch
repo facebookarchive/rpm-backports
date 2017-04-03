@@ -1,10 +1,10 @@
-commit 2cb69b65feaf30a5966fda4d70f29f2a6d601769
+commit fd80024c99a9226f50814208d001d98ff1a3beee
 Author: Davide Cavalca <dcavalca@fb.com>
-Date:   Thu Jul 28 15:14:54 2016 -0700
+Date:   Fri Feb 17 11:03:26 2017 -0800
 
-    yummy:patchX:FB--Add-FusionIO-device---dev-fio--persistent-storage-udev-rule.patch
+    yummy:patchX:FB--Add-FusionIO-device--dev-fio-persistent-storage-udev-rule.patch
 
-FB: Add FusionIO device (/dev/fio) persistent-storage udev rule
+FB: Add FusionIO device /dev/fio persistent storage udev rule
 
 
 diff --git a/rules/60-persistent-storage.rules b/rules/60-persistent-storage.rules

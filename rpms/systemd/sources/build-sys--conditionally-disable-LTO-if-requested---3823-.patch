@@ -1,10 +1,10 @@
-commit 1e77741803934b995e03298e0b7ff9ce96230788
-Author: Davide Cavalca <dcavalca@fb.com>
-Date:   Wed Jul 27 12:30:05 2016 -0700
+commit e5ce3c06f00960b860921f205f53623fab01d8c1
+Author: Davide Cavalca <davide125@tiscali.it>
+Date:   Thu Jul 28 20:42:45 2016 -0700
 
-    yummy:patchX:build-sys--conditionally-disable-LTO-if-requested.patch
+    yummy:patchX:build-sys--conditionally-disable-LTO-if-requested---3823-.patch
 
-build-sys: conditionally disable LTO if requested
+build-sys: conditionally disable LTO if requested (#3823)
 
     
     This adds a --disable-lto option to ./configure, but does not change the

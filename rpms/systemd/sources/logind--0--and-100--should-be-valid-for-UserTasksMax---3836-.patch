@@ -1,0 +1,27 @@
+commit a99d2c07e1aed58dc9b8e79bef3de609ebd55364
+Author: Tejun Heo <htejun@fb.com>
+Date:   Sun Jul 31 21:38:47 2016 -0400
+
+    yummy:patchX:logind--0--and-100--should-be-valid-for-UserTasksMax---3836-.patch
+
+logind: 0% and 100% should be valid for UserTasksMax (#3836)
+
+    
+    config_parse_user_tasks_max() was incorrectly accepting percentage value
+    between 1 and 99.  Update it to accept 0% and 100%.  This brings it in line
+    with TasksMax handling in systemd.
+    (cherry picked from commit cb3e4417590196bd30e1b8097348dca6ba34bd15)
+
+diff --git a/src/login/logind-user.c b/src/login/logind-user.c
+index 348e396..6336303 100644
+--- a/src/login/logind-user.c
++++ b/src/login/logind-user.c
+@@ -893,7 +893,7 @@ int config_parse_user_tasks_max(
+ 
+         /* First, try to parse as percentage */
+         r = parse_percent(rvalue);
+-        if (r > 0 && r < 100)
++        if (r >= 0)
+                 k = system_tasks_max_scale(r, 100U);
+         else {
+ 
