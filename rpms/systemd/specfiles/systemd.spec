@@ -11,7 +11,7 @@
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
 Version:        231
-Release:        11.fb1
+Release:        11.fb2
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        A System and Service Manager
@@ -45,7 +45,11 @@ BuildRequires:  libacl-devel
 BuildRequires:  gobject-introspection-devel
 BuildRequires:  libblkid-devel
 BuildRequires:  xz-devel
+%if 0%{?rhel}
+BuildRequires:  lz4-devel < 1.7.3
+%else
 BuildRequires:  lz4-devel
+%endif
 BuildRequires:  bzip2-devel
 BuildRequires:  libidn-devel
 BuildRequires:  libcurl-devel
@@ -1036,6 +1040,9 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %{_mandir}/man[1578]/systemd-nspawn.*
 
 %changelog
+* Wed Apr 12 2017 Davide Cavalca <dcavalca@fb.com> - 231-11.fb2
+- fix lz4 depends to pick the right package
+
 * Mon Apr  3 2017 Davide Cavalca <dcavalca@fb.com> - 231-11.fb1
 - use facebook macro to gate Facebook-specific settings
 - rebuild against new RPM backport
