@@ -1,4 +1,4 @@
-commit e539116767ba7bfab01e2b0f510b5b6b8f12d051
+commit 669b1f7784d6effe75c8ff070819d6fd9ff8af7b
 Author: Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl>
 Date:   Fri Mar 11 17:06:17 2016 -0500
 
@@ -18,7 +18,7 @@ resolved: create /etc/resolv.conf symlink at runtime
     https://bugzilla.redhat.com/show_bug.cgi?id=1313085
 
 diff --git a/src/resolve/resolved.c b/src/resolve/resolved.c
-index deb75f9..914d3b8 100644
+index 74603f9..b9d965d 100644
 --- a/src/resolve/resolved.c
 +++ b/src/resolve/resolved.c
 @@ -67,6 +67,10 @@ int main(int argc, char *argv[]) {

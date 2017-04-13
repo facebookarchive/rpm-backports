@@ -1,0 +1,22 @@
+commit 608e37dbde8971eb6945d65bf6b2bb720c3ec901
+Author: Davide Cavalca <dcavalca@fb.com>
+Date:   Tue Apr 4 16:04:36 2017 -0700
+
+    yummy:patchX:FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
+
+FB: Add FusionIO device /dev/fio persistante storage udev rule
+
+
+diff --git a/rules/60-persistent-storage.rules b/rules/60-persistent-storage.rules
+index 9817e9c..1e6e7fd 100644
+--- a/rules/60-persistent-storage.rules
++++ b/rules/60-persistent-storage.rules
+@@ -7,7 +7,7 @@ ACTION=="remove", GOTO="persistent_storage_end"
+ ENV{UDEV_DISABLE_PERSISTENT_STORAGE_RULES_FLAG}=="1", GOTO="persistent_storage_end"
+ 
+ SUBSYSTEM!="block", GOTO="persistent_storage_end"
+-KERNEL!="loop*|mmcblk*[0-9]|msblk*[0-9]|mspblk*[0-9]|nvme*|sd*|sr*|vd*|xvd*|bcache*|cciss*|dasd*|ubd*|scm*|pmem*|nbd*", GOTO="persistent_storage_end"
++KERNEL!="loop*|mmcblk*[0-9]|msblk*[0-9]|mspblk*[0-9]|fio*|nvme*|sd*|sr*|vd*|xvd*|bcache*|cciss*|dasd*|ubd*|scm*|pmem*|nbd*", GOTO="persistent_storage_end"
+ 
+ # ignore partitions that span the entire disk
+ TEST=="whole_disk", GOTO="persistent_storage_end"

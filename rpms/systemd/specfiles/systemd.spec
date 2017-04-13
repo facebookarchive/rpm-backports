@@ -6,15 +6,15 @@
 %global pkgdir %{_prefix}/lib/systemd
 %global system_unit_dir %{pkgdir}/system
 
-%global _pkgdocdir %{_docdir}/systemd
+%global user_unit_dir %{pkgdir}/user
 
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
-Version:        231
-Release:        11.fb2
+Version:        233
+Release:        2.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
-Summary:        A System and Service Manager
+Summary:        System and Service Manager
 
 # download tarballs with "spectool -g systemd.spec"
 %if %{defined gitcommit}
@@ -33,6 +33,12 @@ Source7:        systemd-journal-remote.xml
 Source8:        systemd-journal-gatewayd.xml
 Source9:        20-yama-ptrace.conf
 Source10:       systemd-udev-trigger-no-reload.conf
+Source11:       20-grubby.install
+Source12:       https://raw.githubusercontent.com/systemd/systemd/1000522a60ceade446773c67031b47a566d4a70d/src/login/systemd-user.m4
+
+%ifarch %{ix86} x86_64 aarch64
+%global have_gnu_efi 1
+%endif
 
 BuildRequires:  libcap-devel
 BuildRequires:  libmount-devel
@@ -45,11 +51,7 @@ BuildRequires:  libacl-devel
 BuildRequires:  gobject-introspection-devel
 BuildRequires:  libblkid-devel
 BuildRequires:  xz-devel
-%if 0%{?rhel}
-BuildRequires:  lz4-devel < 1.7.3
-%else
 BuildRequires:  lz4-devel
-%endif
 BuildRequires:  bzip2-devel
 BuildRequires:  libidn-devel
 BuildRequires:  libcurl-devel
@@ -70,7 +72,7 @@ BuildRequires:  gawk
 BuildRequires:  tree
 BuildRequires:  python34-devel
 BuildRequires:  python34-lxml
-%ifarch %{ix86} x86_64 aarch64
+%if 0%{?have_gnu_efi}
 BuildRequires:  gnu-efi gnu-efi-devel
 %endif
 BuildRequires:  libseccomp-devel
@@ -85,7 +87,7 @@ Requires(post): grep
 Requires(pre):  coreutils
 Requires(pre):  /usr/bin/getent
 Requires(pre):  /usr/sbin/groupadd
-Requires:       dbus
+Requires:       dbus >= 1.9.18
 Requires:       %{name}-pam = %{version}-%{release}
 Requires:       %{name}-libs = %{version}-%{release}
 Recommends:     diffutils
@@ -107,62 +109,28 @@ Provides:       systemd-sysv = 206
 Conflicts:      fedora-release < 23-0.12
 %endif
 
-Patch0: systemctl--be-sure-to-be-quiet-with--systemctl-is-enabled---quiet----3819-.patch
-Patch1: logind--0--and-100--should-be-valid-for-UserTasksMax---3836-.patch
-Patch2: systemd-ask-password--make-sure-directory-watch-is-started-before-cryptsetup---3850-.patch
-Patch3: Revert--logind--really-handle--KeyIgnoreInhibited-options-in-logind-conf-.patch
-Patch4: man--explain-that--KeyIgnoreInhibited-only-apply-to-a-subset-of-locks.patch
-Patch5: systemctl--fix-preset-all-with-missing--etc-systemd-system.patch
-Patch6: shared-install--remove-unused-paramater-and-add-more-comments.patch
-Patch7: shared-install--ignore-unit-symlinks-when-doing-preset-all.patch
-Patch8: man--describe-what-symlinks-to-unit-do--and-specify-that-presets-must-use-real-names.patch
-Patch9: shared-install--move-root-skipping-into-create_symlink--.patch
-Patch10: shared-install--when-creating-symlinks--keep-existing-relative-symlinks.patch
-Patch11: shared-install--properly-report-masked-units-listed-in-Also-.patch
-Patch12: Revert--pid1--reconnect-to-the-console-before-being-re-executed-.patch
-Patch13: systemd--ignore-lack-of-tty-when-checking-whether-colors-should-be-enabled.patch
-Patch14: shared-install--do-not-enable-masked-instances---4005-.patch
-Patch15: If-the-notification-message-length-is-0--ignore-the-message---4237-.patch
-Patch16: pid1--don-t-return-any-error-in-manager_dispatch_notify_fd-----4240-.patch
-Patch17: pid1--process-zero-length-notification-messages-again.patch
-Patch18: shared-install--fix-set-default-with-empty-root---4118-.patch
-Patch19: virt--add-possibility-to-skip-the-check-for-chroot---4374-.patch
-Patch20: resolved--create--etc-resolv-conf-symlink-at-runtime.patch
-Patch21: kernel-install--add-fedora-specific-callouts-to-new-kernel-pkg.patch
-Patch22: FB--add-back-compat-libs.patch
-Patch23: FB--Add-FusionIO-device--dev-fio-persistent-storage-udev-rule.patch
-Patch24: build-sys--conditionally-disable-LTO-if-requested---3823-.patch
-Patch25: tests--don-t-run-private-device-tests-if-running-in-a-container.patch
-Patch26: tests--don-t-test-hostname-if-it-looks-like-an-id128.patch
-Patch27: tests--skip-process-1-tests-if-systemd-not-is-running.patch
-Patch28: tests--skip-udev-test-if-running-inside-a-chroot.patch
-Patch29: logind--update-empty-and--infinity--handling-for--User-TasksMax---3835-.patch
-Patch30: core--add-cgroup-CPU-controller-support-on-the-unified-hierarchy.patch
-Patch31: core--no-assert-during-runtime-if-start-command-vanishes.patch
-
-
-
-
-
-
-
-
-
-
-
-
+Patch0: resolved--create--etc-resolv-conf-symlink-at-runtime.patch
+Patch1: FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
+Patch2: FB--add-back-compat-libs.patch
+Patch3: FB--temporarily-disable-broken-tests.patch
 
 
 
 
 %description
-systemd is a system and service manager for Linux, compatible with
-SysV and LSB init scripts. systemd provides aggressive parallelization
+systemd is a system and service manager that runs as PID 1 and starts
+the rest of the system. It provides aggressive parallelization
 capabilities, uses socket and D-Bus activation for starting services,
 offers on-demand starting of daemons, keeps track of processes using
-Linux cgroups, supports snapshotting and restoring of the system
-state, maintains mount and automount points and implements an
-elaborate transactional dependency-based service control logic.
+Linux control groups, maintains mount and automount points, and
+implements an elaborate transactional dependency-based service control
+logic. systemd supports SysV and LSB init scripts and works as a
+replacement for sysvinit. Other parts of this package are a logging daemon,
+utilities to control basic system configuration like the hostname,
+date, locale, maintain a list of logged-in users and running
+containers and virtual machines, system accounts, runtime directories
+and settings, and daemons to manage simple network configuration,
+network time synchronization, log forwarding, and name resolution.
 
 %package libs
 Summary:        systemd libraries
@@ -172,6 +140,9 @@ Obsoletes:      systemd < 185-4
 Conflicts:      systemd < 185-4
 Obsoletes:      nss-myhostname < 0.4
 Provides:       nss-myhostname = 0.4
+Provides:       nss-myhostname%{_isa} = 0.4
+Requires(post): sed
+Requires(post): grep
 
 %description libs
 Libraries for systemd and udev.
@@ -201,7 +172,10 @@ License:        LGPLv2+ and MIT
 Requires:       %{name}-libs%{?_isa} = %{version}-%{release}
 Requires:       %{name}-compat-libs%{?_isa} = %{version}-%{release}
 Provides:       libudev-devel = %{version}
+Provides:       libudev-devel%{_isa} = %{version}
 Obsoletes:      libudev-devel < 183
+# Fake dependency to make sure systemd-pam is pulled into multilib (#1414153)
+Requires:       %{name}-pam = %{version}-%{release}
 
 %description devel
 Development headers and auxiliary files for developing applications linking
@@ -218,6 +192,7 @@ Requires:       kmod >= 18-4
 # obsolete parent package so that dnf will install new subpackage on upgrade (#1260394)
 Obsoletes:      %{name} < 229-5
 Provides:       udev = %{version}
+Provides:       udev%{_isa} = %{version}
 Obsoletes:      udev < 183
 # https://bugzilla.redhat.com/show_bug.cgi?id=1377733#c9
 Recommends:     systemd-bootchart
@@ -255,6 +230,7 @@ Requires(post):   systemd
 Requires(preun):  systemd
 Requires(postun): systemd
 Provides:       %{name}-journal-gateway = %{version}-%{release}
+Provides:       %{name}-journal-gateway%{_isa} = %{version}-%{release}
 Obsoletes:      %{name}-journal-gateway < 227-7
 
 %description journal-remote
@@ -264,69 +240,27 @@ and to write journal files from serialized journal contents.
 This package contains systemd-journal-gatewayd,
 systemd-journal-remote, and systemd-journal-upload.
 
+%package tests
+Summary:       Internal unit tests for systemd
+Requires:      %{name}%{?_isa} = %{version}-%{release}
+License:       LGPLv2+
+
+%description tests
+"Installed tests" that are usually run as part of the build system.
+They can be useful to test systemd internals.
+
 %prep
 %setup -q
 %patch0 -p1
 %patch1 -p1
 %patch2 -p1
 %patch3 -p1
-%patch4 -p1
-%patch5 -p1
-%patch6 -p1
-%patch7 -p1
-%patch8 -p1
-%patch9 -p1
-%patch10 -p1
-%patch11 -p1
-%patch12 -p1
-%patch13 -p1
-%patch14 -p1
-%patch15 -p1
-%patch16 -p1
-%patch17 -p1
-%patch18 -p1
-%patch19 -p1
-%patch20 -p1
-%patch21 -p1
-%patch22 -p1
-%patch23 -p1
-%patch24 -p1
-%patch25 -p1
-%patch26 -p1
-%patch27 -p1
-%patch28 -p1
-%patch29 -p1
-%patch30 -p1
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# Restore systemd-user pam config from before "removal of Fedora-specific bits"
+cp -p %{SOURCE12} src/login/
 
 %build
 ./autogen.sh
@@ -340,7 +274,37 @@ CONFIGURE_OPTS=(
         --with-sysvinit-path=/etc/rc.d/init.d
         --with-rc-local-script-path-start=/etc/rc.d/rc.local
         --with-ntp-servers='0.%{ntpvendor}.pool.ntp.org 1.%{ntpvendor}.pool.ntp.org 2.%{ntpvendor}.pool.ntp.org 3.%{ntpvendor}.pool.ntp.org'
+        --enable-kmod
+        --enable-xkbcommon
+        --enable-blkid
+        --enable-seccomp
+        --enable-ima
+        --enable-selinux
+        --disable-apparmor
+        --enable-xz
+        --enable-zlib
+        --enable-bzip2
+        --enable-lz4
+        --enable-pam
+        --enable-acl
+        --enable-smack
+        --enable-gcrypt
+        --enable-audit
+        --enable-elfutils
+        --enable-libcryptsetup
+        --enable-qrencode
+        --enable-gnutls
+        --enable-microhttpd
+        --enable-libcurl
+        --enable-libidn
+        --enable-libiptc
+        --enable-polkit
+%if 0%{?have_gnu_efi}
+        --enable-gnuefi
+%endif
+        --enable-tpm
         --without-kill-user-processes
+        --enable-tests=unsafe
         --disable-lto
 )
 
@@ -348,6 +312,8 @@ CONFIGURE_OPTS=(
 CONFIGURE_OPTS+=(
         --with-ntp-servers='1.ntp.vip.facebook.com 2.ntp.vip.facebook.com 3.ntp.vip.facebook.com 4.ntp.vip.facebook.com'
         --with-dns-servers='10.127.255.51 10.191.255.51 2401:db00:eef0:a53:: 2401:db00:eef0:b53::'
+        --with-support-url='https://www.facebook.com/groups/prodos.users/'
+        --with-default-hierarchy=legacy
 )
 %endif
 
@@ -359,7 +325,7 @@ CONFIGURE_OPTS+=(
 make %{?_smp_mflags} GCC_COLORS="" V=1
 
 %install
-%make_install
+%make_install install-tests
 
 find %{buildroot} \( -name '*.a' -o -name '*.la' \) -delete
 
@@ -443,10 +409,16 @@ install -Dm0644 -t %{buildroot}%{_pkgdocdir}/ %{SOURCE9}
 mkdir -p %{buildroot}%{system_unit_dir}/systemd-udev-trigger.service.d/
 install -Dm0644 -t %{buildroot}%{system_unit_dir}/systemd-udev-trigger.service.d/ %{SOURCE10}
 
+install -Dm0755 -t %{buildroot}%{_prefix}/lib/kernel/install.d/ %{SOURCE11}
+
+mkdir -p %{buildroot}/etc/polkit-1/localauthority/10-vendor.d
+mv %{buildroot}/var/lib/polkit-1/localauthority/10-vendor.d/systemd-networkd.pkla \
+   %{buildroot}/etc/polkit-1/localauthority/10-vendor.d/
+
 %find_lang %{name}
 
 %check
-make check VERBOSE=1 || { cat test-suite.log; exit 1; }
+make check %{?_smp_mflags} VERBOSE=1 || { cat test-suite.log; exit 1; }
 
 # Check for botched translations (https://bugzilla.redhat.com/show_bug.cgi?id=1226566)
 test -z "$(grep -L xml:lang %{buildroot}%{_datadir}/polkit-1/actions/org.freedesktop.*.policy)"
@@ -456,24 +428,30 @@ test -z "$(grep -L xml:lang %{buildroot}%{_datadir}/polkit-1/actions/org.freedes
 %include %{SOURCE1}
 
 %pre
-getent group cdrom >/dev/null 2>&1 || groupadd -r -g 11 cdrom >/dev/null 2>&1 || :
-getent group utmp >/dev/null 2>&1 || groupadd -r -g 22 utmp >/dev/null 2>&1 || :
-getent group tape >/dev/null 2>&1 || groupadd -r -g 33 tape >/dev/null 2>&1 || :
-getent group dialout >/dev/null 2>&1 || groupadd -r -g 18 dialout >/dev/null 2>&1 || :
-getent group input >/dev/null 2>&1 || groupadd -r input >/dev/null 2>&1 || :
-getent group systemd-journal >/dev/null 2>&1 || groupadd -r -g 190 systemd-journal 2>&1 || :
-getent group systemd-timesync >/dev/null 2>&1 || groupadd -r systemd-timesync 2>&1 || :
-getent passwd systemd-timesync >/dev/null 2>&1 || useradd -r -l -g systemd-timesync -d / -s /sbin/nologin -c "systemd Time Synchronization" systemd-timesync >/dev/null 2>&1 || :
-getent group systemd-network >/dev/null 2>&1 || groupadd -r -g 192 systemd-network 2>&1 || :
-getent passwd systemd-network >/dev/null 2>&1 || useradd -r -u 192 -l -g systemd-network -d / -s /sbin/nologin -c "systemd Network Management" systemd-network >/dev/null 2>&1 || :
-getent group systemd-resolve >/dev/null 2>&1 || groupadd -r -g 193 systemd-resolve 2>&1 || :
-getent passwd systemd-resolve >/dev/null 2>&1 || useradd -r -u 193 -l -g systemd-resolve -d / -s /sbin/nologin -c "systemd Resolver" systemd-resolve >/dev/null 2>&1 || :
+getent group cdrom &>/dev/null || groupadd -r -g 11 cdrom &>/dev/null || :
+getent group utmp &>/dev/null || groupadd -r -g 22 utmp &>/dev/null || :
+getent group tape &>/dev/null || groupadd -r -g 33 tape &>/dev/null || :
+getent group dialout &>/dev/null || groupadd -r -g 18 dialout &>/dev/null || :
+getent group input &>/dev/null || groupadd -r input &>/dev/null || :
+getent group systemd-journal &>/dev/null || groupadd -r -g 190 systemd-journal 2>&1 || :
+
+getent group systemd-coredump &>/dev/null || groupadd -r systemd-coredump 2>&1 || :
+getent passwd systemd-coredump &>/dev/null || useradd -r -l -g systemd-coredump -d / -s /sbin/nologin -c "systemd Core Dumper" systemd-coredump &>/dev/null || :
+
+getent group systemd-timesync &>/dev/null || groupadd -r systemd-timesync 2>&1 || :
+getent passwd systemd-timesync &>/dev/null || useradd -r -l -g systemd-timesync -d / -s /sbin/nologin -c "systemd Time Synchronization" systemd-timesync &>/dev/null || :
+
+getent group systemd-network &>/dev/null || groupadd -r -g 192 systemd-network 2>&1 || :
+getent passwd systemd-network &>/dev/null || useradd -r -u 192 -l -g systemd-network -d / -s /sbin/nologin -c "systemd Network Management" systemd-network &>/dev/null || :
+
+getent group systemd-resolve &>/dev/null || groupadd -r -g 193 systemd-resolve 2>&1 || :
+getent passwd systemd-resolve &>/dev/null || useradd -r -u 193 -l -g systemd-resolve -d / -s /sbin/nologin -c "systemd Resolver" systemd-resolve &>/dev/null || :
 
 %post
-systemd-machine-id-setup >/dev/null 2>&1 || :
-systemctl daemon-reexec >/dev/null 2>&1 || :
-journalctl --update-catalog >/dev/null 2>&1 || :
-systemd-tmpfiles --create >/dev/null 2>&1 || :
+systemd-machine-id-setup &>/dev/null || :
+systemctl daemon-reexec &>/dev/null || :
+journalctl --update-catalog &>/dev/null || :
+systemd-tmpfiles --create &>/dev/null || :
 
 if [ $1 -eq 1 ] ; then
      # create /var/log/journal only on initial installation
@@ -481,15 +459,15 @@ if [ $1 -eq 1 ] ; then
 fi
 
 # Make sure new journal files will be owned by the "systemd-journal" group
-chgrp systemd-journal /run/log/journal/ /run/log/journal/`cat /etc/machine-id 2> /dev/null` /var/log/journal/ /var/log/journal/`cat /etc/machine-id 2> /dev/null` >/dev/null 2>&1 || :
-chmod g+s /run/log/journal/ /run/log/journal/`cat /etc/machine-id 2> /dev/null` /var/log/journal/ /var/log/journal/`cat /etc/machine-id 2> /dev/null` >/dev/null 2>&1 || :
+chgrp systemd-journal /run/log/journal/ /run/log/journal/`cat /etc/machine-id 2>/dev/null` /var/log/journal/ /var/log/journal/`cat /etc/machine-id 2>/dev/null` &>/dev/null || :
+chmod g+s /run/log/journal/ /run/log/journal/`cat /etc/machine-id 2>/dev/null` /var/log/journal/ /var/log/journal/`cat /etc/machine-id 2>/dev/null` &>/dev/null || :
 
 # Apply ACL to the journal directory
-setfacl -Rnm g:wheel:rx,d:g:wheel:rx,g:adm:rx,d:g:adm:rx /var/log/journal/ >/dev/null 2>&1 || :
+setfacl -Rnm g:wheel:rx,d:g:wheel:rx,g:adm:rx,d:g:adm:rx /var/log/journal/ &>/dev/null || :
 
 # Stop-gap until rsyslog.rpm does this on its own. (This is supposed
 # to fail when the link already exists)
-ln -s /usr/lib/systemd/system/rsyslog.service /etc/systemd/system/syslog.service >/dev/null 2>&1 || :
+ln -s /usr/lib/systemd/system/rsyslog.service /etc/systemd/system/syslog.service &>/dev/null || :
 
 # Remove spurious /etc/fstab entries from very old installations
 # https://bugzilla.redhat.com/show_bug.cgi?id=1009023
@@ -500,62 +478,72 @@ fi
 
 # Services we install by default, and which are controlled by presets.
 if [ $1 -eq 1 ] ; then
-        systemctl preset \
+        systemctl preset --quiet \
                 remote-fs.target \
                 getty@.service \
                 serial-getty@.service \
                 console-getty.service \
-                console-shell.service \
                 debug-shell.service \
                 systemd-networkd.service \
                 systemd-networkd-wait-online.service \
                 systemd-resolved.service \
-                >/dev/null 2>&1 || :
+                >/dev/null || :
 fi
 
 # remove obsolete systemd-readahead file
-rm -f /.readahead > /dev/null 2>&1 || :
+rm -f /.readahead &>/dev/null || :
 
 %preun
 if [ $1 -eq 0 ] ; then
-        systemctl disable \
+        systemctl disable --quiet \
                 remote-fs.target \
                 getty@.service \
                 serial-getty@.service \
                 console-getty.service \
-                console-shell.service \
                 debug-shell.service \
                 systemd-readahead-replay.service \
                 systemd-readahead-collect.service \
                 systemd-networkd.service \
                 systemd-networkd-wait-online.service \
                 systemd-resolved.service \
-                >/dev/null 2>&1 || :
+                >/dev/null || :
 
-        rm -f /etc/systemd/system/default.target >/dev/null 2>&1 || :
+        rm -f /etc/systemd/system/default.target &>/dev/null || :
 fi
 
 %post libs
 /sbin/ldconfig
 
-# sed-fu to add myhostanme to hosts line and remove mymachines
-# from passwd and group lines of /etc/nsswitch.conf
-# https://bugzilla.redhat.com/show_bug.cgi?id=1284325
-# https://meetbot.fedoraproject.org/fedora-meeting/2015-11-25/fesco.2015-11-25-18.00.html
-# To avoid the removal, e.g. add a space at the end of the line.
 if [ -f /etc/nsswitch.conf ] ; then
+        # sed-fu to add myhostanme to hosts line
         grep -v -E -q '^hosts:.* myhostname' /etc/nsswitch.conf &&
         sed -i.bak -e '
                 /^hosts:/ !b
                 /\<myhostname\>/ b
                 s/[[:blank:]]*$/ myhostname/
-                ' /etc/nsswitch.conf >/dev/null 2>&1 || :
+                ' /etc/nsswitch.conf &>/dev/null || :
 
+        # remove mymachines from passwd and group lines of /etc/nsswitch.conf
+        # https://bugzilla.redhat.com/show_bug.cgi?id=1284325
+        # https://meetbot.fedoraproject.org/fedora-meeting/2015-11-25/fesco.2015-11-25-18.00.html
+        # To avoid the removal, e.g. add a space at the end of the line.
         grep -E -q '^(passwd|group):.* mymachines$' /etc/nsswitch.conf &&
         sed -i.bak -r -e '
                 s/^(passwd:.*) mymachines$/\1/;
                 s/^(group:.*) mymachines$/\1/;
-                ' /etc/nsswitch.conf >/dev/null 2>&1 || :
+                ' /etc/nsswitch.conf &>/dev/null || :
+
+        # Add [!UNAVAIL=return] after resolve
+        grep -E -q '^hosts:.*resolve[[:space:]]*($|[[:alpha:]])' /etc/nsswitch.conf &&
+        sed -i.bak -e '
+                /^hosts:/ { s/resolve/& [!UNAVAIL=return]/}
+                ' /etc/nsswitch.conf &>/dev/null || :
+
+        # Add nss-systemd to passwd and group
+        grep -E -q '^(passwd|group):.* systemd' /etc/nsswitch.conf ||
+        sed -i.bak -r -e '
+                s/^(passwd|group):(.*)/\1: \2 systemd/
+                ' /etc/nsswitch.conf &>/dev/null || :
 fi
 
 %postun libs -p /sbin/ldconfig
@@ -567,7 +555,7 @@ fi
 mv %{_localstatedir}/lib/random-seed %{_localstatedir}/lib/systemd/random-seed &>/dev/null
 mv %{_localstatedir}/lib/backlight %{_localstatedir}/lib/systemd/backlight &>/dev/null
 
-udevadm hwdb --update >/dev/null 2>&1
+udevadm hwdb --update &>/dev/null
 %systemd_post %udev_services
 /usr/lib/systemd/systemd-random-seed save 2>&1
 
@@ -587,12 +575,12 @@ exit 0
 %systemd_postun_with_restart systemd-udevd.service
 
 %pre journal-remote
-getent group systemd-journal-gateway >/dev/null 2>&1 || groupadd -r -g 191 systemd-journal-gateway 2>&1 || :
-getent passwd systemd-journal-gateway >/dev/null 2>&1 || useradd -r -l -u 191 -g systemd-journal-gateway -d %{_localstatedir}/log/journal -s /sbin/nologin -c "Journal Gateway" systemd-journal-gateway >/dev/null 2>&1 || :
-getent group systemd-journal-remote >/dev/null 2>&1 || groupadd -r systemd-journal-remote 2>&1 || :
-getent passwd systemd-journal-remote >/dev/null 2>&1 || useradd -r -l -g systemd-journal-remote -d %{_localstatedir}/log/journal/remote -s /sbin/nologin -c "Journal Remote" systemd-journal-remote >/dev/null 2>&1 || :
-getent group systemd-journal-upload >/dev/null 2>&1 || groupadd -r systemd-journal-upload 2>&1 || :
-getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd-journal-upload -G systemd-journal -d %{_localstatedir}/log/journal/upload -s /sbin/nologin -c "Journal Upload" systemd-journal-upload >/dev/null 2>&1 || :
+getent group systemd-journal-gateway &>/dev/null || groupadd -r -g 191 systemd-journal-gateway 2>&1 || :
+getent passwd systemd-journal-gateway &>/dev/null || useradd -r -l -u 191 -g systemd-journal-gateway -d %{_localstatedir}/log/journal -s /sbin/nologin -c "Journal Gateway" systemd-journal-gateway &>/dev/null || :
+getent group systemd-journal-remote &>/dev/null || groupadd -r systemd-journal-remote 2>&1 || :
+getent passwd systemd-journal-remote &>/dev/null || useradd -r -l -g systemd-journal-remote -d %{_localstatedir}/log/journal/remote -s /sbin/nologin -c "Journal Remote" systemd-journal-remote &>/dev/null || :
+getent group systemd-journal-upload &>/dev/null || groupadd -r systemd-journal-upload 2>&1 || :
+getent passwd systemd-journal-upload &>/dev/null || useradd -r -l -g systemd-journal-upload -G systemd-journal -d %{_localstatedir}/log/journal/upload -s /sbin/nologin -c "Journal Upload" systemd-journal-upload &>/dev/null || :
 
 %post journal-remote
 %systemd_post systemd-journal-gatewayd.socket systemd-journal-gatewayd.service
@@ -617,6 +605,21 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %license LICENSE.GPL2 LICENSE.LGPL2.1
 %dir %{_sysconfdir}/systemd
 %dir %{_sysconfdir}/systemd/system
+%ghost %dir %{_sysconfdir}/systemd/system/basic.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/bluetooth.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/default.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/getty.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/graphical.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/local-fs.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/machines.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/multi-user.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/network-online.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/printer.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/remote-fs.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/sockets.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/sysinit.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/system-update.target.wants
+%ghost %dir %{_sysconfdir}/systemd/system/timers.target.wants
 %dir %{_sysconfdir}/systemd/user
 %dir %{_sysconfdir}/systemd/network
 %dir %{_sysconfdir}/tmpfiles.d
@@ -632,6 +635,7 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %exclude %{pkgdir}/system-generators/systemd-gpt-auto-generator
 %exclude %{pkgdir}/system-generators/systemd-hibernate-resume-generator
 %{pkgdir}/user-generators
+%{pkgdir}/user-environment-generators
 %dir %{pkgdir}/system-shutdown
 %dir %{pkgdir}/system-sleep
 %dir %{pkgdir}/catalog
@@ -641,9 +645,18 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %dir %{_prefix}/lib/sysctl.d
 %dir %{_prefix}/lib/modules-load.d
 %dir %{_prefix}/lib/binfmt.d
+%dir %{_prefix}/lib/environment.d
+%{_prefix}/lib/environment.d/99-environment.conf
 %dir %{_prefix}/lib/kernel
-%dir %{_prefix}/lib/kernel/install.d
 %dir %{_datadir}/systemd
+%dir %{_datadir}/dbus-1/system.d
+%{_datadir}/dbus-1/system.d/org.freedesktop.systemd1.conf
+%{_datadir}/dbus-1/system.d/org.freedesktop.hostname1.conf
+%{_datadir}/dbus-1/system.d/org.freedesktop.login1.conf
+%{_datadir}/dbus-1/system.d/org.freedesktop.locale1.conf
+%{_datadir}/dbus-1/system.d/org.freedesktop.timedate1.conf
+%{_datadir}/dbus-1/system.d/org.freedesktop.resolve1.conf
+%{_datadir}/dbus-1/system.d/org.freedesktop.network1.conf
 %dir %{_datadir}/pkgconfig
 %dir %{_datadir}/zsh
 %dir %{_datadir}/zsh/site-functions
@@ -661,19 +674,13 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %ghost %attr(0664,root,utmp) %{_localstatedir}/run/utmp
 %ghost %attr(0664,root,utmp) %{_localstatedir}/log/wtmp
 %ghost %attr(0600,root,utmp) %{_localstatedir}/log/btmp
-%config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.systemd1.conf
-%config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.hostname1.conf
-%config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.login1.conf
-%config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.locale1.conf
-%config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.timedate1.conf
-%config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.resolve1.conf
-%config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.network1.conf
 %config(noreplace) %{_sysconfdir}/systemd/system.conf
 %config(noreplace) %{_sysconfdir}/systemd/user.conf
 %config(noreplace) %{_sysconfdir}/systemd/logind.conf
 %config(noreplace) %{_sysconfdir}/systemd/journald.conf
 %config(noreplace) %{_sysconfdir}/systemd/resolved.conf
 %config(noreplace) %{_sysconfdir}/systemd/coredump.conf
+%config(noreplace) %{_sysconfdir}/systemd/system/dbus-org.freedesktop.resolve1.service
 %config(noreplace) %{_sysconfdir}/yum/protected.d/systemd.conf
 %config(noreplace) %{_sysconfdir}/pam.d/systemd-user
 %{_rpmconfigdir}/macros.d/macros.systemd
@@ -686,46 +693,47 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %ghost %config(noreplace) %{_sysconfdir}/machine-info
 %dir %{_sysconfdir}/X11/xorg.conf.d
 %ghost %config(noreplace) %{_sysconfdir}/X11/xorg.conf.d/00-keyboard.conf
-%{_bindir}/systemctl
-%{_bindir}/systemd-notify
-%{_bindir}/systemd-analyze
-%{_bindir}/systemd-escape
-%{_bindir}/systemd-ask-password
-%{_bindir}/systemd-tty-ask-password-agent
-%{_bindir}/systemd-machine-id-setup
-%{_bindir}/loginctl
-%{_bindir}/journalctl
 %{_bindir}/busctl
-%{_bindir}/networkctl
 %{_bindir}/coredumpctl
-%{_bindir}/systemd-tmpfiles
-%{_bindir}/systemd-stdio-bridge
+%{_bindir}/hostnamectl
+%{_bindir}/journalctl
+%{_bindir}/localectl
+%{_bindir}/loginctl
+%{_bindir}/networkctl
+%{_bindir}/systemctl
+%{_bindir}/systemd-analyze
+%{_bindir}/systemd-ask-password
 %{_bindir}/systemd-cat
 %{_bindir}/systemd-cgls
 %{_bindir}/systemd-cgtop
 %{_bindir}/systemd-delta
-%{_bindir}/systemd-run
 %{_bindir}/systemd-detect-virt
+%{_bindir}/systemd-escape
+%{_bindir}/systemd-firstboot
 %{_bindir}/systemd-inhibit
+%{_bindir}/systemd-machine-id-setup
+%{_bindir}/systemd-mount
+%{_bindir}/systemd-umount
+%{_bindir}/systemd-notify
 %{_bindir}/systemd-path
 %{_bindir}/systemd-resolve
-%{_bindir}/systemd-sysusers
-%{_bindir}/systemd-firstboot
+%{_bindir}/systemd-run
 %{_bindir}/systemd-socket-activate
-%{_bindir}/hostnamectl
-%{_bindir}/localectl
+%{_bindir}/systemd-stdio-bridge
+%{_bindir}/systemd-sysusers
+%{_bindir}/systemd-tmpfiles
+%{_bindir}/systemd-tty-ask-password-agent
 %{_bindir}/timedatectl
 %{pkgdir}/systemd
 %{pkgdir}/libsystemd-shared-%{version}.so
 %{system_unit_dir}
-%{pkgdir}/user
+%{user_unit_dir}
 %{pkgdir}/resolv.conf
 %exclude %{system_unit_dir}/*udev*
 %exclude %{system_unit_dir}/*/*udev*
 %exclude %{system_unit_dir}/*hwdb*
 %exclude %{system_unit_dir}/*/*hwdb*
 %exclude %{system_unit_dir}/systemd-vconsole-setup.service
-%exclude %{system_unit_dir}/*/systemd-vconsole-setup.service
 %exclude %{system_unit_dir}/kmod-static-nodes.service
 %exclude %{system_unit_dir}/*/kmod-static-nodes.service
 %exclude %{system_unit_dir}/systemd-tmpfiles-setup-dev.service
@@ -742,7 +750,7 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %exclude %{system_unit_dir}/*/var-lib-machines.mount
 %exclude %{system_unit_dir}/systemd-journal-gatewayd.*
 %exclude %{system_unit_dir}/systemd-journal-remote.*
-%exclude %{system_unit_dir}/systemd-journal-upload.*
+%exclude %{system_unit_dir}/*upload.*
 %exclude %{system_unit_dir}/systemd-rfkill.*
 %exclude %{system_unit_dir}/systemd-backlight*
 %exclude %{system_unit_dir}/*/systemd-random-seed.service
@@ -792,8 +800,7 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %{_prefix}/lib/sysusers.d/systemd.conf
 %{pkgdir}/system-preset/90-systemd.preset
 %{pkgdir}/catalog/systemd.catalog
-%{_prefix}/lib/kernel/install.d/50-depmod.install
-%{_prefix}/lib/kernel/install.d/90-loaderentry.install
+%{_prefix}/lib/kernel/install.d/
 %{_sbindir}/init
 %{_sbindir}/reboot
 %{_sbindir}/halt
@@ -828,9 +835,7 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %exclude %{_mandir}/man*/systemd-cryptsetup*
 %exclude %{_mandir}/man*/systemd-sleep*
 
-%{_datadir}/factory/etc/nsswitch.conf
-%{_datadir}/factory/etc/pam.d/other
-%{_datadir}/factory/etc/pam.d/system-auth
+%{_datadir}/factory/
 %{_datadir}/systemd/kbd-model-map
 %{_datadir}/systemd/language-fallback-map
 %{_datadir}/dbus-1/services/org.freedesktop.systemd1.service
@@ -848,6 +853,8 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %{_datadir}/polkit-1/actions/org.freedesktop.login1.policy
 %{_datadir}/polkit-1/actions/org.freedesktop.locale1.policy
 %{_datadir}/polkit-1/actions/org.freedesktop.timedate1.policy
+%{_datadir}/polkit-1/rules.d/systemd-networkd.rules
+/etc/polkit-1/localauthority/10-vendor.d/systemd-networkd.pkla
 %{_datadir}/pkgconfig/systemd.pc
 %{_datadir}/pkgconfig/udev.pc
 %{_datadir}/bash-completion/completions/*
@@ -866,6 +873,7 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %files libs
 %{_libdir}/libnss_myhostname.so.2
 %{_libdir}/libnss_resolve.so.2
+%{_libdir}/libnss_systemd.so.2
 %{_libdir}/libudev.so.*
 %{_libdir}/libsystemd.so.*
 %license LICENSE.LGPL2.1
@@ -918,7 +926,6 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %{system_unit_dir}/*hwdb*
 %{system_unit_dir}/*/*hwdb*
 %{system_unit_dir}/systemd-vconsole-setup.service
-%{system_unit_dir}/*/systemd-vconsole-setup.service
 %{system_unit_dir}/kmod-static-nodes.service
 %{system_unit_dir}/*/kmod-static-nodes.service
 %{system_unit_dir}/systemd-tmpfiles-setup-dev.service
@@ -985,8 +992,6 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %{_mandir}/man[1578]/systemd-sleep*
 
 %files container
-%config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.machine1.conf
-%config(noreplace) %{_sysconfdir}/dbus-1/system.d/org.freedesktop.import1.conf
 %{_libdir}/libnss_mymachines.so.2
 %{_bindir}/machinectl
 %{_bindir}/systemd-nspawn
@@ -1009,6 +1014,9 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %{pkgdir}/systemd-pull
 %{pkgdir}/network/80-container-ve.network
 %{pkgdir}/network/80-container-vz.network
+%{_datadir}/dbus-1/system.d/org.freedesktop.import1.conf
+%{_datadir}/dbus-1/system.d/org.freedesktop.machine1.conf
+%{_datadir}/dbus-1/system-services/org.freedesktop.import1.service
 %{_datadir}/dbus-1/system-services/org.freedesktop.machine1.service
 %{_datadir}/dbus-1/system-services/org.freedesktop.import1.service
 %{_datadir}/polkit-1/actions/org.freedesktop.import1.policy
@@ -1020,26 +1028,34 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 %{_mandir}/man1/machinectl.*
 %{_mandir}/man8/systemd-machined.*
 %{_mandir}/man8/*mymachines.*
+%{_mandir}/man[1578]/systemd-nspawn.*
 
 %files journal-remote
 %config(noreplace) %{_sysconfdir}/systemd/journal-remote.conf
 %config(noreplace) %{_sysconfdir}/systemd/journal-upload.conf
 %{system_unit_dir}/systemd-journal-gatewayd.*
 %{system_unit_dir}/systemd-journal-remote.*
-%{system_unit_dir}/systemd-journal-upload.*
+%{system_unit_dir}/*upload.*
 %{pkgdir}/systemd-journal-gatewayd
 %{pkgdir}/systemd-journal-remote
 %{pkgdir}/systemd-journal-upload
 %{_prefix}/lib/tmpfiles.d/systemd-remote.conf
 %{_prefix}/lib/sysusers.d/systemd-remote.conf
-%dir %attr(0644,systemd-journal-upload,systemd-journal-upload) %{_localstatedir}/lib/systemd/journal-upload
+%dir %attr(0755,systemd-journal-upload,systemd-journal-upload) %{_localstatedir}/lib/systemd/journal-upload
 %{_datadir}/systemd/gatewayd
 %{_mandir}/man[1578]/*journal-remote.*
 %{_mandir}/man[1578]/systemd-journal-upload*
 %{_mandir}/man[1578]/systemd-journal-gateway*
-%{_mandir}/man[1578]/systemd-nspawn.*
+
+%files tests
+%{pkgdir}/tests
 
 %changelog
+* Tue Apr 13 2017 Davide Cavalca <dcavalca@fb.com> - 233-2.fb1
+- New upstream release
+- disable a couple of broken tests
+- default to legacy hierarchy for now
+
 * Wed Apr 12 2017 Davide Cavalca <dcavalca@fb.com> - 231-11.fb2
 - fix lz4 depends to pick the right package
 
@@ -1050,6 +1066,78 @@ getent passwd systemd-journal-upload >/dev/null 2>&1 || useradd -r -l -g systemd
 
 * Tue Mar 14 2017 Patrick White <pwhite@fb.com> - 231-2.fb4
 - add poettering patch to fix hitting an assert (PR#4447)
+
+* Thu Mar  2 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 233-2
+- Fix installation conflict with polkit
+
+* Thu Mar  2 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 233-1
+- New upstream release (#1416201, #1405439, #1420753, many others)
+- New systemd-tests subpackage with "installed tests"
+
+* Thu Feb 16 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 232-15
+- Add %%ghost %%dir entries for .wants dirs of our targets (#1422894)
+
+* Tue Feb 14 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 232-14
+- Ignore the hwdb parser test
+
+* Tue Feb 14 2017 Jan Synáček <jsynacek@redhat.com> - 232-14
+- machinectl fails when virtual machine is running (#1419501)
+
+* Sat Feb 11 2017 Fedora Release Engineering <releng@fedoraproject.org> - 232-13
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_26_Mass_Rebuild
+
+* Tue Jan 31 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 232-12
+- Backport patch for initrd-switch-root.service getting killed (#1414904)
+- Fix sd-journal-gatewayd -D, --trust, and COREDUMP_CONTAINER_CMDLINE
+  extraction by sd-coredump.
+
+* Sun Jan 29 2017 zbyszek <zbyszek@in.waw.pl> - 232-11
+- Backport a number of patches (#1411299, #1413075, #1415745,
+                                ##1415358, #1416588, #1408884)
+- Fix various memleaks and unitialized variable access
+- Shell completion enhancements
+- Enable TPM logging by default (#1411156)
+- Update hwdb (#1270124)
+
+* Thu Jan 19 2017 Adam Williamson <awilliam@redhat.com> - 232-10
+- Backport fix for boot failure in initrd-switch-root (#1414904)
+
+* Wed Jan 18 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 232-9
+- Add fake dependency on systemd-pam to systemd-devel to ensure systemd-pam
+  is available as multilib (#1414153)
+
+* Tue Jan 17 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 232-8
+- Fix buildsystem to check for lz4 correctly (#1404406)
+
+* Wed Jan 11 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 232-7
+- Various small tweaks to scriplets
+
+* Sat Jan 07 2017 Kevin Fenzi <kevin@scrye.com> - 232-6
+- Fix scriptlets to never fail in libs post
+
+* Fri Jan 06 2017 Kevin Fenzi <kevin@scrye.com> - 232-5
+- Add patch from Michal Schmidt to avoid process substitution (#1392236)
+
+* Sun Nov  6 2016 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 232-4
+- Rebuild (#1392236)
+
+* Fri Nov  4 2016 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 232-3
+- Make /etc/dbus-1/system.d directory non-%%ghost
+
+* Fri Nov  4 2016 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 232-2
+- Fix kernel-install (#1391829)
+- Restore previous systemd-user PAM config (#1391836)
+- Move journal-upload.conf.5 from systemd main to journal-remote subpackage (#1391833)
+- Fix permissions on /var/lib/systemd/journal-upload (#1262665)
+
+* Thu Nov  3 2016 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 232-1
+- Update to latest version (#998615, #1181922, #1374371, #1390704, #1384150, #1287161)
+- Add %%{_isa} to Provides on arch-full packages (#1387912)
+- Create systemd-coredump user in %%pre (#1309574)
+- Replace grubby patch with a short-circuiting install.d "plugin"
+- Enable nss-systemd in the passwd, group lines in nsswith.conf
+- Add [!UNAVAIL=return] fallback after nss-resolve in hosts line in nsswith.conf
+- Move systemd-nspawn man pages to the right subpackage (#1391703)
 
 * Tue Oct 18 2016 Jan Synáček <jsynacek@redhat.com> - 231-11
 - SPC - Cannot restart host operating from container (#1384523)
