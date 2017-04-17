@@ -1,0 +1,48 @@
+commit 3b5ee54b496deb5f05d00e3c38fc5ef788957c8e
+Author: Stanislav Brabec <sbrabec@suse.cz>
+Date:   Thu Jan 12 15:45:27 2017 +0100
+
+    yummy:patchX:libmount--fix-mount--oloop--dev-loopX-regression.patch
+
+libmount: fix mount -oloop=/dev/loopX regression
+
+    
+    If mount option "loop" is used with an argument, it should be respected. Commit
+    8efad715 introduced a regression. Even with an argument, overlaying loop device
+    is searched and argument is ignored. It could have unexpected side effects.
+    
+    If argument is set, never allocate a new loop device.
+    
+    How to reproduce:
+    mkdir -p cdrom
+    mkisofs -o cdrom.iso cdrom/ 2>/dev/null
+    losetup /dev/loop0 cdrom.iso
+    strace mount -t auto -o ro,loop=/dev/loop1 cdrom.iso /mnt 2>&1 | grep ^mount
+    cat /proc/self/mountinfo | grep /mnt
+    umount /mnt
+    losetup -d /dev/loop0
+    
+    mount("/dev/loop0", "/mnt", "iso9660", MS_MGC_VAL|MS_RDONLY, NULL) = 0
+    327 60 7:0 / /mnt ro,relatime shared:241 - iso9660 /dev/loop0 ro
+    losetup: /dev/loop0: detach failed: No such device or address
+    
+    Signed-off-by: Stanislav Brabec <sbrabec@suse.cz>
+
+diff --git a/libmount/src/context_loopdev.c b/libmount/src/context_loopdev.c
+index 8ef1831..18eb2cc 100644
+--- a/libmount/src/context_loopdev.c
++++ b/libmount/src/context_loopdev.c
+@@ -259,7 +259,12 @@ int mnt_context_setup_loopdev(struct libmnt_context *cxt)
+ 				goto done;
+ 			}
+ 			rc = 0;
+-			goto success;
++			/* loop= used with argument. Conflict will occur. */
++			if (loopval) {
++				rc = -MNT_ERR_LOOPOVERLAP;
++				goto done;
++			} else
++				goto success;
+ 		}
+ 		default: /* error */
+ 			goto done;

@@ -2,7 +2,7 @@
 Summary: A collection of basic system utilities
 Name: util-linux
 Version: 2.29.1
-Release: 2.fb1%{?dist}
+Release: 2.fb2%{?dist}
 License: GPLv2 and GPLv2+ and LGPLv2+ and BSD with advertising and Public Domain
 Group: System Environment/Base
 URL: http://en.wikipedia.org/wiki/Util-linux
@@ -88,6 +88,8 @@ Requires: libfdisk = %{version}-%{release}
 ###
 # 151635 - makeing /var/log/lastlog
 Patch0: 2.28-login-lastlog-create.patch
+
+Patch1: libmount--fix-mount--oloop--dev-loopX-regression.patch
 
 %description
 The util-linux package contains a large variety of low-level system
@@ -919,6 +921,9 @@ exit 0
 %{_libdir}/python*/site-packages/libmount/*
 
 %changelog
+* Fri Apr 17 2017 Davide Cavalca <dcavalca@fb.com> - 2.29.1-2.fb2
+- backport libmount patch to fix a regression with loop devices
+
 * Fri Apr 14 2017 Davide Cavalca <dcavalca@fb.com> - 2.29.1-2.fb1
 - Rebase on new upstream release
 
