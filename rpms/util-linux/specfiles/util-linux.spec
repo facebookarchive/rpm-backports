@@ -1,7 +1,7 @@
 ### Header
 Summary: A collection of basic system utilities
 Name: util-linux
-Version: 2.28
+Version: 2.29.1
 Release: 2.fb1%{?dist}
 License: GPLv2 and GPLv2+ and LGPLv2+ and BSD with advertising and Public Domain
 Group: System Environment/Base
@@ -919,8 +919,45 @@ exit 0
 %{_libdir}/python*/site-packages/libmount/*
 
 %changelog
+* Fri Apr 14 2017 Davide Cavalca <dcavalca@fb.com> - 2.29.1-2.fb1
+- Rebase on new upstream release
+
+* Sat Feb 11 2017 Fedora Release Engineering <releng@fedoraproject.org> - 2.29.1-2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_26_Mass_Rebuild
+
+* Fri Jan 20 2017 Karel Zak <kzak@redhat.com> - 2.29.1-1
+- upgrade to v2.29.1
+  http://ftp.kernel.org/pub/linux/utils/util-linux/v2.29/v2.29.1-ReleaseNotes
+
+* Mon Dec 19 2016 Miro Hrončok <mhroncok@redhat.com> - 2.29-2
+- Rebuild for Python 3.6
+
 * Sun Dec 18 2016 Phil Dibowitz <phild@fb.com> - 2.28-2.fb1
 - Drop last, mesg, and wall to not conflict with sysvinit-tools
+
+* Tue Nov  8 2016 Karel Zak <kzak@redhat.com> - 2.29-1
+- upgrade to v2.29
+
+* Wed Oct 19 2016 Karel Zak <kzak@redhat.com> - 2.29-0.2
+- upgrade to v2.29-rc2
+
+* Fri Sep 30 2016 Karel Zak <kzak@redhat.com> - 2.29-0.1
+- upgrade to v2.29-rc1
+  http://ftp.kernel.org/pub/linux/utils/util-linux/v2.29/v2.29-ReleaseNotes
+
+* Wed Sep  7 2016 Karel Zak <kzak@redhat.com> - 2.28.2-1
+- upgrade to stable 2.28.2
+  http://ftp.kernel.org/pub/linux/utils/util-linux/v2.28/v2.28.2-ReleaseNotes
+
+* Thu Aug 18 2016 Karel Zak <kzak@redhat.com> - 2.28.1-1
+- upgrade to stable 2.28.1
+  http://ftp.kernel.org/pub/linux/utils/util-linux/v2.28/v2.28.1-ReleaseNotes
+
+* Tue Jul 19 2016 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 2.28-4
+- https://fedoraproject.org/wiki/Changes/Automatic_Provides_for_Python_RPM_Packages
+
+* Mon Jun 13 2016 Karel Zak <kzak@redhat.com> - 2.28-3
+- fix #1234317 - CD / DVD are rarely automounted
 
 * Tue Apr 26 2016 Karel Zak <kzak@redhat.com> - 2.28-2
 - refresh login-lastlog-create.patch
