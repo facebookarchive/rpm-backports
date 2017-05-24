@@ -1,14 +1,14 @@
 ### Header
 Summary: A collection of basic system utilities
 Name: util-linux
-Version: 2.29.1
-Release: 2.fb2%{?dist}
+Version: 2.30
+Release: 0.1%{?dist}.fb1
 License: GPLv2 and GPLv2+ and LGPLv2+ and BSD with advertising and Public Domain
 Group: System Environment/Base
 URL: http://en.wikipedia.org/wiki/Util-linux
 
 ### Macros
-%define upstream_version %{version}
+%define upstream_version %{version}-rc1
 %define upstream_major %(eval echo %{version} | %{__sed} -e 's/\([[:digit:]]*\)\.\([[:digit:]]*\)\.[[:digit:]]*$/\1.\2/')
 
 %define compldir %{_datadir}/bash-completion/completions/
@@ -88,8 +88,6 @@ Requires: libfdisk = %{version}-%{release}
 ###
 # 151635 - makeing /var/log/lastlog
 Patch0: 2.28-login-lastlog-create.patch
-
-Patch1: libmount--fix-mount--oloop--dev-loopX-regression.patch
 
 %description
 The util-linux package contains a large variety of low-level system
@@ -524,9 +522,11 @@ exit 0
 %{_bindir}/colcrt
 %{_bindir}/colrm
 %{_bindir}/column
+%{_bindir}/chmem
 %{_bindir}/dmesg
 %{_bindir}/eject
 %{_bindir}/fallocate
+%{_bindir}/fincore
 %{_bindir}/findmnt
 %{_bindir}/flock
 %{_bindir}/getopt
@@ -545,6 +545,7 @@ exit 0
 %{_bindir}/lsipc
 %{_bindir}/lslocks
 %{_bindir}/lslogins
+%{_bindir}/lsmem
 %{_bindir}/lsns
 %{_bindir}/mcookie
 %{_bindir}/more
@@ -562,7 +563,6 @@ exit 0
 %{_bindir}/setpriv
 %{_bindir}/setsid
 %{_bindir}/setterm
-%{_bindir}/tailf
 %{_bindir}/taskset
 %{_bindir}/ul
 %{_bindir}/unshare
@@ -579,6 +579,7 @@ exit 0
 %{_mandir}/man1/dmesg.1*
 %{_mandir}/man1/eject.1*
 %{_mandir}/man1/fallocate.1*
+%{_mandir}/man1/fincore.1*
 %{_mandir}/man1/flock.1*
 %{_mandir}/man1/getopt.1*
 %{_mandir}/man1/hexdump.1*
@@ -594,6 +595,7 @@ exit 0
 %{_mandir}/man1/lscpu.1*
 %{_mandir}/man1/lsipc.1*
 %{_mandir}/man1/lslogins.1*
+%{_mandir}/man1/lsmem.1*
 %{_mandir}/man1/mcookie.1*
 %{_mandir}/man1/more.1*
 %{_mandir}/man1/mountpoint.1*
@@ -610,7 +612,6 @@ exit 0
 %{_mandir}/man1/setsid.1*
 %{_mandir}/man1/setterm.1*
 %{_mandir}/man1/su.1*
-%{_mandir}/man1/tailf.1*
 %{_mandir}/man1/taskset.1*
 %{_mandir}/man1/ul.1*
 %{_mandir}/man1/unshare.1*
@@ -624,8 +625,12 @@ exit 0
 %{_mandir}/man8/agetty.8*
 %{_mandir}/man8/blkdiscard.8*
 %{_mandir}/man8/blkid.8*
+%if 0%{?fedora}
+%{_mandir}/man8/blkzone.8*
+%endif
 %{_mandir}/man8/blockdev.8*
 %{_mandir}/man8/chcpu.8*
+%{_mandir}/man8/chmem.8*
 %{_mandir}/man8/ctrlaltdel.8*
 %{_mandir}/man8/delpart.8*
 %{_mandir}/man8/fdisk.8*
@@ -669,6 +674,9 @@ exit 0
 %{_sbindir}/agetty
 %{_sbindir}/blkdiscard
 %{_sbindir}/blkid
+%if 0%{?fedora}
+%{_sbindir}/blkzone
+%endif
 %{_sbindir}/blockdev
 %{_sbindir}/chcpu
 %{_sbindir}/ctrlaltdel
@@ -704,9 +712,13 @@ exit 0
 %{compldir}/addpart
 %{compldir}/blkdiscard
 %{compldir}/blkid
+%if 0%{?fedora}
+%{compldir}/blkzone
+%endif
 %{compldir}/blockdev
 %{compldir}/cal
 %{compldir}/chcpu
+%{compldir}/chmem
 %{compldir}/chrt
 %{compldir}/col
 %{compldir}/colcrt
@@ -718,6 +730,8 @@ exit 0
 %{compldir}/eject
 %{compldir}/fallocate
 %{compldir}/fdisk
+%{compldir}/fincore
+%{compldir}/findfs
 %{compldir}/findmnt
 %{compldir}/flock
 %{compldir}/fsck
@@ -742,6 +756,7 @@ exit 0
 %{compldir}/lsipc
 %{compldir}/lslocks
 %{compldir}/lslogins
+%{compldir}/lsmem
 %{compldir}/lsns
 %{compldir}/mcookie
 %{compldir}/mesg
@@ -775,7 +790,6 @@ exit 0
 %{compldir}/swaplabel
 %{compldir}/swapoff
 %{compldir}/swapon
-%{compldir}/tailf
 %{compldir}/taskset
 %{compldir}/ul
 #%{compldir}/umount
@@ -921,11 +935,23 @@ exit 0
 %{_libdir}/python*/site-packages/libmount/*
 
 %changelog
-* Fri Apr 17 2017 Davide Cavalca <dcavalca@fb.com> - 2.29.1-2.fb2
+* Mon May 22 2017 Davide Cavalca <dcavalca@fb.com> - 2.30-0.1.fb1
+- Facebook rebuild
+- gate blkzone to Fedora as it depends on a very recent kernel include
+
+* Wed May 17 2017 Karel Zak <kzak@redhat.com> - 2.30-0.1
+- upgrade to v2.30-rc1
+  http://ftp.kernel.org/pub/linux/utils/util-linux/v2.30/v2.30-ReleaseNotes
+
+* Mon Apr 17 2017 Davide Cavalca <dcavalca@fb.com> - 2.29.1-2.fb2
 - backport libmount patch to fix a regression with loop devices
 
 * Fri Apr 14 2017 Davide Cavalca <dcavalca@fb.com> - 2.29.1-2.fb1
 - Rebase on new upstream release
+
+* Fri Feb 24 2017 Karel Zak <kzak@redhat.com> - 2.29.2-1
+- upgrade to v2.29.2
+  http://ftp.kernel.org/pub/linux/utils/util-linux/v2.29/v2.29.2-ReleaseNotes
 
 * Sat Feb 11 2017 Fedora Release Engineering <releng@fedoraproject.org> - 2.29.1-2
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_26_Mass_Rebuild
