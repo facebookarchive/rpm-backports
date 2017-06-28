@@ -11,7 +11,7 @@
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
 Version:        233
-Release:        2.fb1
+Release:        2.fb2
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -113,6 +113,8 @@ Patch0: resolved--create--etc-resolv-conf-symlink-at-runtime.patch
 Patch1: FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
 Patch2: FB--add-back-compat-libs.patch
 Patch3: FB--temporarily-disable-broken-tests.patch
+Patch4: 0001-test-resolved-packet-add-a-simple-test-for-our-alloc.patch
+Patch5: 0002-resolved-simplify-alloc-size-calculation.patch
 
 
 
@@ -255,6 +257,8 @@ They can be useful to test systemd internals.
 %patch1 -p1
 %patch2 -p1
 %patch3 -p1
+%patch4 -p1
+%patch5 -p1
 
 
 
@@ -1051,6 +1055,9 @@ getent passwd systemd-journal-upload &>/dev/null || useradd -r -l -g systemd-jou
 %{pkgdir}/tests
 
 %changelog
+* Wed Jun 17 2017 Peter Blair <pmb@fb.com> - 233-2.fb2
+- Apply patch from CVE-2017-9445
+
 * Tue Apr 13 2017 Davide Cavalca <dcavalca@fb.com> - 233-2.fb1
 - New upstream release
 - disable a couple of broken tests
