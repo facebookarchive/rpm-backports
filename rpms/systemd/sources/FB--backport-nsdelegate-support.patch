@@ -1,0 +1,45 @@
+From c10c359b0c60851990a8ad7a09dd671e479e7673 Mon Sep 17 00:00:00 2001
+From: Tejun Heo <tj@kernel.org>
+Date: Wed, 5 Jul 2017 19:24:44 -0400
+Subject: [PATCH] core: support "nsdelegate" cgroup v2 mount option
+
+cgroup namespace wasn't useful for delegation because it allowed resource
+control interface files (e.g. memory.high) to be written from inside the
+namespace - this allowed the namespace parent's resource distribution to be
+disturbed by its namespace-scoped children.
+
+A new mount option, "nsdelegate", was added to cgroup v2 to address this issue.
+The flag is meangingful only when mounting cgroup v2 in the init namespace and
+makes a cgroup namespace a delegation boundary.  The kernel feature is pending
+for v4.13.
+
+This should have been the default behavior on cgroup namespaces and this commit
+makes systemd try "nsdelegate" first when trying to mount cgroup v2 and fall
+back if the option is not supported.
+
+Note that this has danger of breaking usages which depend on modifying the
+parent's resource settings from the namespace root, which isn't a valid thing
+to do, but such usages may still exist.
+---
+ src/core/mount-setup.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/core/mount-setup.c b/src/core/mount-setup.c
+index 7295efbf31..b343bb7e09 100644
+--- a/src/core/mount-setup.c
++++ b/src/core/mount-setup.c
+@@ -95,10 +95,14 @@ static const MountPoint mount_table[] = {
+ #endif
+         { "tmpfs",       "/run",                      "tmpfs",      "mode=755",                MS_NOSUID|MS_NODEV|MS_STRICTATIME,
+           NULL,          MNT_FATAL|MNT_IN_CONTAINER },
++        { "cgroup",      "/sys/fs/cgroup",            "cgroup2",    "nsdelegate",              MS_NOSUID|MS_NOEXEC|MS_NODEV,
++          cg_is_unified_wanted, MNT_IN_CONTAINER },
+         { "cgroup",      "/sys/fs/cgroup",            "cgroup2",    NULL,                      MS_NOSUID|MS_NOEXEC|MS_NODEV,
+           cg_is_unified_wanted, MNT_IN_CONTAINER },
+         { "tmpfs",       "/sys/fs/cgroup",            "tmpfs",      "mode=755",                MS_NOSUID|MS_NOEXEC|MS_NODEV|MS_STRICTATIME,
+           cg_is_legacy_wanted, MNT_FATAL|MNT_IN_CONTAINER },
++        { "cgroup",      "/sys/fs/cgroup/unified",    "cgroup2",    "nsdelegate",              MS_NOSUID|MS_NOEXEC|MS_NODEV,
++          cg_is_hybrid_wanted, MNT_IN_CONTAINER },
+         { "cgroup",      "/sys/fs/cgroup/unified",    "cgroup2",    NULL,                      MS_NOSUID|MS_NOEXEC|MS_NODEV,
+           cg_is_hybrid_wanted, MNT_IN_CONTAINER },
+         { "cgroup",      "/sys/fs/cgroup/systemd",    "cgroup",     "none,name=systemd,xattr", MS_NOSUID|MS_NOEXEC|MS_NODEV,

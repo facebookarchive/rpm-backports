@@ -1,0 +1,21 @@
+diff --git a/src/test/meson.build b/src/test/meson.build
+index 4f07987..c24e9a5 100644
+--- a/src/test/meson.build
++++ b/src/test/meson.build
+@@ -496,16 +496,6 @@ tests += [
+           libmount,
+           libblkid]],
+ 
+-        [['src/test/test-execute.c'],
+-         [libcore,
+-          libshared],
+-         [threads,
+-          librt,
+-          libseccomp,
+-          libselinux,
+-          libmount,
+-          libblkid]],
+-
+         [['src/test/test-siphash24.c'],
+          [],
+          []],

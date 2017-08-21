@@ -1,3 +1,12 @@
+# Meson settings
+%global _vpath_srcdir .
+%global _vpath_builddir %{_target_platform}
+%global __global_cflags  %{optflags}
+%global __global_cxxflags  %{optflags}
+%global __global_fflags  %{optflags} -I%_fmoddir
+%global __global_fcflags %{optflags} -I%_fmoddir
+%global __global_ldflags -Wl,-z,relro %{_hardened_ldflags}
+
 # We ship a .pc file but don't want to have a dep on pkg-config. We
 # strip the automatically generated dep here and instead co-own the
 # directory.
@@ -10,8 +19,8 @@
 
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
-Version:        233
-Release:        2.fb2
+Version:        234
+Release:        5.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -36,6 +45,35 @@ Source10:       systemd-udev-trigger-no-reload.conf
 Source11:       20-grubby.install
 Source12:       https://raw.githubusercontent.com/systemd/systemd/1000522a60ceade446773c67031b47a566d4a70d/src/login/systemd-user.m4
 
+Patch0001:      0001-escape-Fix-help-description-6352.patch
+Patch0002:      0002-build-sys-install-udev-rule-70-joystick.-rules-hwdb-.patch
+Patch0003:      0003-add-version-argument-to-help-function-6377.patch
+Patch0004:      0004-seccomp-arm64-x32-do-not-have-_sysctl.patch
+Patch0005:      0005-seccomp-arm64-does-not-have-mmap2.patch
+Patch0006:      0006-test-seccomp-arm64-does-not-have-access-and-poll.patch
+Patch0007:      0007-fstab-generator-ignore-x-systemd.device-timeout-for-.patch
+Patch0008:      0008-core-modify-resource-leak-by-SmackProcessLabel.patch
+Patch0009:      0009-core-dump-also-missed-security-context.patch
+Patch0010:      0010-journald-make-sure-we-retain-all-stream-fds-across-r.patch
+Patch0011:      0011-Use-config_parse_sec_fix_0-also-for-JobRunningTimeou.patch
+Patch0012:      0012-virt-enable-detecting-QEMU-TCG-via-CPUID-6399.patch
+Patch0013:      0013-test-condition-don-t-assume-that-all-non-root-users-.patch
+Patch0014:      0014-call-chase_symlinks-without-the-sysroot-prefix-6411.patch
+Patch0015:      0015-nspawn-downgrade-warning-when-we-get-sd_notify-messa.patch
+Patch0016:      0016-Revert-core-don-t-load-dropin-data-multiple-times-fo.patch
+Patch0017:      0017-bash-completion-use-the-first-argument-instead-of-th.patch
+Patch0018:      0018-boot-efi-don-t-hard-fail-on-error-for-tpm-measure-64.patch
+Patch0019:      0019-meson-D-remote-and-D-importd-should-be-combo-options.patch
+Patch0020:      0020-cryptsetup-fix-infinite-timeout-6486.patch
+Patch0021:      0021-rfkill-fix-erroneous-behavior-when-polling-the-udev-.patch
+Patch0022:      0022-core-Do-not-fail-perpetual-mount-units-without-fragm.patch
+
+Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
+
+Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
+Patch1001:      FB--Disable-test-execute.patch
+Patch1002:      FB--backport-nsdelegate-support.patch
+
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
 %endif
@@ -51,13 +89,16 @@ BuildRequires:  libacl-devel
 BuildRequires:  gobject-introspection-devel
 BuildRequires:  libblkid-devel
 BuildRequires:  xz-devel
+BuildRequires:  xz
 BuildRequires:  lz4-devel
+BuildRequires:  lz4
 BuildRequires:  bzip2-devel
 BuildRequires:  libidn-devel
 BuildRequires:  libcurl-devel
 BuildRequires:  kmod-devel
 BuildRequires:  elfutils-devel
 BuildRequires:  libgcrypt-devel
+BuildRequires:  libgpg-error-devel
 BuildRequires:  gnutls-devel
 BuildRequires:  qrencode-devel
 BuildRequires:  libmicrohttpd-devel
@@ -66,7 +107,6 @@ BuildRequires:  iptables-devel
 BuildRequires:  libxslt
 BuildRequires:  docbook-style-xsl
 BuildRequires:  pkgconfig
-BuildRequires:  intltool
 BuildRequires:  gperf
 BuildRequires:  gawk
 BuildRequires:  tree
@@ -76,9 +116,10 @@ BuildRequires:  python34-lxml
 BuildRequires:  gnu-efi gnu-efi-devel
 %endif
 BuildRequires:  libseccomp-devel
-BuildRequires:  automake
-BuildRequires:  autoconf
-BuildRequires:  libtool
+BuildRequires:  meson >= 0.40
+BuildRequires:  gettext
+# for now, should not be necessary when we switch to i18n.merge_file()
+BuildRequires:  intltool
 
 Requires(post): coreutils
 Requires(post): sed
@@ -103,21 +144,10 @@ Provides:       system-setup-keyboard = 0.9
 Obsoletes:      systemd-sysv < 206
 # self-obsoletes so that dnf will install new subpackages on upgrade (#1260394)
 Obsoletes:      %{name} < 229-5
-Obsoletes:      systemd-stubs
 Provides:       systemd-sysv = 206
 %if 0%{?fedora}
 Conflicts:      fedora-release < 23-0.12
 %endif
-
-Patch0: resolved--create--etc-resolv-conf-symlink-at-runtime.patch
-Patch1: FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
-Patch2: FB--add-back-compat-libs.patch
-Patch3: FB--temporarily-disable-broken-tests.patch
-Patch4: 0001-test-resolved-packet-add-a-simple-test-for-our-alloc.patch
-Patch5: 0002-resolved-simplify-alloc-size-calculation.patch
-
-
-
 
 %description
 systemd is a system and service manager that runs as PID 1 and starts
@@ -140,6 +170,7 @@ License:        LGPLv2+ and MIT
 Obsoletes:      libudev < 183
 Obsoletes:      systemd < 185-4
 Conflicts:      systemd < 185-4
+Obsoletes:      systemd-compat-libs < 230
 Obsoletes:      nss-myhostname < 0.4
 Provides:       nss-myhostname = 0.4
 Provides:       nss-myhostname%{_isa} = 0.4
@@ -148,17 +179,6 @@ Requires(post): grep
 
 %description libs
 Libraries for systemd and udev.
-
-%package compat-libs
-Summary:        systemd compatibility libraries
-License:        LGPLv2+ and MIT
-# To reduce confusion, this package can only be installed in parallel
-# with the normal systemd-libs, same version.
-Requires:       systemd-libs%{?_isa} = %{version}-%{release}
-
-%description compat-libs
-Compatibility libraries for systemd. If your package requires this
-package, you need to update your link options and build.
 
 %package pam
 Summary:        systemd PAM module
@@ -170,9 +190,7 @@ Systemd PAM module registers the session with systemd-logind.
 %package devel
 Summary:        Development headers for systemd
 License:        LGPLv2+ and MIT
-# We need both libsystemd and libsystemd-<compat> libraries
 Requires:       %{name}-libs%{?_isa} = %{version}-%{release}
-Requires:       %{name}-compat-libs%{?_isa} = %{version}-%{release}
 Provides:       libudev-devel = %{version}
 Provides:       libudev-devel%{_isa} = %{version}
 Obsoletes:      libudev-devel < 183
@@ -198,6 +216,8 @@ Provides:       udev%{_isa} = %{version}
 Obsoletes:      udev < 183
 # https://bugzilla.redhat.com/show_bug.cgi?id=1377733#c9
 Recommends:     systemd-bootchart
+# https://bugzilla.redhat.com/show_bug.cgi?id=1408878
+Recommends:     kbd
 License:        LGPLv2+
 
 %description udev
@@ -253,88 +273,75 @@ They can be useful to test systemd internals.
 
 %prep
 %setup -q
-%patch0 -p1
-%patch1 -p1
-%patch2 -p1
-%patch3 -p1
-%patch4 -p1
-%patch5 -p1
-
-
-
+%autopatch -p1
 
 # Restore systemd-user pam config from before "removal of Fedora-specific bits"
 cp -p %{SOURCE12} src/login/
 
 %build
-./autogen.sh
-
-%{?fedora: %global ntpvendor fedora}
-%{?rhel:   %global ntpvendor rhel}
+%define ntpvendor %(source /etc/os-release; echo ${ID})
 %{!?ntpvendor: echo 'NTP vendor zone is not set!'; exit 1}
 
 CONFIGURE_OPTS=(
-        --libexecdir=%{_prefix}/lib
-        --with-sysvinit-path=/etc/rc.d/init.d
-        --with-rc-local-script-path-start=/etc/rc.d/rc.local
-        --with-ntp-servers='0.%{ntpvendor}.pool.ntp.org 1.%{ntpvendor}.pool.ntp.org 2.%{ntpvendor}.pool.ntp.org 3.%{ntpvendor}.pool.ntp.org'
-        --enable-kmod
-        --enable-xkbcommon
-        --enable-blkid
-        --enable-seccomp
-        --enable-ima
-        --enable-selinux
-        --disable-apparmor
-        --enable-xz
-        --enable-zlib
-        --enable-bzip2
-        --enable-lz4
-        --enable-pam
-        --enable-acl
-        --enable-smack
-        --enable-gcrypt
-        --enable-audit
-        --enable-elfutils
-        --enable-libcryptsetup
-        --enable-qrencode
-        --enable-gnutls
-        --enable-microhttpd
-        --enable-libcurl
-        --enable-libidn
-        --enable-libiptc
-        --enable-polkit
-%if 0%{?have_gnu_efi}
-        --enable-gnuefi
-%endif
-        --enable-tpm
-        --without-kill-user-processes
-        --enable-tests=unsafe
-        --disable-lto
+        -Dsysvinit-path=/etc/rc.d/init.d
+        -Drc-local=/etc/rc.d/rc.local
+        -Dntp-servers='0.%{ntpvendor}.pool.ntp.org 1.%{ntpvendor}.pool.ntp.org 2.%{ntpvendor}.pool.ntp.org 3.%{ntpvendor}.pool.ntp.org'
+        -Ddev-kvm-mode=0666
+        -Dkmod=true
+        -Dxkbcommon=true
+        -Dblkid=true
+        -Dseccomp=true
+        -Dima=true
+        -Dselinux=true
+        -Dapparmor=false
+        -Dpolkit=true
+        -Dxz=true
+        -Dzlib=true
+        -Dbzip2=true
+        -Dlz4=true
+        -Dpam=true
+        -Dacl=true
+        -Dsmack=true
+        -Dgcrypt=true
+        -Daudit=true
+        -Delfutils=true
+        -Dlibcryptsetup=true
+        -Delfutils=true
+        -Dqrencode=true
+        -Dgnutls=true
+        -Dmicrohttpd=true
+        -Dlibidn=true
+        -Dlibiptc=true
+        -Dlibcurl=true
+        -Defi=true
+        -Dgnu-efi=%{?have_gnu_efi:true}%{?!have_gnu_efi:false}
+        -Dtpm=true
+        -Dhwdb=true
+        -Dsysusers=true
+        -Ddefault-kill-user-processes=false
+        -Dtests=unsafe
+        -Dinstall-tests=true
+        -Db_lto=false
 )
 
 %if 0%{?facebook}
 CONFIGURE_OPTS+=(
-        --with-ntp-servers='1.ntp.vip.facebook.com 2.ntp.vip.facebook.com 3.ntp.vip.facebook.com 4.ntp.vip.facebook.com'
-        --with-dns-servers='10.127.255.51 10.191.255.51 2401:db00:eef0:a53:: 2401:db00:eef0:b53::'
-        --with-support-url='https://www.facebook.com/groups/prodos.users/'
-        --with-default-hierarchy=legacy
+        -Dntp-servers='1.ntp.vip.facebook.com 2.ntp.vip.facebook.com 3.ntp.vip.facebook.com 4.ntp.vip.facebook.com'
+        -Ddns-servers='10.127.255.51 10.191.255.51 2401:db00:eef0:a53:: 2401:db00:eef0:b53::'
+        -Dsupport-url='https://www.facebook.com/groups/prodos.users/'
+        -Ddefault-hierarchy=legacy
 )
 %endif
 
-%configure \
-        "${CONFIGURE_OPTS[@]}" \
-        --enable-compat-libs \
-        --enable-xkbcommon \
-        PYTHON=%{__python3}
-make %{?_smp_mflags} GCC_COLORS="" V=1
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+%meson "${CONFIGURE_OPTS[@]}"
+%meson_build
 
 %install
-%make_install install-tests
-
-find %{buildroot} \( -name '*.a' -o -name '*.la' \) -delete
-
-# remove .so file for the shared library, it's not supposed to be used
-rm %{buildroot}%{pkgdir}/libsystemd-shared.so
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+%meson_install
 
 # udev links
 mkdir -p %{buildroot}/%{_sbindir}
@@ -354,6 +361,7 @@ ln -s ../bin/systemctl %{buildroot}%{_sbindir}/runlevel
 touch %{buildroot}/etc/crypttab
 chmod 600 %{buildroot}/etc/crypttab
 
+# /etc/sysctl.conf compat
 ln -s ../sysctl.conf %{buildroot}/etc/sysctl.d/99-sysctl.conf
 
 # We create all wants links manually at installation time to make sure
@@ -415,17 +423,12 @@ install -Dm0644 -t %{buildroot}%{system_unit_dir}/systemd-udev-trigger.service.d
 
 install -Dm0755 -t %{buildroot}%{_prefix}/lib/kernel/install.d/ %{SOURCE11}
 
-mkdir -p %{buildroot}/etc/polkit-1/localauthority/10-vendor.d
-mv %{buildroot}/var/lib/polkit-1/localauthority/10-vendor.d/systemd-networkd.pkla \
-   %{buildroot}/etc/polkit-1/localauthority/10-vendor.d/
-
 %find_lang %{name}
 
 %check
-make check %{?_smp_mflags} VERBOSE=1 || { cat test-suite.log; exit 1; }
-
-# Check for botched translations (https://bugzilla.redhat.com/show_bug.cgi?id=1226566)
-test -z "$(grep -L xml:lang %{buildroot}%{_datadir}/polkit-1/actions/org.freedesktop.*.policy)"
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+%meson_test
 
 #############################################################################################
 
@@ -437,6 +440,7 @@ getent group utmp &>/dev/null || groupadd -r -g 22 utmp &>/dev/null || :
 getent group tape &>/dev/null || groupadd -r -g 33 tape &>/dev/null || :
 getent group dialout &>/dev/null || groupadd -r -g 18 dialout &>/dev/null || :
 getent group input &>/dev/null || groupadd -r input &>/dev/null || :
+getent group kvm &>/dev/null || groupadd -r -g 36 kvm &>/dev/null || :
 getent group systemd-journal &>/dev/null || groupadd -r -g 190 systemd-journal 2>&1 || :
 
 getent group systemd-coredump &>/dev/null || groupadd -r systemd-coredump 2>&1 || :
@@ -579,8 +583,8 @@ exit 0
 %systemd_postun_with_restart systemd-udevd.service
 
 %pre journal-remote
-getent group systemd-journal-gateway &>/dev/null || groupadd -r -g 191 systemd-journal-gateway 2>&1 || :
-getent passwd systemd-journal-gateway &>/dev/null || useradd -r -l -u 191 -g systemd-journal-gateway -d %{_localstatedir}/log/journal -s /sbin/nologin -c "Journal Gateway" systemd-journal-gateway &>/dev/null || :
+getent group systemd-journal-gateway &>/dev/null || groupadd -r systemd-journal-gateway 2>&1 || :
+getent passwd systemd-journal-gateway &>/dev/null || useradd -r -l -g systemd-journal-gateway -d %{_localstatedir}/log/journal -s /sbin/nologin -c "Journal Gateway" systemd-journal-gateway &>/dev/null || :
 getent group systemd-journal-remote &>/dev/null || groupadd -r systemd-journal-remote 2>&1 || :
 getent passwd systemd-journal-remote &>/dev/null || useradd -r -l -g systemd-journal-remote -d %{_localstatedir}/log/journal/remote -s /sbin/nologin -c "Journal Remote" systemd-journal-remote &>/dev/null || :
 getent group systemd-journal-upload &>/dev/null || groupadd -r systemd-journal-upload 2>&1 || :
@@ -685,6 +689,7 @@ getent passwd systemd-journal-upload &>/dev/null || useradd -r -l -g systemd-jou
 %config(noreplace) %{_sysconfdir}/systemd/resolved.conf
 %config(noreplace) %{_sysconfdir}/systemd/coredump.conf
 %config(noreplace) %{_sysconfdir}/systemd/system/dbus-org.freedesktop.resolve1.service
+%config(noreplace) %{_sysconfdir}/systemd/system/dbus-org.freedesktop.network1.service
 %config(noreplace) %{_sysconfdir}/yum/protected.d/systemd.conf
 %config(noreplace) %{_sysconfdir}/pam.d/systemd-user
 %{_rpmconfigdir}/macros.d/macros.systemd
@@ -743,9 +748,7 @@ getent passwd systemd-journal-upload &>/dev/null || useradd -r -l -g systemd-jou
 %exclude %{system_unit_dir}/systemd-tmpfiles-setup-dev.service
 %exclude %{system_unit_dir}/*/systemd-tmpfiles-setup-dev.service
 %exclude %{system_unit_dir}/*.machine1.*
-%exclude %{system_unit_dir}/*/*.machine1.*
 %exclude %{system_unit_dir}/*.import1.*
-%exclude %{system_unit_dir}/*/*.import1.*
 %exclude %{system_unit_dir}/systemd-machined.service
 %exclude %{system_unit_dir}/systemd-importd.service
 %exclude %{system_unit_dir}/machine.slice
@@ -858,7 +861,6 @@ getent passwd systemd-journal-upload &>/dev/null || useradd -r -l -g systemd-jou
 %{_datadir}/polkit-1/actions/org.freedesktop.locale1.policy
 %{_datadir}/polkit-1/actions/org.freedesktop.timedate1.policy
 %{_datadir}/polkit-1/rules.d/systemd-networkd.rules
-/etc/polkit-1/localauthority/10-vendor.d/systemd-networkd.pkla
 %{_datadir}/pkgconfig/systemd.pc
 %{_datadir}/pkgconfig/udev.pc
 %{_datadir}/bash-completion/completions/*
@@ -882,12 +884,6 @@ getent passwd systemd-journal-upload &>/dev/null || useradd -r -l -g systemd-jou
 %{_libdir}/libsystemd.so.*
 %license LICENSE.LGPL2.1
 
-%files compat-libs
-%{_libdir}/libsystemd-daemon.so.*
-%{_libdir}/libsystemd-login.so.*
-%{_libdir}/libsystemd-journal.so.*
-%{_libdir}/libsystemd-id128.so.*
-
 %files pam
 %{_libdir}/security/pam_systemd.so
 
@@ -895,10 +891,6 @@ getent passwd systemd-journal-upload &>/dev/null || useradd -r -l -g systemd-jou
 %dir %{_includedir}/systemd
 %{_libdir}/libudev.so
 %{_libdir}/libsystemd.so
-%{_libdir}/libsystemd-daemon.so
-%{_libdir}/libsystemd-login.so
-%{_libdir}/libsystemd-journal.so
-%{_libdir}/libsystemd-id128.so
 %{_includedir}/systemd/sd-daemon.h
 %{_includedir}/systemd/sd-login.h
 %{_includedir}/systemd/sd-journal.h
@@ -912,10 +904,6 @@ getent passwd systemd-journal-upload &>/dev/null || useradd -r -l -g systemd-jou
 %{_includedir}/libudev.h
 %{_libdir}/pkgconfig/libudev.pc
 %{_libdir}/pkgconfig/libsystemd.pc
-%{_libdir}/pkgconfig/libsystemd-daemon.pc
-%{_libdir}/pkgconfig/libsystemd-login.pc
-%{_libdir}/pkgconfig/libsystemd-journal.pc
-%{_libdir}/pkgconfig/libsystemd-id128.pc
 %{_mandir}/man3/*
 
 %files udev
@@ -1002,9 +990,7 @@ getent passwd systemd-journal-upload &>/dev/null || useradd -r -l -g systemd-jou
 %{pkgdir}/import-pubring.gpg
 %{_prefix}/lib/tmpfiles.d/systemd-nspawn.conf
 %{system_unit_dir}/*.machine1.*
-%{system_unit_dir}/*/*.machine1.*
 %{system_unit_dir}/*.import1.*
-%{system_unit_dir}/*/*.import1.*
 %{system_unit_dir}/systemd-machined.service
 %{system_unit_dir}/systemd-importd.service
 %{system_unit_dir}/machine.slice
@@ -1022,7 +1008,6 @@ getent passwd systemd-journal-upload &>/dev/null || useradd -r -l -g systemd-jou
 %{_datadir}/dbus-1/system.d/org.freedesktop.machine1.conf
 %{_datadir}/dbus-1/system-services/org.freedesktop.import1.service
 %{_datadir}/dbus-1/system-services/org.freedesktop.machine1.service
-%{_datadir}/dbus-1/system-services/org.freedesktop.import1.service
 %{_datadir}/polkit-1/actions/org.freedesktop.import1.policy
 %{_datadir}/polkit-1/actions/org.freedesktop.machine1.policy
 %{_datadir}/bash-completion/completions/machinectl
@@ -1055,10 +1040,51 @@ getent passwd systemd-journal-upload &>/dev/null || useradd -r -l -g systemd-jou
 %{pkgdir}/tests
 
 %changelog
-* Wed Jun 17 2017 Peter Blair <pmb@fb.com> - 233-2.fb2
+* Tue Aug  8 2017 Davide Cavalca <dcavalca@fb.com> - 234-5.fb1
+- new upstream release
+- drop compat-libs patch in favor of separate systemd-compat-libs project
+- force locale to UTF-8 to make meson happy
+- disable broken test-execute
+- backport nsdelegate support from PR#6294
+
+* Mon Jul 31 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 234-5
+- Backport more patches (#1476005, hopefully #1462378)
+
+* Thu Jul 27 2017 Fedora Release Engineering <releng@fedoraproject.org>
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_27_Mass_Rebuild
+
+* Mon Jul 17 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 234-3
+- Fix x-systemd.timeout=0 in /etc/fstab (#1462378)
+- Minor patches (memleaks, --help fixes, seccomp on arm64)
+
+* Thu Jul 13 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 234-2
+- Create kvm group (#1431876)
+
+* Thu Jul 13 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 234-1
+- Latest release
+
+* Sat Jul  1 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 233-7.git74d8f1c
+- Update to snapshot
+- Build with meson again
+
+* Tue Jun 27 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 233-6
+- Fix an out-of-bounds write in systemd-resolved (CVE-2017-9445)
+
+* Sat Jun 17 2017 Peter Blair <pmb@fb.com> - 233-2.fb2
 - Apply patch from CVE-2017-9445
 
-* Tue Apr 13 2017 Davide Cavalca <dcavalca@fb.com> - 233-2.fb1
+* Fri Jun 16 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 233-5.gitec36d05
+- Update to snapshot version, build with meson
+
+* Thu Jun 15 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 233-4
+- Backport a bunch of small fixes (memleaks, wrong format strings,
+  man page clarifications, shell completion)
+- Fix systemd-resolved crash on crafted DNS packet (CVE-2017-9217, #1455493)
+- Fix systemd-vconsole-setup.service error on systems with no VGA console (#1272686)
+- Drop soft-static uid for systemd-journal-gateway
+- Use ID from /etc/os-release as ntpvendor
+
+* Thu Apr 13 2017 Davide Cavalca <dcavalca@fb.com> - 233-2.fb1
 - New upstream release
 - disable a couple of broken tests
 - default to legacy hierarchy for now
@@ -1070,6 +1096,10 @@ getent passwd systemd-journal-upload &>/dev/null || useradd -r -l -g systemd-jou
 - use facebook macro to gate Facebook-specific settings
 - rebuild against new RPM backport
 - update patches
+
+* Thu Mar 16 2017 Michal Sekletar <msekleta@redhat.com> - 233-3
+- Backport bugfixes from upstream
+- Don't return error when machinectl couldn't figure out container IP addresses (#1419501)
 
 * Tue Mar 14 2017 Patrick White <pwhite@fb.com> - 231-2.fb4
 - add poettering patch to fix hitting an assert (PR#4447)

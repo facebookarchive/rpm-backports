@@ -1,0 +1,32 @@
+From 3dd07ebf08dd630b0f50dfff3ef6d05628b8708b Mon Sep 17 00:00:00 2001
+From: Michal Sekletar <msekletar@users.noreply.github.com>
+Date: Mon, 17 Jul 2017 10:04:37 +0200
+Subject: [PATCH] journald: make sure we retain all stream fds across restarts
+ (#6348)
+
+Currently we set 4096 as maximum for number of stream connections that
+we accept. However maximum number of file descriptors that systemd is
+willing to accept from us is just 1024. This means we can't retain all
+stream connections that we accepted. Hence bump the limit of fds in a
+unit file so that systemd holds open all stream fds while we are
+restarted.
+
+New limit is set to 4224 (4096 + 128).
+(cherry picked from commit 3c978aca69e0e43d4dd453437ec9c498ea788795)
+---
+ units/systemd-journald.service.in | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/units/systemd-journald.service.in b/units/systemd-journald.service.in
+index 66b7c6a48e..1e86d63648 100644
+--- a/units/systemd-journald.service.in
++++ b/units/systemd-journald.service.in
+@@ -21,7 +21,7 @@ Restart=always
+ RestartSec=0
+ StandardOutput=null
+ WatchdogSec=3min
+-FileDescriptorStoreMax=1024
++FileDescriptorStoreMax=4224
+ CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE CAP_SYS_PTRACE CAP_SYSLOG CAP_AUDIT_CONTROL CAP_AUDIT_READ CAP_CHOWN CAP_DAC_READ_SEARCH CAP_FOWNER CAP_SETUID CAP_SETGID CAP_MAC_OVERRIDE
+ MemoryDenyWriteExecute=yes
+ RestrictRealtime=yes

@@ -1,0 +1,31 @@
+From 713917bd94272fc65d94016a208b72309ae1320a Mon Sep 17 00:00:00 2001
+From: NeilBrown <neil@brown.name>
+Date: Mon, 17 Jul 2017 18:03:34 +1000
+Subject: [PATCH] fstab-generator: ignore x-systemd.device-timeout for
+ non-devices (#6368)
+
+If you specify "x-systemd.device-timeout" for an NFS mount
+point, you get no warning and a meaningless device unit
+dependency created.
+
+Better to have a warning and no dependency.
+(cherry picked from commit c67bd1f758f087496741ce0b3e227d82c6b4a304)
+---
+ src/shared/generator.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/shared/generator.c b/src/shared/generator.c
+index 6a78ebbda7..6a887e3aad 100644
+--- a/src/shared/generator.c
++++ b/src/shared/generator.c
+@@ -182,6 +182,10 @@ int generator_write_timeouts(
+         node = fstab_node_to_udev_node(what);
+         if (!node)
+                 return log_oom();
++        if (!is_device_path(node)) {
++                log_warning("x-systemd.device-timeout ignored for %s", what);
++                return 0;
++        }
+ 
+         r = unit_name_from_path(node, ".device", &unit);
+         if (r < 0)

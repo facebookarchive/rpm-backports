@@ -1,0 +1,22 @@
+From a1b21ca91835ec0322ccd0eedf9951ba0e52db80 Mon Sep 17 00:00:00 2001
+From: IPv4v6 <mail.ipv4v6@gmail.com>
+Date: Sat, 15 Jul 2017 13:53:21 +0200
+Subject: [PATCH] add version argument to help function (#6377)
+
+Signed-off-by: Stefan Pietsch <mail.ipv4v6+gh@gmail.com>(cherry picked from commit cb4069d95e447e8a01fc3feee6d6cb99669c4c38)
+---
+ src/core/main.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/core/main.c b/src/core/main.c
+index 88e2c92504..babcab4978 100644
+--- a/src/core/main.c
++++ b/src/core/main.c
+@@ -1091,6 +1091,7 @@ static int help(void) {
+         printf("%s [OPTIONS...]\n\n"
+                "Starts up and maintains the system or user services.\n\n"
+                "  -h --help                      Show this help\n"
++               "     --version                   Show version\n"
+                "     --test                      Determine startup sequence, dump it and exit\n"
+                "     --no-pager                  Do not pipe output into a pager\n"
+                "     --dump-configuration-items  Dump understood unit configuration items\n"

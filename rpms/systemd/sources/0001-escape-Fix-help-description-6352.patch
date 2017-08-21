@@ -1,0 +1,23 @@
+From b2954c2fbed0409adba2687b17fb956f002b2bbe Mon Sep 17 00:00:00 2001
+From: Jeremy Bicha <jbicha@ubuntu.com>
+Date: Thu, 13 Jul 2017 10:44:33 -0400
+Subject: [PATCH] escape: Fix help description (#6352)
+
+Resolves: #6351(cherry picked from commit 303608c1bcf9568371625fbbd9442946cadba422)
+---
+ src/escape/escape.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/escape/escape.c b/src/escape/escape.c
+index af98c98e40..89e885d47c 100644
+--- a/src/escape/escape.c
++++ b/src/escape/escape.c
+@@ -38,7 +38,7 @@ static bool arg_path = false;
+ 
+ static void help(void) {
+         printf("%s [OPTIONS...] [NAME...]\n\n"
+-               "Show system and user paths.\n\n"
++               "Escape strings for usage in system unit names.\n\n"
+                "  -h --help               Show this help\n"
+                "     --version            Show package version\n"
+                "     --suffix=SUFFIX      Unit suffix to append to escaped strings\n"

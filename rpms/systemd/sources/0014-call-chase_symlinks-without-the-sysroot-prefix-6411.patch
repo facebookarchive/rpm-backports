@@ -1,0 +1,31 @@
+From eca55fbc51056b2a4fa3242917b6fc2f0c02e981 Mon Sep 17 00:00:00 2001
+From: Harald Hoyer <harald@hoyer.xyz>
+Date: Thu, 20 Jul 2017 19:13:09 +0200
+Subject: [PATCH] call chase_symlinks without the /sysroot prefix (#6411)
+
+In case fstab-generator is called in the initrd, chase_symlinks()
+returns with a canonical path "/sysroot/sysroot/<mountpoint>", if the
+"/sysroot" prefix is present in the path.
+
+This patch skips the "/sysroot" prefix for the chase_symlinks() call,
+because "/sysroot" is already the root directory and chase_symlinks()
+prepends the root directory in the canonical path returned.
+
+(cherry picked from commit 98eda38aed6a10c4f6d6ad0cac6e5361e87de52b)
+---
+ src/fstab-generator/fstab-generator.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/fstab-generator/fstab-generator.c b/src/fstab-generator/fstab-generator.c
+index 7f23b9fd74..f172e9c07b 100644
+--- a/src/fstab-generator/fstab-generator.c
++++ b/src/fstab-generator/fstab-generator.c
+@@ -537,7 +537,7 @@ static int parse_fstab(bool initrd) {
+                         continue;
+                 }
+ 
+-                where = initrd ? strappend("/sysroot/", me->mnt_dir) : strdup(me->mnt_dir);
++                where = strdup(me->mnt_dir);
+                 if (!where)
+                         return log_oom();
+ 
