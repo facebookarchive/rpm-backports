@@ -20,7 +20,7 @@
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
 Version:        234
-Release:        5.fb1
+Release:        5.fb2
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -73,6 +73,7 @@ Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
 Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
 Patch1001:      FB--Disable-test-execute.patch
 Patch1002:      FB--backport-nsdelegate-support.patch
+Patch1003:      FB--basic--ensure-O_TMPFILE-is-always-defined.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -1040,6 +1041,9 @@ getent passwd systemd-journal-upload &>/dev/null || useradd -r -l -g systemd-jou
 %{pkgdir}/tests
 
 %changelog
+* Mon Sep 18 2017 Davide Cavalca <dcavalca@fb.com> - 234-5.fb2
+- backport build fix for O_TMPFILE from PR#6816
+
 * Tue Aug  8 2017 Davide Cavalca <dcavalca@fb.com> - 234-5.fb1
 - new upstream release
 - drop compat-libs patch in favor of separate systemd-compat-libs project
