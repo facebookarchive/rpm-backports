@@ -10,17 +10,14 @@
 
 Name:           systemd-compat-libs
 Url:            https://github.com/facebookincubator/systemd-compat-libs
-Version:        234
-Release:        5.fb2
+Version:        235
+Release:        1.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+
 Summary:        Compatibility libraries for systemd
 
 Source0:        https://github.com/facebookincubator/systemd-compat-libs/archive/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
-Source1:        https://github.com/facebookincubator/systemd-compat-libs/raw/master/wrap-patches/systemd-%{version}-wrap-patch.tar.gz
-Source2:        https://github.com/systemd/systemd/archive/v%{version}.tar.gz#/systemd-%{version}.tar.gz
-
-Patch001:       0001-fix-libraries-versions.patch
+Source1:        https://github.com/systemd/systemd/archive/v%{version}.tar.gz#/systemd-%{version}.tar.gz
 
 BuildRequires:  meson >= 0.40
 BuildRequires:  git
@@ -56,7 +53,6 @@ to systemd-compat-libs.
 %autopatch -p1
 mkdir -p subprojects/packagecache
 cp -p %SOURCE1 subprojects/packagecache/
-cp -p %SOURCE2 subprojects/packagecache/
 
 %build
 export LANG=en_US.UTF-8
@@ -91,6 +87,9 @@ export LC_ALL=en_US.UTF-8
 %{_libdir}/pkgconfig/libsystemd-id128.pc
 
 %changelog
+* Mon Oct  9 2017 Davide Cavalca <dcavalca@fb.com> - 235-1.fb1
+- New upstream release
+
 * Tue Sep 19 2017 Davide Cavalca <dcavalca@fb.com> - 234-5.fb2
 - Backport libraries versions fix from PR#1
 
