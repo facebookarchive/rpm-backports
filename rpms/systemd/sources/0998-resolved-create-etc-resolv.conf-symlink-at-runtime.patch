@@ -1,4 +1,4 @@
-From 108c060c5521309b9448e3a7905b50dd505f36a8 Mon Sep 17 00:00:00 2001
+From 67ba0816708038ad282fcb38f250a54bb781866a Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Zbigniew=20J=C4=99drzejewski-Szmek?= <zbyszek@in.waw.pl>
 Date: Fri, 11 Mar 2016 17:06:17 -0500
 Subject: [PATCH] resolved: create /etc/resolv.conf symlink at runtime
@@ -18,34 +18,34 @@ https://bugzilla.redhat.com/show_bug.cgi?id=1313085
  2 files changed, 4 insertions(+), 3 deletions(-)
 
 diff --git a/src/resolve/resolved.c b/src/resolve/resolved.c
-index deb75f9ae5..914d3b8a2d 100644
+index 2eb7bfd030..75e2f7928c 100644
 --- a/src/resolve/resolved.c
 +++ b/src/resolve/resolved.c
-@@ -67,6 +67,10 @@ int main(int argc, char *argv[]) {
-                 goto finish;
-         }
+@@ -70,6 +70,10 @@ int main(int argc, char *argv[]) {
+         /* Drop privileges, but only if we have been started as root. If we are not running as root we assume all
+          * privileges are already dropped. */
+         if (getuid() == 0) {
++                r = symlink("../run/systemd/resolve/resolv.conf", "/etc/resolv.conf");
++                if (r < 0 && errno != EEXIST)
++                        log_warning_errno(errno,
++                                          "Could not create /etc/resolv.conf symlink: %m");
  
-+        r = symlink("../run/systemd/resolve/resolv.conf", "/etc/resolv.conf");
-+        if (r < 0 && errno != EEXIST)
-+                log_warning_errno(errno, "Could not create /etc/resolv.conf symlink: %m");
-+
-         /* Drop privileges, but keep three caps. Note that we drop those too, later on (see below) */
-         r = drop_privileges(uid, gid,
-                             (UINT64_C(1) << CAP_NET_RAW)|          /* needed for SO_BINDTODEVICE */
+                 /* Drop privileges, but keep three caps. Note that we drop those too, later on (see below) */
+                 r = drop_privileges(uid, gid,
 diff --git a/tmpfiles.d/etc.conf.m4 b/tmpfiles.d/etc.conf.m4
-index 064eae94f1..928105ea8d 100644
+index 35e3809f57..928105ea8d 100644
 --- a/tmpfiles.d/etc.conf.m4
 +++ b/tmpfiles.d/etc.conf.m4
 @@ -13,9 +13,6 @@ L+ /etc/mtab - - - - ../proc/self/mounts
  m4_ifdef(`HAVE_SMACK_RUN_LABEL',
  t /etc/mtab - - - - security.SMACK64=_
  )m4_dnl
--m4_ifdef(`ENABLE_RESOLVED',
+-m4_ifdef(`ENABLE_RESOLVE',
 -L! /etc/resolv.conf - - - - ../usr/lib/systemd/resolv.conf
 -)m4_dnl
  C /etc/nsswitch.conf - - - -
  m4_ifdef(`HAVE_PAM',
  C /etc/pam.d - - - -
 -- 
-2.9.2
+2.13.6
 

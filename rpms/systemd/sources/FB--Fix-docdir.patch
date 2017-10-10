@@ -1,0 +1,13 @@
+diff --git a/meson.build b/meson.build
+index f7a610a..3e60d8d 100644
+--- a/meson.build
++++ b/meson.build
+@@ -113,7 +113,7 @@ udevhwdbdir = join_paths(udevlibexecdir, 'hwdb.d')
+ catalogdir = join_paths(prefixdir, 'lib/systemd/catalog')
+ kernelinstalldir = join_paths(prefixdir, 'lib/kernel/install.d')
+ factorydir = join_paths(datadir, 'factory')
+-docdir = join_paths(datadir, 'doc/systemd')
++docdir = join_paths(datadir, 'doc/systemd-' + meson.project_version())
+ bootlibdir = join_paths(prefixdir, 'lib/systemd/boot/efi')
+ testsdir = join_paths(prefixdir, 'lib/systemd/tests')
+ systemdstatedir = join_paths(localstatedir, 'lib/systemd')

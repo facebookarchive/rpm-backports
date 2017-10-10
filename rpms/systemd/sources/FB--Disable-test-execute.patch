@@ -1,21 +1,20 @@
-diff --git a/src/test/meson.build b/src/test/meson.build
-index 4f07987..c24e9a5 100644
---- a/src/test/meson.build
-+++ b/src/test/meson.build
-@@ -496,16 +496,6 @@ tests += [
-           libmount,
-           libblkid]],
- 
--        [['src/test/test-execute.c'],
--         [libcore,
--          libshared],
--         [threads,
--          librt,
--          libseccomp,
--          libselinux,
--          libmount,
--          libblkid]],
--
-         [['src/test/test-siphash24.c'],
-          [],
-          []],
+diff --git a/src/test/test-execute.c b/src/test/test-execute.c
+index 6786d56..a03c546 100644
+--- a/src/test/test-execute.c
++++ b/src/test/test-execute.c
+@@ -500,7 +500,6 @@ int main(int argc, char *argv[]) {
+                 test_exec_restrict_namespaces,
+                 test_exec_user,
+                 test_exec_group,
+-                test_exec_supplementary_groups,
+                 test_exec_environment,
+                 test_exec_environmentfile,
+                 test_exec_passenvironment,
+@@ -517,7 +516,6 @@ int main(int argc, char *argv[]) {
+         };
+         static const test_function_t system_tests[] = {
+                 test_exec_systemcall_system_mode_with_user,
+-                test_exec_dynamic_user,
+                 NULL,
+         };
+         int r;
