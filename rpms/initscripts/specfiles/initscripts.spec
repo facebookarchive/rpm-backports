@@ -4,7 +4,7 @@ Version: 9.49.30
 # ppp-watch is GPLv2+, everything else is GPLv2
 License: GPLv2 and GPLv2+
 Group: System Environment/Base
-Release: 3.fb4%{?dist}
+Release: 3.fb5%{?dist}
 URL: http://fedorahosted.org/releases/i/n/initscripts/
 Source: http://fedorahosted.org/releases/i/n/initscripts/initscripts-%{version}.tar.bz2
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
@@ -41,6 +41,7 @@ Patch3: 0001-source_config-tell-NetworkManger-to-load-ifcfg-file-.patch
 Patch4: Backport-latest-network-scripts.patch
 Patch5: Backport-latest-functions-script.patch
 Patch6: sync-network-scripts-from-master.patch
+Patch7: 0001-network-add-knob-to-optionally-keep-interfaces-up-du.patch
 
 
 
@@ -69,6 +70,7 @@ Currently, this consists of various memory checking code.
 %patch4 -p1
 %patch5 -p1
 %patch6 -p1
+%patch7 -p1
 
 
 
@@ -235,6 +237,9 @@ rm -rf $RPM_BUILD_ROOT
 /etc/profile.d/debug*
 
 %changelog
+* Mon Nov 27 2017 Davide Cavalca <dcavalca@fb.com> - 9.49.30-3.fb5%{?dist}
+- backport network fix from PR#154
+
 * Tue Nov 15 2016 Phil Dibowitz <phild@fb.com> - 9.49.30-3.fb4%{?dist}
 - sync network-scripts from master
 
