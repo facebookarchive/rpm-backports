@@ -2,16 +2,14 @@
 %define rpmmacrodir %{_rpmconfigdir}/macros.d
 %endif
 Name:           ninja-build
-Version:        1.7.2
-Release:        6.fb1%{?dist}
+Version:        1.8.2
+Release:        1.fb1%{?dist}
 Summary:        A small build system with a focus on speed
 License:        ASL 2.0
 URL:            http://martine.github.com/ninja/
-Source0:        https://github.com/martine/ninja/archive/v%{version}.tar.gz#/ninja-%{version}.tar.gz
+Source0:        https://github.com/martine/ninja/archive/v%{version}/ninja-%{version}.tar.gz
 Source1:        ninja.vim
 Source2:        macros.ninja
-Patch0001:      0001-Work-around-mtime-being-set-to-0-sometimes.patch
-Patch0002:      0002-Disable-test-which-takes-too-many-resources-for-koji.patch
 BuildRequires:  gcc-c++
 %if 0%{?rhel} && 0%{?rhel} <= 7
 BuildRequires:  python34-devel
@@ -45,8 +43,8 @@ CFLAGS="%{optflags}" LDFLAGS="%{?__global_ldflags}" \
 %{__python3} \
 %endif
   configure.py --bootstrap --verbose
+./ninja -v all
 ./ninja -v manual
-./ninja -v ninja_test
 
 %install
 # TODO: Install ninja_syntax.py?
@@ -62,7 +60,7 @@ install -Dpm0644 %{S:2} %{buildroot}%{rpmmacrodir}/macros.ninja
 ln -s ninja %{buildroot}%{_bindir}/ninja-build
 
 %check
-./ninja_test
+./ninja_test --gtest_filter=-SubprocessTest.SetWithLots
 
 %files
 %license COPYING
@@ -78,6 +76,18 @@ ln -s ninja %{buildroot}%{_bindir}/ninja-build
 %{rpmmacrodir}/macros.ninja
 
 %changelog
+* Wed Jan 31 2018 Davide Cavalca <dcavalca@fb.com> - 1.8.2-1.fb1
+- Add missing macro definition for CentOS 7
+
+* Tue Sep 12 2017 Igor Gnatenko <ignatenkobrain@fedoraproject.org> - 1.8.2-1
+- Update to 1.8.2
+
+* Thu Sep 07 2017 Igor Gnatenko <ignatenkobrain@fedoraproject.org> - 1.8.1-1
+- Update to 1.8.1
+
+* Sat Sep 02 2017 Igor Gnatenko <ignatenkobrain@fedoraproject.org> - 1.8.0-1
+- Update to 1.8.0
+
 * Tue Aug 08 2017 Davide Cavalca <dcavalca@fb.com> - 1.7.2-6.fb1
 - Facebook rebuild
 
