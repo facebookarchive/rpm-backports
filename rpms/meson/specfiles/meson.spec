@@ -4,22 +4,27 @@
 %define rpmmacrodir %{_rpmconfigdir}/macros.d
 %endif
 
+%bcond_with check
+
 Name:           meson
-Version:        0.41.2
-Release:        2.fb1%{?dist}
+Version:        0.44.0
+Release:        1.fb1%{?dist}
 Summary:        High productivity build system
 
 License:        ASL 2.0
 URL:            http://mesonbuild.com/
 Source0:        https://github.com/mesonbuild/meson/archive/%{version}/%{name}-%{version}.tar.gz
+
 BuildArch:      noarch
 Obsoletes:      %{name}-gui < 0.31.0-3
 
 BuildRequires:  python%{python3_pkgversion}-devel
 BuildRequires:  python%{python3_pkgversion}-setuptools
+%if %{with check}
 BuildRequires:  ninja-build
 # Various languages
 BuildRequires:  gcc
+BuildRequires:  libasan
 BuildRequires:  gcc-c++
 BuildRequires:  gcc-gfortran
 BuildRequires:  gcc-objc
@@ -53,6 +58,7 @@ BuildRequires:  %{_bindir}/gnustep-config
 BuildRequires:  git-core
 BuildRequires:  pkgconfig(protobuf)
 BuildRequires:  pkgconfig(glib-2.0)
+BuildRequires:  pkgconfig(glib-sharp-2.0)
 BuildRequires:  pkgconfig(gobject-introspection-1.0)
 %if ! 0%{?rhel} || 0%{?rhel} > 7
 BuildRequires:  python3-gobject-base
@@ -62,7 +68,11 @@ BuildRequires:  itstool
 BuildRequires:  pkgconfig(zlib)
 BuildRequires:  python%{python3_pkgversion}-Cython
 BuildRequires:  pkgconfig(sdl2)
+BuildRequires:  %{_bindir}/pcap-config
+BuildRequires:  pkgconfig(vulkan)
 BuildRequires:  llvm-devel
+BuildRequires:  cups-devel
+%endif
 Requires:       ninja-build
 
 %description
@@ -74,6 +84,8 @@ unit tests, coverage reports, Valgrind, CCache and the like.
 %prep
 %autosetup -p1
 find -type f -name '*.py' -executable -exec sed -i -e '1s|.*|#!%{__python3}|' {} ';'
+# Remove MPI tests for now because it is complicated to run
+rm -rf "test cases/frameworks/17 mpi"
 
 %build
 %py3_build
@@ -82,9 +94,11 @@ find -type f -name '*.py' -executable -exec sed -i -e '1s|.*|#!%{__python3}|' {}
 %py3_install
 install -Dpm0644 data/macros.%{name} %{buildroot}%{rpmmacrodir}/macros.%{name}
 
+%if %{with check}
 %check
 export MESON_PRINT_TEST_OUTPUT=1
 %{__python3} ./run_tests.py %{?rhel:|| :}
+%endif
 
 %files
 %license COPYING
@@ -103,6 +117,21 @@ export MESON_PRINT_TEST_OUTPUT=1
 %{rpmmacrodir}/macros.%{name}
 
 %changelog
+* Wed Jan 31 2018 Davide Cavalca <dcavalca@fb.com> - 0.44.0-1.fb1
+- Facebook rebuild
+
+* Sun Dec 10 2017 Igor Gnatenko <ignatenkobrain@fedoraproject.org> - 0.44.0-1
+- Update to 0.44.0
+
+* Mon Oct 09 2017 Igor Gnatenko <ignatenkobrain@fedoraproject.org> - 0.43.0-1
+- Update to 0.43.0
+
+* Tue Sep 12 2017 Igor Gnatenko <ignatenkobrain@fedoraproject.org> - 0.42.1-1
+- Update to 0.42.1
+
+* Fri Aug 18 2017 Igor Gnatenko <ignatenkobrain@fedoraproject.org> - 0.42.0-1
+- Update to 0.42.0
+
 * Tue Aug 08 2017 Davide Cavalca <dcavalca@fb.com> - 0.41.2-2.fb1
 - Facebook rebuild
 
