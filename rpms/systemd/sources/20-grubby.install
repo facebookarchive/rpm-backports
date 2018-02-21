@@ -47,5 +47,5 @@ esac
 
 # skip other installation plugins, if we can't find a boot loader spec conforming setup
 if ! [[ -d /boot/loader/entries || -L /boot/loader/entries ]]; then
-    exit 77 
+    exit 77
 fi

@@ -1,4 +1,4 @@
-From 67ba0816708038ad282fcb38f250a54bb781866a Mon Sep 17 00:00:00 2001
+From b727694500d24d19ac0d7c51c1eb67c281f2f301 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Zbigniew=20J=C4=99drzejewski-Szmek?= <zbyszek@in.waw.pl>
 Date: Fri, 11 Mar 2016 17:06:17 -0500
 Subject: [PATCH] resolved: create /etc/resolv.conf symlink at runtime
@@ -18,10 +18,10 @@ https://bugzilla.redhat.com/show_bug.cgi?id=1313085
  2 files changed, 4 insertions(+), 3 deletions(-)
 
 diff --git a/src/resolve/resolved.c b/src/resolve/resolved.c
-index 2eb7bfd030..75e2f7928c 100644
+index a4cda0b5ef..68bca80777 100644
 --- a/src/resolve/resolved.c
 +++ b/src/resolve/resolved.c
-@@ -70,6 +70,10 @@ int main(int argc, char *argv[]) {
+@@ -71,6 +71,10 @@ int main(int argc, char *argv[]) {
          /* Drop privileges, but only if we have been started as root. If we are not running as root we assume all
           * privileges are already dropped. */
          if (getuid() == 0) {
@@ -33,7 +33,7 @@ index 2eb7bfd030..75e2f7928c 100644
                  /* Drop privileges, but keep three caps. Note that we drop those too, later on (see below) */
                  r = drop_privileges(uid, gid,
 diff --git a/tmpfiles.d/etc.conf.m4 b/tmpfiles.d/etc.conf.m4
-index 35e3809f57..928105ea8d 100644
+index df8d42101c..928105ea8d 100644
 --- a/tmpfiles.d/etc.conf.m4
 +++ b/tmpfiles.d/etc.conf.m4
 @@ -13,9 +13,6 @@ L+ /etc/mtab - - - - ../proc/self/mounts
@@ -41,11 +41,8 @@ index 35e3809f57..928105ea8d 100644
  t /etc/mtab - - - - security.SMACK64=_
  )m4_dnl
 -m4_ifdef(`ENABLE_RESOLVE',
--L! /etc/resolv.conf - - - - ../usr/lib/systemd/resolv.conf
+-L! /etc/resolv.conf - - - - ../run/systemd/resolve/stub-resolv.conf
 -)m4_dnl
  C /etc/nsswitch.conf - - - -
  m4_ifdef(`HAVE_PAM',
  C /etc/pam.d - - - -
--- 
-2.13.6
-
