@@ -20,7 +20,7 @@
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
 Version:        237
-Release:        1.fb1
+Release:        1.fb2
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -51,6 +51,7 @@ Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
 Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
 Patch1001:      75aaade16b00ff519fbaedb4cc773b654c11a34a.patch
 Patch1002:      73969ab61c39357e6892747e43307fbf07cafbed.patch
+Patch1003:      FB-workaround-issue-8194.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -682,6 +683,9 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Thu Feb 22 2018 Davide Cavalca <dcavalca@fb.com> - 237-1.fb2
+- Add workaround for an issue with systemd-nspawn -u affecting mock (GH#8194)
+
 * Mon Feb 12 2018 Davide Cavalca <dcavalca@fb.com> - 237-1.fb1
 - Facebook rebuild
 - Backport configurable docdir patch from master (PR#8068)
