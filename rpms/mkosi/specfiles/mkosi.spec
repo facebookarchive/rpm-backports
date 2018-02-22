@@ -1,20 +1,23 @@
 Name:           mkosi
-Version:        2
-Release:        2.fb1%{?dist}
+Version:        4
+Release:        2.fb2%{?dist}
 Summary:        Create legacy-free OS images
 
 License:        LGPLv2+
 URL:            https://github.com/systemd/mkosi
-Source0:        https://github.com/systemd/mkosi/archive/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
+Source0:        https://github.com/systemd/mkosi/archive/v%{version}/%{name}-%{version}.tar.gz
 Source1:        RPM-GPG-KEY-fedora-23-x86_64
 Source2:        RPM-GPG-KEY-fedora-24-x86_64
 Source3:        RPM-GPG-KEY-fedora-25-x86_64
 Source4:        RPM-GPG-KEY-fedora-26-x86_64
 Source5:        RPM-GPG-KEY-fedora-27-x86_64
+Source6:        RPM-GPG-KEY-fedora-28-x86_64
+Patch0001:	0001-Check-architecture-lazily.patch
 
 BuildArch:      noarch
 
-Requires:       python35
+BuildRequires:  python36
+Requires:       python36
 # for subprocess.run
 
 Recommends:     dnf
@@ -40,14 +43,13 @@ may be generated. Moreover, for bootable images only EFI systems are
 supported (not plain MBR/BIOS).
 
 %prep
-%autosetup
+%autosetup -p1
 
 %build
-sed -i mkosi -e 's:/usr/bin/python3:/usr/bin/python35:'
+sed -i mkosi -e 's:/usr/bin/python3:/usr/bin/python36:'
 
 %install
 # It's just one file, and setup.py install would copy useless .egg-info
-#install -Dpt %{buildroot}%{_bindir}/ mkosi
 install -d -m 0755 %{buildroot}%{_bindir}
 install -m 0755 mkosi %{buildroot}%{_bindir}/mkosi
 
@@ -57,7 +59,8 @@ install -m 0644 %SOURCE1 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedo
 install -m 0644 %SOURCE2 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-24-x86_64
 install -m 0644 %SOURCE3 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-25-x86_64
 install -m 0644 %SOURCE4 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-26-x86_64
-install -m 0644 %SOURCE4 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-27-x86_64
+install -m 0644 %SOURCE5 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-27-x86_64
+install -m 0644 %SOURCE6 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-28-x86_64
 
 %files
 %license LICENSE
@@ -68,8 +71,28 @@ install -m 0644 %SOURCE4 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedo
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-25-x86_64
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-26-x86_64
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-27-x86_64
+%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-28-x86_64
+
+%check
+# just a smoke test for syntax or import errors
+%buildroot/usr/bin/mkosi --help
 
 %changelog
+* Thu Feb 22 2018 Davide Cavalca <dcavalca@fb.com> - 4-2.fb2
+- Move to python36
+- Reenable smoketest
+
+* Thu Feb 22 2018 Davide Cavalca <dcavalca@fb.com> - 4-2.fb1
+- New upstream release
+- Add Fedora 28 GPG key
+- Disable smoketest as python35 doesn't seem to run in mock
+
+* Sat Feb 10 2018 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 4-2
+- Update to latest version (#1544123)
+
+* Thu Feb 08 2018 Fedora Release Engineering <releng@fedoraproject.org> - 2-3
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_28_Mass_Rebuild
+
 * Mon Aug 7 2017 Davide Cavalca <dcavalca@fb.com> - 2-2.fb1
 - Rebase over upstream packaging
 - add GPG key for Fedora 27
