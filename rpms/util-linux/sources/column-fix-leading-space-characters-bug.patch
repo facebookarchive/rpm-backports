@@ -1,0 +1,148 @@
+From 651c5d428c2ef103ee8c5b1a310d6f29f0304744 Mon Sep 17 00:00:00 2001
+From: Karel Zak <kzak@redhat.com>
+Date: Tue, 27 Mar 2018 10:40:13 +0200
+Subject: [PATCH] column: fix leading space characters bug
+
+The bug has been introduced during column(1) rewrite. The function
+read_input() need to skip leading space only temporary to detect empty
+lines, but the rest of the code has to use the original buffer (line).
+I've tried to fix one of the symptoms by 5c7b67fbbf41c973ca8d49b1e8bdba22dbb917aa
+(alter), but this solution is unnecessary and too complex.
+
+Changes:
+
+* don't ignore leading space
+* remove unnecessary stuff introduced by 5c7b67fbbf41c973ca8d49b1e8bdba22dbb917aa
+* fix regression test with incorrect separator
+
+Addresses: https://github.com/karelzak/util-linux/issues/575
+Addresses: https://bugzilla.redhat.com/show_bug.cgi?id=1560283
+Signed-off-by: Karel Zak <kzak@redhat.com>
+---
+ tests/expected/column/table-input-separator-space |  2 +-
+ tests/ts/column/table                             |  2 +-
+ text-utils/column.c                               | 36 ++---------------------
+ 4 files changed, 5 insertions(+), 38 deletions(-)
+
+diff --git a/tests/expected/column/table-input-separator-space b/tests/expected/column/table-input-separator-space
+index 8a6513c11..25d9b5ab0 100644
+--- a/tests/expected/column/table-input-separator-space
++++ b/tests/expected/column/table-input-separator-space
+@@ -1,5 +1,5 @@
+ AAA	BBBB	C	DDDD
+-BBB	CCCC	DDD
++	BBB	CCCC	DDD
+ AA	BB		DD
+ AAAA	B	CC	D
+ AA		CC	DD
+diff --git a/tests/ts/column/table b/tests/ts/column/table
+index 27b52e7c8..5c89d5eaf 100755
+--- a/tests/ts/column/table
++++ b/tests/ts/column/table
+@@ -37,7 +37,7 @@ $TS_CMD_COLUMN --separator ',' --table $TS_SELF/files/table-sep >> $TS_OUTPUT 2>
+ ts_finalize_subtest
+ 
+ ts_init_subtest "input-separator-space"
+-$TS_CMD_COLUMN --separator ',' --table $TS_SELF/files/table-sep-space >> $TS_OUTPUT 2>&1
++$TS_CMD_COLUMN --separator "$(echo -e '\t')" --table $TS_SELF/files/table-sep-space >> $TS_OUTPUT 2>&1
+ ts_finalize_subtest
+ 
+ ts_init_subtest "long"
+diff --git a/text-utils/column.c b/text-utils/column.c
+index 89d46d280..195814328 100644
+--- a/text-utils/column.c
++++ b/text-utils/column.c
+@@ -86,7 +86,6 @@ struct column_control {
+ 	const char *tree_parent;
+ 
+ 	wchar_t *input_separator;
+-	char *input_separator_raw;
+ 	const char *output_separator;
+ 
+ 	wchar_t	**ents;		/* input entries */
+@@ -96,7 +95,6 @@ struct column_control {
+ 	unsigned int greedy :1,
+ 		     json :1,
+ 		     header_repeat :1,
+-		     input_sep_space : 1,	/* input separator contains space chars */
+ 		     tab_noheadings :1;
+ };
+ 
+@@ -470,19 +468,7 @@ static int read_input(struct column_control *ctl, FILE *fp)
+ 	char *buf = NULL;
+ 	size_t bufsz = 0;
+ 	size_t maxents = 0;
+-	int rc = 0, is_space_sep = 0;
+-
+-	/* Check if columns separator contains spaces chars */
+-	if (ctl->mode == COLUMN_MODE_TABLE && ctl->input_separator_raw) {
+-		char *p;
+-
+-		for (p = ctl->input_separator_raw; *p; p++) {
+-			if (isspace(*p)) {
+-				is_space_sep = 1;
+-				break;
+-			}
+-		}
+-	}
++	int rc = 0;
+ 
+ 	/* Read input */
+ 	do {
+@@ -496,19 +482,6 @@ static int read_input(struct column_control *ctl, FILE *fp)
+ 			err(EXIT_FAILURE, _("read failed"));
+ 		}
+ 		str = (char *) skip_space(buf);
+-
+-		/* The table columns separator could be a space. In this case
+-		 * don't skip the separator if at begin of the line. For example:
+-		 *
+-		 * echo -e "\tcol1\tcol2\nrow\t1\t2" \
+-		 *	| column -t -s "$(echo -e '\t')" --table-columns A,B,C
+-		 */
+-		if (is_space_sep && str > buf) {
+-			char *x = strpbrk(buf, ctl->input_separator_raw);
+-			if (x && x < str)
+-				str = x;
+-		}
+-
+ 		if (str) {
+ 			p = strchr(str, '\n');
+ 			if (p)
+@@ -517,13 +490,13 @@ static int read_input(struct column_control *ctl, FILE *fp)
+ 		if (!str || !*str)
+ 			continue;
+ 
+-		wcs = mbs_to_wcs(str);
++		wcs = mbs_to_wcs(buf);
+ 		if (!wcs) {
+ 			/*
+ 			 * Convert broken sequences to \x<hex> and continue.
+ 			 */
+ 			size_t tmpsz = 0;
+-			char *tmp = mbs_invalid_encode(str, &tmpsz);
++			char *tmp = mbs_invalid_encode(buf, &tmpsz);
+ 
+ 			if (!tmp)
+ 				err(EXIT_FAILURE, _("read failed"));
+@@ -720,7 +693,6 @@ int main(int argc, char **argv)
+ 
+ 	ctl.output_separator = "  ";
+ 	ctl.input_separator = mbs_to_wcs("\t ");
+-	ctl.input_separator_raw = xstrdup("\t ");
+ 
+ 	while ((c = getopt_long(argc, argv, "c:dE:eH:hi:JN:n:O:o:p:R:r:s:T:tVW:x", longopts, NULL)) != -1) {
+ 
+@@ -775,9 +747,7 @@ int main(int argc, char **argv)
+ 			break;
+ 		case 's':
+ 			free(ctl.input_separator);
+-			free(ctl.input_separator_raw);
+ 			ctl.input_separator = mbs_to_wcs(optarg);
+-			ctl.input_separator_raw = xstrdup(optarg);
+ 			ctl.greedy = 0;
+ 			break;
+ 		case 'T':
+-- 
+2.14.3
+

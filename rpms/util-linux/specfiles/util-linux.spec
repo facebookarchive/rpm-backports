@@ -1,14 +1,14 @@
 ### Header
 Summary: A collection of basic system utilities
 Name: util-linux
-Version: 2.30
-Release: 0.1%{?dist}.fb1
+Version: 2.32
+Release: 2%{?dist}.fb1
 License: GPLv2 and GPLv2+ and LGPLv2+ and BSD with advertising and Public Domain
 Group: System Environment/Base
 URL: http://en.wikipedia.org/wiki/Util-linux
 
 ### Macros
-%define upstream_version %{version}-rc1
+%define upstream_version %{version}
 %define upstream_major %(eval echo %{version} | %{__sed} -e 's/\([[:digit:]]*\)\.\([[:digit:]]*\)\.[[:digit:]]*$/\1.\2/')
 
 %define compldir %{_datadir}/bash-completion/completions/
@@ -36,6 +36,7 @@ BuildRequires: systemd
 Buildrequires: libuser-devel
 BuildRequires: libcap-ng-devel
 BuildRequires: %{pypkg}-devel
+BuildRequires: gcc
 
 ### Sources
 Source0: ftp://ftp.kernel.org/pub/linux/utils/util-linux/v%{upstream_major}/util-linux-%{upstream_version}.tar.xz
@@ -55,6 +56,9 @@ Conflicts: coreutils < 8.20
 # eject has been merged into util-linux v2.22
 Obsoletes: eject <= 2.1.5
 Provides: eject = 2.1.6
+# rfkill has been merged into util-linux v2.31
+Obsoletes: rfkill <= 0.5
+Provides: rfkill = 0.5
 # sulogin, utmpdump merged into util-linux v2.22;
 # last, lastb merged into util-linux v2.24
 Conflicts: sysvinit-tools < 2.88-14
@@ -88,6 +92,8 @@ Requires: libfdisk = %{version}-%{release}
 ###
 # 151635 - makeing /var/log/lastlog
 Patch0: 2.28-login-lastlog-create.patch
+# 1560283 - column does not properly handle spaces at beginning of tab-separated table columns
+Patch1: column-fix-leading-space-characters-bug.patch
 
 %description
 The util-linux package contains a large variety of low-level system
@@ -394,7 +400,7 @@ chmod 644 misc-utils/getopt-*.{bash,tcsh}
 rm -f ${RPM_BUILD_ROOT}%{_datadir}/doc/util-linux/getopt/*
 rmdir ${RPM_BUILD_ROOT}%{_datadir}/doc/util-linux/getopt
 
-ln -sf /proc/mounts %{buildroot}/etc/mtab
+ln -sf ../proc/self/mounts %{buildroot}/etc/mtab
 
 # remove static libs
 rm -f $RPM_BUILD_ROOT%{_libdir}/lib{uuid,blkid,mount,smartcols,fdisk}.a
@@ -441,7 +447,7 @@ if [ -x /usr/sbin/selinuxenabled ] && /usr/sbin/selinuxenabled; then
 	fi
 fi
 if [ ! -L /etc/mtab ]; then
-	ln -fs /proc/mounts /etc/mtab
+	ln -sf ../proc/self/mounts /etc/mtab || :
 fi
 
 %post -n libblkid
@@ -568,6 +574,7 @@ exit 0
 %{_bindir}/unshare
 %{_bindir}/utmpdump
 %{_bindir}/uuidgen
+%{_bindir}/uuidparse
 %{_bindir}/wdctl
 %{_bindir}/whereis
 %{_mandir}/man1/cal.1*
@@ -617,6 +624,7 @@ exit 0
 %{_mandir}/man1/unshare.1*
 %{_mandir}/man1/utmpdump.1.gz
 %{_mandir}/man1/uuidgen.1*
+%{_mandir}/man1/uuidparse.1*
 %{_mandir}/man1/whereis.1*
 %{_mandir}/man1/write.1*
 %{_mandir}/man5/fstab.5*
@@ -625,9 +633,7 @@ exit 0
 %{_mandir}/man8/agetty.8*
 %{_mandir}/man8/blkdiscard.8*
 %{_mandir}/man8/blkid.8*
-%if 0%{?fedora}
 %{_mandir}/man8/blkzone.8*
-%endif
 %{_mandir}/man8/blockdev.8*
 %{_mandir}/man8/chcpu.8*
 %{_mandir}/man8/chmem.8*
@@ -659,6 +665,7 @@ exit 0
 %{_mandir}/man8/rawdevices.8*
 %{_mandir}/man8/readprofile.8*
 %{_mandir}/man8/resizepart.8*
+%{_mandir}/man8/rfkill.8*
 %{_mandir}/man8/rtcwake.8*
 %{_mandir}/man8/setarch.8*
 %{_mandir}/man8/sulogin.8.gz
@@ -674,9 +681,7 @@ exit 0
 %{_sbindir}/agetty
 %{_sbindir}/blkdiscard
 %{_sbindir}/blkid
-%if 0%{?fedora}
 %{_sbindir}/blkzone
-%endif
 %{_sbindir}/blockdev
 %{_sbindir}/chcpu
 %{_sbindir}/ctrlaltdel
@@ -699,6 +704,7 @@ exit 0
 %{_sbindir}/pivot_root
 %{_sbindir}/readprofile
 %{_sbindir}/resizepart
+%{_sbindir}/rfkill
 %{_sbindir}/rtcwake
 %{_sbindir}/runuser
 %{_sbindir}/sulogin
@@ -712,9 +718,7 @@ exit 0
 %{compldir}/addpart
 %{compldir}/blkdiscard
 %{compldir}/blkid
-%if 0%{?fedora}
 %{compldir}/blkzone
-%endif
 %{compldir}/blockdev
 %{compldir}/cal
 %{compldir}/chcpu
@@ -765,7 +769,6 @@ exit 0
 %{compldir}/mkfs.minix
 %{compldir}/mkswap
 %{compldir}/more
-#%{compldir}/mount
 %{compldir}/mountpoint
 %{compldir}/namei
 %{compldir}/nsenter
@@ -778,6 +781,7 @@ exit 0
 %{compldir}/renice
 %{compldir}/resizepart
 %{compldir}/rev
+%{compldir}/rfkill
 %{compldir}/rtcwake
 %{compldir}/runuser
 %{compldir}/script
@@ -792,16 +796,17 @@ exit 0
 %{compldir}/swapon
 %{compldir}/taskset
 %{compldir}/ul
-#%{compldir}/umount
 %{compldir}/unshare
 %{compldir}/utmpdump
 %{compldir}/uuidgen
+%{compldir}/uuidparse
 %{compldir}/wall
 %{compldir}/wdctl
 %{compldir}/whereis
 %{compldir}/wipefs
 %{compldir}/write
 %{compldir}/zramctl
+
 
 %ifnarch s390 s390x
 %{_sbindir}/clock
@@ -932,9 +937,78 @@ exit 0
 %defattr(-, root, root)
 %{!?_licensedir:%global license %%doc}
 %license Documentation/licenses/COPYING.LGPLv2.1 libmount/COPYING
-%{_libdir}/python*/site-packages/libmount/*
+%{_libdir}/python*/site-packages/libmount/
 
 %changelog
+* Tue Apr 03 2018 Davide Cavalca <dcavalca@fb.com> - 2.32-2.fb1
+- Facebook rebuild
+
+* Tue Mar 27 2018 Karel Zak <kzak@redhat.com> - 2.32-2
+- fix #1560283 - column does not properly handle spaces at beginning of tab-separated table columns
+
+* Wed Mar 21 2018 Karel Zak <kzak@redhat.com> - 2.32-1
+- upgrade to v2.32
+
+* Tue Feb 20 2018 Karel Zak <kzak@redhat.com> - 2.32-0.2
+- add BuildRequires gcc
+
+* Tue Feb 13 2018 Karel Zak <kzak@redhat.com> - 2.32-0.1
+- upgrade to v2.32-rc1
+  http://www.kernel.org/pub/linux/utils/util-linux/v2.32/v2.32-ReleaseNotes
+
+* Fri Feb 09 2018 Fedora Release Engineering <releng@fedoraproject.org> - 2.31-5
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_28_Mass_Rebuild
+
+* Sat Jan 20 2018 Björn Esser <besser82@fedoraproject.org> - 2.31-4
+- Rebuilt for switch to libxcrypt
+
+* Wed Jan 03 2018 Lumír Balhar <lbalhar@redhat.com> - 2.31-3
+- Fix directory ownership in python subpackage
+
+* Mon Oct 30 2017 Karel Zak <kzak@redhat.com> - 2.31-2
+- fix dmesg for multi-line records
+
+* Mon Oct 23 2017 Karel Zak <kzak@redhat.com> - 2.31-1
+- upgrade to final v2.31
+- move rfkill to sbin (for backward compatibility)
+
+* Mon Oct  9 2017 Karel Zak <kzak@redhat.com> - 2.31-0.4
+- fix build error
+
+* Mon Oct  9 2017 Karel Zak <kzak@redhat.com> - 2.31-0.3
+- upgrade to v2.31-rc2
+- enable rfkill
+
+* Mon Sep 25 2017 Karel Zak <kzak@redhat.com> - 2.31-0.2
+- temporary disable rfkill (fix #1494855)
+
+* Fri Sep 22 2017 Karel Zak <kzak@redhat.com> - 2.31-0.1
+- upgrade to v2.31-rc1
+  http://ftp.kernel.org/pub/linux/utils/util-linux/v2.31/v2.31-ReleaseNotes
+
+* Fri Sep 22 2017 Karel Zak <kzak@redhat.com> - 2.30.2-1
+- upgrade to v2.30.2
+  http://ftp.kernel.org/pub/linux/utils/util-linux/v2.30/v2.30.2-ReleaseNotes
+
+* Mon Aug 14 2017 Karel Zak <kzak@redhat.com> - 2.30.1-5
+- make ln-s usage more robust
+
+* Fri Aug  4 2017 Karel Zak <kzak@redhat.com> - 2.30.1-4
+- fix post install script
+
+* Wed Aug  2 2017 Karel Zak <kzak@redhat.com> - 2.30.1-3
+- fix #1390191 - systemd read-only container produces errors
+
+* Thu Jul 27 2017 Fedora Release Engineering <releng@fedoraproject.org> - 2.30.1-2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_27_Mass_Rebuild
+
+* Thu Jul 20 2017 Karel Zak <kzak@redhat.com> - 2.30.1-1
+- upgrade to v2.30.1
+  http://ftp.kernel.org/pub/linux/utils/util-linux/v2.30/v2.30.1-ReleaseNotes
+
+* Fri Jun  2 2017 Karel Zak <kzak@redhat.com> - 2.30-1
+- upgrade to v2.30
+
 * Mon May 22 2017 Davide Cavalca <dcavalca@fb.com> - 2.30-0.1.fb1
 - Facebook rebuild
 - gate blkzone to Fedora as it depends on a very recent kernel include
