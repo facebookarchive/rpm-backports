@@ -10,8 +10,8 @@
 
 Name:           systemd-compat-libs
 Url:            https://github.com/facebookincubator/systemd-compat-libs
-Version:        237
-Release:        1.fb3
+Version:        238
+Release:        7.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+
 Summary:        Compatibility libraries for systemd
@@ -89,6 +89,9 @@ export LC_ALL=en_US.UTF-8
 %{_libdir}/pkgconfig/libsystemd-id128.pc
 
 %changelog
+* Thu Apr  5 2018 Davide Cavalca <dcavalca@fb.com> - 238-7.fb1
+- New upstream release
+
 * Mon Feb 26 2018 Davide Cavalca <dcavalca@fb.com> - 237-1.fb3
 - Bump version to match systemd packages
 
