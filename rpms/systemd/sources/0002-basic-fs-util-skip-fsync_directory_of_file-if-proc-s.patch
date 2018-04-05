@@ -1,0 +1,97 @@
+From 83492cce79c0cda1ea634abe4ad6519aa69e2fdc Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Zbigniew=20J=C4=99drzejewski-Szmek?= <zbyszek@in.waw.pl>
+Date: Wed, 7 Mar 2018 23:36:44 +0100
+Subject: [PATCH] basic/fs-util: skip fsync_directory_of_file() if
+ /proc/self/fd/ is not available
+
+When systemd is running under lorax (in Fedora compose process), it'd think that
+it failed to write /etc/machine-id, even though the write succeeded, because
+fsync_directory_of_file() would fail, because /proc/self/fd/ is not available.
+fsync_directory_of_file() is mostly an additional safety net, so I think it's best
+to just silently ignore the error.
+
+Strace of pid1:
+35791 stat("/etc", {st_mode=S_IFDIR|0755, st_size=4096, ...}) = 0
+35791 openat(AT_FDCWD, "/etc/machine-id", O_RDWR|O_CREAT|O_NOCTTY|O_CLOEXEC, 0444) = 3
+35791 umask(022)                        = 000
+35791 read(3, "", 38)                   = 0
+35791 openat(AT_FDCWD, "/var/lib/dbus/machine-id", O_RDONLY|O_NOCTTY|O_NOFOLLOW|O_CLOEXEC) = -1 ENOENT (No such file o
+r directory)
+35791 openat(AT_FDCWD, "/sys/class/dmi/id/product_name", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+35791 openat(AT_FDCWD, "/sys/class/dmi/id/sys_vendor", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+35791 openat(AT_FDCWD, "/sys/class/dmi/id/board_vendor", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+35791 openat(AT_FDCWD, "/sys/class/dmi/id/bios_vendor", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+35791 access("/proc/xen", F_OK)         = -1 ENOENT (No such file or directory)
+35791 openat(AT_FDCWD, "/sys/hypervisor/type", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+35791 openat(AT_FDCWD, "/proc/cpuinfo", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+35791 getrandom("\xb8\x82\xed\xd4\x35\x11\xd0\xeb\xa6\x79\xd7\x31\x6e\x7b\x99\xce", 16, GRND_NONBLOCK) = 16
+35791 writev(2, [{iov_base="Initializing machine ID from random generator.", iov_len=46}, {iov_base="\n", iov_len=1}],
+ 2) = 47
+35791 lseek(3, 0, SEEK_SET)             = 0
+35791 ftruncate(3, 0)                   = 0
+35791 write(3, "b882edd4351140eba679d7316e7b99ce\n", 33) = 33
+35791 fsync(3)                          = 0
+35791 fstat(3, {st_mode=S_IFREG|0444, st_size=33, ...}) = 0
+35791 readlinkat(AT_FDCWD, "/proc/self/fd/3", 0x564df8c694c0, 99) = -1 ENOENT (No such file or directory)
+35791 close(3)                          = 0
+35791 umask(022)                        = 022
+35791 openat(AT_FDCWD, "/run/machine-id", O_WRONLY|O_CREAT|O_NOCTTY|O_TRUNC|O_CLOEXEC, 0444) = 3
+35791 write(3, "b882edd4351140eba679d7316e7b99ce\n", 33) = 33
+35791 close(3)                          = 0
+35791 umask(022)                        = 022
+35791 mount("/run/machine-id", "/etc/machine-id", NULL, MS_BIND, NULL) = 0
+35791 writev(2, [{iov_base="Installed transient /etc/machine-id file.", iov_len=41}, {iov_base="\n", iov_len=1}], 2) = 42
+35791 mount(NULL, "/etc/machine-id", NULL, MS_RDONLY|MS_REMOUNT|MS_BIND, NULL) = 0
+
+https://bugzilla.redhat.com/show_bug.cgi?id=1552843
+---
+ src/basic/fd-util.c | 15 +++++++++++----
+ src/basic/fs-util.c |  5 +++++
+ 2 files changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/src/basic/fd-util.c b/src/basic/fd-util.c
+index 678ab12bb8..bb74f6c58e 100644
+--- a/src/basic/fd-util.c
++++ b/src/basic/fd-util.c
+@@ -361,14 +361,21 @@ bool fdname_is_valid(const char *s) {
+ }
+ 
+ int fd_get_path(int fd, char **ret) {
+-        char procfs_path[STRLEN("/proc/self/fd/") + DECIMAL_STR_MAX(int)];
++        _cleanup_close_ int dir = -1;
++        char fdname[DECIMAL_STR_MAX(int)];
+         int r;
+ 
+-        xsprintf(procfs_path, "/proc/self/fd/%i", fd);
++        dir = open("/proc/self/fd/", O_CLOEXEC | O_DIRECTORY | O_PATH);
++        if (dir < 0)
++                /* /proc is not available or not setup up properly, we're most likely
++                 * in some chroot environment. */
++                return -EOPNOTSUPP;
+ 
+-        r = readlink_malloc(procfs_path, ret);
++        xsprintf(fdname, "%i", fd);
+ 
+-        if (r == -ENOENT) /* If the file doesn't exist the fd is invalid */
++        r = readlinkat_malloc(dir, fdname, ret);
++        if (r == -ENOENT)
++                /* If the file doesn't exist the fd is invalid */
+                 return -EBADF;
+ 
+         return r;
+diff --git a/src/basic/fs-util.c b/src/basic/fs-util.c
+index 85c8070a1b..8d8d986082 100644
+--- a/src/basic/fs-util.c
++++ b/src/basic/fs-util.c
+@@ -978,6 +978,11 @@ int fsync_directory_of_file(int fd) {
+                 return r;
+ 
+         r = fd_get_path(fd, &path);
++        if (r == -EOPNOTSUPP)
++                /* If /proc is not available, we're most likely running in some
++                 * chroot environment, and syncing the directory is not very
++                 * important in that case. Let's just silently do nothing. */
++                return 0;
+         if (r < 0)
+                 return r;
+ 

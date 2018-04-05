@@ -1,0 +1,48 @@
+From e63ebf71edd7947f29389c72e851d8df5c7bedda Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Zbigniew=20J=C4=99drzejewski-Szmek?= <zbyszek@in.waw.pl>
+Date: Fri, 16 Mar 2018 23:01:05 +0100
+Subject: [PATCH] core: when reloading, delay any actions on journal and dbus
+ connections
+
+manager_recheck_journal() and manager_recheck_dbus() would be called to early
+while we were deserialiazing units, before the systemd-journald.service and
+dbus.service have been deserialized. In effect we'd disable logging to the
+journald and close the bus connection. The first is not very noticable, it
+mostly means that logs emitted during deserialization are lost. The second is
+more noticeable, because manager_recheck_dbus() would call bus_done_api() and
+bus_done_system() and close dbus connections. Logging and bus connection would
+then be restored later after the respective units have been deserialized.
+
+This is easily reproduced by calling:
+  $ sudo gdbus call --system --dest org.freedesktop.systemd1 --object-path /org/freedesktop/systemd1 --method "org.freedesktop.systemd1.Manager.Reload"
+which works fine before 8559b3b75cb, and then starts failing with:
+  Error: GDBus.Error:org.freedesktop.DBus.Error.NoReply: Remote peer disconnected
+
+None of this should happen, and we should delay changing state until after
+deserialization is complete when reloading. manager_reload() already included
+the calls to manager_recheck_journal() and manager_recheck_dbus(), so the
+connection state will be updated after deserialization during reloading is done.
+
+Fixes https://bugzilla.redhat.com/show_bug.cgi?id=1554578.
+---
+ src/core/unit.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/src/core/unit.c b/src/core/unit.c
+index 815701ad4e..f88aabba61 100644
+--- a/src/core/unit.c
++++ b/src/core/unit.c
+@@ -2501,8 +2501,11 @@ void unit_notify(Unit *u, UnitActiveState os, UnitActiveState ns, bool reload_su
+                 }
+         }
+ 
+-        manager_recheck_journal(m);
+-        manager_recheck_dbus(m);
++        if (!MANAGER_IS_RELOADING(u->manager)) {
++                manager_recheck_journal(m);
++                manager_recheck_dbus(m);
++        }
++
+         unit_trigger_notify(u);
+ 
+         if (!MANAGER_IS_RELOADING(u->manager)) {

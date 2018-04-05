@@ -19,8 +19,8 @@
 
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
-Version:        237
-Release:        1.fb3
+Version:        238
+Release:        7.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -35,6 +35,7 @@ Source0:        https://github.com/systemd/systemd/archive/v%{version}.tar.gz#/%
 # It is generated during systemd build and can be found in src/core/.
 Source1:        triggers.systemd
 Source2:        split-files.py
+Source3:        purge-nobody-user
 
 # Prevent accidental removal of the systemd package
 Source4:        yum-protect-systemd.conf
@@ -46,12 +47,16 @@ Source10:       systemd-udev-trigger-no-reload.conf
 Source11:       20-grubby.install
 Source12:       https://raw.githubusercontent.com/systemd/systemd/1000522a60ceade446773c67031b47a566d4a70d/src/login/systemd-user.m4
 
+Patch0001:      0001-test-cgroup-util-bail-out-when-running-under-mock.patch
+Patch0002:      0002-basic-fs-util-skip-fsync_directory_of_file-if-proc-s.patch
+Patch0003:      0003-core-when-reloading-delay-any-actions-on-journal-and.patch
+Patch0004:      0004-udev-net-id-Fix-check-for-address-to-keep-interface-.patch
+Patch0005:      0005-core-don-t-include-libmount.h-in-a-header-file-8580.patch
+
 Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
 
 Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
-Patch1001:      75aaade16b00ff519fbaedb4cc773b654c11a34a.patch
-Patch1002:      73969ab61c39357e6892747e43307fbf07cafbed.patch
-Patch1003:      996def17f99bb3f41f82032860dfcb98ff19c3ae.patch
+Patch1001:      FB-disable-test-execute.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -155,8 +160,10 @@ Obsoletes:      systemd-compat-libs < 230
 Obsoletes:      nss-myhostname < 0.4
 Provides:       nss-myhostname = 0.4
 Provides:       nss-myhostname%{_isa} = 0.4
+Requires(post): coreutils
 Requires(post): sed
 Requires(post): grep
+Requires(post): /usr/bin/getent
 
 %description libs
 Libraries for systemd and udev.
@@ -304,8 +311,10 @@ CONFIGURE_OPTS=(
         -Dinstall-tests=true
         -Dtty-gid=5
         -Dusers-gid=100
-        -Dnobody-user=nfs
-        -Dnobody-group=nfsnobody
+        -Dnobody-user=nobody
+        -Dnobody-group=nobody
+        -Dsplit-usr=false
+        -Dsplit-bin=true
         -Db_lto=false
         -Ddocdir=%{_pkgdocdir}
 )
@@ -325,6 +334,11 @@ export LC_ALL=en_US.UTF-8
 %meson "${CONFIGURE_OPTS[@]}"
 %meson_build
 
+if diff %{SOURCE1} %{_vpath_builddir}/triggers.systemd; then
+  echo -e "\n\n\nWARNING: triggers.systemd in Source1 is different!"
+  echo -e "      cp %{_vpath_builddir}/triggers.systemd %{SOURCE1}\n\n\n"
+fi
+
 %install
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
@@ -333,16 +347,6 @@ export LC_ALL=en_US.UTF-8
 # udev links
 mkdir -p %{buildroot}/%{_sbindir}
 ln -sf ../bin/udevadm %{buildroot}%{_sbindir}/udevadm
-
-# Create SysV compatibility symlinks. systemctl/systemd are smart
-# enough to detect in which way they are called.
-ln -s ../lib/systemd/systemd %{buildroot}%{_sbindir}/init
-ln -s ../bin/systemctl %{buildroot}%{_sbindir}/reboot
-ln -s ../bin/systemctl %{buildroot}%{_sbindir}/halt
-ln -s ../bin/systemctl %{buildroot}%{_sbindir}/poweroff
-ln -s ../bin/systemctl %{buildroot}%{_sbindir}/shutdown
-ln -s ../bin/systemctl %{buildroot}%{_sbindir}/telinit
-ln -s ../bin/systemctl %{buildroot}%{_sbindir}/runlevel
 
 # Compatiblity and documentation files
 touch %{buildroot}/etc/crypttab
@@ -417,6 +421,8 @@ install -Dm0644 -t %{buildroot}%{system_unit_dir}/systemd-udev-trigger.service.d
 
 install -Dm0755 -t %{buildroot}%{_prefix}/lib/kernel/install.d/ %{SOURCE11}
 
+install -D -t %{buildroot}/usr/lib/systemd/ %{SOURCE3}
+
 %find_lang %{name}
 
 # Split files in build root into rpms. See split-files.py for the
@@ -426,6 +432,7 @@ python36 %{SOURCE2} %buildroot <<EOF
 %ghost %config(noreplace) /etc/crypttab
 %ghost /etc/udev/hwdb.bin
 /etc/inittab
+/usr/lib/systemd/purge-nobody-user
 %ghost %config(noreplace) /etc/vconsole.conf
 %ghost %config(noreplace) /etc/X11/xorg.conf.d/00-keyboard.conf
 %ghost %attr(0664,root,utmp) /var/run/utmp
@@ -459,7 +466,7 @@ EOF
 %check
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
-# FB: removing meson_test for now as it seems to fail randomly when run in mock
+%meson_test
 
 #############################################################################################
 
@@ -550,7 +557,7 @@ if [ $1 -eq 0 ] ; then
 fi
 
 %post libs
-/sbin/ldconfig
+%{?ldconfig}
 
 if [ -f /etc/nsswitch.conf ] ; then
         # sed-fu to add myhostanme to hosts line
@@ -584,7 +591,23 @@ if [ -f /etc/nsswitch.conf ] ; then
                 ' /etc/nsswitch.conf &>/dev/null || :
 fi
 
-%postun libs -p /sbin/ldconfig
+# check if nobody or nfsnobody is defined
+export SYSTEMD_NSS_BYPASS_SYNTHETIC=1
+if getent passwd nfsnobody &>/dev/null; then
+   test -f /etc/systemd/dont-synthesize-nobody || {
+       echo 'Detected system with nfsnobody defined, creating /etc/systemd/dont-synthesize-nobody'
+       mkdir -p /etc/systemd || :
+       : >/etc/systemd/dont-synthesize-nobody || :
+   }
+elif getent passwd nobody 2>/dev/null | grep -v 'nobody:[x*]:65534:65534:.*:/:/sbin/nologin' &>/dev/null; then
+   test -f /etc/systemd/dont-synthesize-nobody || {
+       echo 'Detected system with incompatible nobody defined, creating /etc/systemd/dont-synthesize-nobody'
+       mkdir -p /etc/systemd || :
+       : >/etc/systemd/dont-synthesize-nobody || :
+   }
+fi
+
+%{?ldconfig:%postun libs -p %ldconfig}
 
 %global udev_services systemd-udev{d,-settle,-trigger}.service systemd-udevd-{control,kernel}.socket systemd-timesyncd.service
 
@@ -596,22 +619,22 @@ mv %{_localstatedir}/lib/backlight %{_localstatedir}/lib/systemd/backlight &>/de
 udevadm hwdb --update &>/dev/null
 %systemd_post %udev_services
 /usr/lib/systemd/systemd-random-seed save 2>&1
+
+# Replace obsolete keymaps
+# https://bugzilla.redhat.com/show_bug.cgi?id=1151958
+grep -q -E '^KEYMAP="?fi-latin[19]"?' /etc/vconsole.conf 2>/dev/null &&
+    sed -i.rpm.bak -r 's/^KEYMAP="?fi-latin[19]"?/KEYMAP="fi"/' /etc/vconsole.conf || :
+
+exit 0
+
+%preun udev
+%systemd_preun %udev_services
 if [ $1 -eq 1 ] ; then
     if [ -f %{_localstatedir}/lib/systemd/clock ] ; then
         mkdir -p %{_localstatedir}/lib/private/systemd/timesync
         mv %{_localstatedir}/lib/systemd/clock %{_localstatedir}/lib/private/systemd/timesync/.
     fi
 fi
-
-# Replace obsolete keymaps
-# https://bugzilla.redhat.com/show_bug.cgi?id=1151958
-grep -q -E '^KEYMAP="?fi-latin[19]"?' /etc/vconsole.conf 2>/dev/null &&
-    sed -i.rpm.bak -r 's/^KEYMAP="?fi-latin[19]"?/KEYMAP="fi"/' /etc/vconsole.conf
-
-exit 0
-
-%preun udev
-%systemd_preun %udev_services
 
 %postun udev
 # Only restart systemd-udev, to run the upgraded dameon.
@@ -683,11 +706,67 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Thu Apr  5 2018 Davide Cavalca <dcavalca@fb.com> - 238-7.fb1
+- Facebook rebuild
+- Reenable tests (except test-execute which is still broken)
+
+* Wed Mar 28 2018 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 238-7
+- Move udev transfiletriggers to the right package, fix quoting
+
+* Tue Mar 27 2018 Colin Walters <walters@verbum.org> - 238-6
+- Use shell for triggers; see https://github.com/systemd/systemd/pull/8550
+  This fixes compatibility with rpm-ostree.
+
+* Tue Mar 20 2018 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 238-5
+- Backport patch to revert inadvertent change of "predictable" interface name (#1558027)
+
+* Fri Mar 16 2018 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 238-4
+- Do not close dbus connection during dbus reload call (#1554578)
+
+* Wed Mar  7 2018 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 238-3
+- Revert the patches for GRUB BootLoaderSpec support
+- Add patch for /etc/machine-id creation (#1552843)
+
+* Tue Mar  6 2018 Yu Watanabe <watanabe.yu@gmail.com> - 238-2
+- Fix transfiletrigger script (#1551793)
+
+* Mon Mar  5 2018 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 238-1
+- Update to latest version
+- This fixes a hard-to-trigger potential vulnerability (CVE-2018-6954)
+- New transfiletriggers are installed for udev hwdb and rules, the journal
+  catalog, sysctl.d, binfmt.d, sysusers.d, tmpfiles.d.
+
+* Tue Feb 27 2018 Javier Martinez Canillas <javierm@redhat.com> - 237-7.git84c8da5
+- Add patch to install kernel images for GRUB BootLoaderSpec support
+
 * Mon Feb 26 2018 Davide Cavalca <dcavalca@fb.com> - 237-1.fb3
 - Backport PR#8115 to properly fix GH#8194
 
+* Sat Feb 24 2018 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 237-6.git84c8da5
+- Create /etc/systemd in %%post libs if necessary (#1548607)
+
+* Fri Feb 23 2018 Adam Williamson <awilliam@redhat.com> - 237-5.git84c8da5
+- Use : not touch to create file in -libs %%post
+
 * Thu Feb 22 2018 Davide Cavalca <dcavalca@fb.com> - 237-1.fb2
 - Add workaround for an issue with systemd-nspawn -u affecting mock (GH#8194)
+
+* Thu Feb 22 2018 Patrick Uiterwijk <patrick@puiterwijk.org> - 237-4.git84c8da5
+- Add coreutils dep for systemd-libs %%post
+- Add patch to typecast USB IDs to avoid compile failure
+
+* Wed Feb 21 2018 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 237-3.git84c8da5
+- Update some patches for test skipping that were updated upstream
+  before merging
+- Add /usr/lib/systemd/purge-nobody-user — a script to check if nobody is defined
+  correctly and possibly replace existing mappings
+
+* Tue Feb 20 2018 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 237-2.gitdff4849
+- Backport a bunch of patches, most notably for the journal and various
+  memory issues. Some minor build fixes.
+- Switch to new ldconfig macros that do nothing in F28+
+- /etc/systemd/dont-synthesize-nobody is created in %%post if nfsnobody
+  or nobody users are defined (#1537262)
 
 * Mon Feb 12 2018 Davide Cavalca <dcavalca@fb.com> - 237-1.fb1
 - Facebook rebuild
@@ -698,6 +777,10 @@ fi
 - Disable tests for now as they're failing randomly when building in mock
 - Use 10485760 as container base for Facebook to avoid conflicting with LDAP
 - Backport PID file symlink chain checks fix from master (PR#8133)
+
+* Fri Feb  9 2018 Zbigniew Jędrzejeweski-Szmek <zbyszek@in.waw.pl> - 237-1.git78bd769
+- Update to first stable snapshot (various minor memory leaks and misaccesses,
+  some documentation bugs, build fixes).
 
 * Sun Jan 28 2018 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 237-1
 - Update to latest version
