@@ -1,0 +1,72 @@
+commit b06d59406b33bbad5f53e66a3b36d67cf87d4bbd
+Author: Phil Dibowitz <phil@ipom.com>
+Date:   8 days ago
+
+    yummy:patchX:ifup-tunnel--Support--external--tunnels---172-.patch
+
+ifup-tunnel: Support 'external' tunnels (#172)
+
+    
+    * ifup-tunnel: Support 'external' tunnels
+    
+    This is a newish feature upstream. You can now set the external flag on a
+    ip6_tunnel type interface (though not the primary one, ip6tnl0), and doing so
+    will allow it to decapsulate any packet, and assuming that the inner address is
+    the one on that interface, it'll drop it back on the stack.
+    
+    This is useful for DSR vips. While v6-in-v6 was already supported, this allows
+    v4-in-v6 which is necessary to serve v4 traffic in a v6only infrastructure.
+    
+    There's comments in ifup-tunnel that imply it was designed only for GRE tunnels,
+    but this still seems like the best place for this.
+
+diff --git a/sysconfig.txt b/sysconfig.txt
+index c5c8120..f927cb3 100644
+--- a/sysconfig.txt
++++ b/sysconfig.txt
+@@ -926,7 +926,12 @@ Files in /etc/sysconfig/network-scripts/
+       "mode=active-backup arp_interval=60 arp_ip_target=192.168.1.1,192.168.1.2"
+ 
+   Tunnel-specific items:
+-    TYPE=GRE|IPIP|IPIP6
++    TYPE=GRE|IPIP|IPIP6|EXTERNAL
++      External is a mode for ip6_tunnel interfaces (that cannot be set on
++      the primary ip6tnl0 interface), which permits unwrapping encapsulated
++      packets regardless of their internal IP (v4 or v6) provided the inner
++      address is on the interface. Use $MY_INNER_IPADDR for v4 addresses. Use
++      $IPV6ADDR and $IPV6ADDR_SECONDARIES as usual for v6 addresses.
+     MY_INNER_IPADDR=local IP address of the tunnel interface
+     PEER_OUTER_IPADDR=IP address of the remote tunnel endpoint
+     MY_OUTER_IPADDR=IP address of the local tunnel endpoint
+diff --git a/sysconfig/network-scripts/ifup-tunnel b/sysconfig/network-scripts/ifup-tunnel
+index 5a1df54..afdfe92 100755
+--- a/sysconfig/network-scripts/ifup-tunnel
++++ b/sysconfig/network-scripts/ifup-tunnel
+@@ -47,7 +47,7 @@ IPIP)
+     proto=-4
+     /sbin/modprobe ipip
+     ;;
+-IPIP6)
++IPIP6|EXTERNAL)
+     MODE=ipip6
+     proto=-6
+     /sbin/modprobe ip6_tunnel
+@@ -66,10 +66,14 @@ fi
+ 
+ # Create the tunnel
+ # The outer addresses are those of the underlying (public) network.
+-/sbin/ip $proto tunnel add "$DEVICE" mode "$MODE" \
+-    ${MY_OUTER_IPADDR:+local "$MY_OUTER_IPADDR"} \
+-    ${PEER_OUTER_IPADDR:+remote "$PEER_OUTER_IPADDR"} \
+-    ${KEY:+key "$KEY"} ${TTL:+ttl "$TTL"}
++if [ "$TYPE" = 'EXTERNAL' ]; then
++  /sbin/ip link add "$DEVICE" type ip6tnl external
++else
++  /sbin/ip $proto tunnel add "$DEVICE" mode "$MODE" \
++      ${MY_OUTER_IPADDR:+local "$MY_OUTER_IPADDR"} \
++      ${PEER_OUTER_IPADDR:+remote "$PEER_OUTER_IPADDR"} \
++      ${KEY:+key "$KEY"} ${TTL:+ttl "$TTL"}
++fi
+ 
+ if [ -n "$MTU" ]; then
+     /sbin/ip link set "$DEVICE" mtu "$MTU"

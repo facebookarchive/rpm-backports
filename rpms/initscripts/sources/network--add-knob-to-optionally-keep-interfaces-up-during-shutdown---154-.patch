@@ -1,0 +1,47 @@
+commit 48d27e6e81a040da777edf801dab069cd14579e3
+Author: Davide Cavalca <davide125@tiscali.it>
+Date:   4 months ago
+
+    yummy:patchX:network--add-knob-to-optionally-keep-interfaces-up-during-shutdown---154-.patch
+
+network: add knob to optionally keep interfaces up during shutdown (#154)
+
+    
+    * network: add knob to optionally keep interfaces up during shutdown
+
+diff --git a/rc.d/init.d/network b/rc.d/init.d/network
+index a8deed3..79e9e78 100755
+--- a/rc.d/init.d/network
++++ b/rc.d/init.d/network
+@@ -167,6 +167,15 @@ stop)
+         exit 1
+     fi
+ 
++    # Don't shut the network down when shutting down the system if configured
++    # as such in sysconfig
++    if is_false "$IFDOWN_ON_SHUTDOWN"; then
++      if systemctl is-system-running | grep -q 'stopping'; then
++        net_log $"system is shutting down, leaving interfaces up as requested"
++        exit 1
++      fi
++    fi
++
+     vlaninterfaces=""
+     vpninterfaces=""
+     xdslinterfaces=""
+diff --git a/sysconfig.txt b/sysconfig.txt
+index a4c05da..c5c8120 100644
+--- a/sysconfig.txt
++++ b/sysconfig.txt
+@@ -178,6 +178,11 @@ Generic options:
+     network has spanning tree running and must wait for STP convergence.
+     Default: 0 (no delay)
+ 
++  IFDOWN_ON_SHUTDOWN=yes|no
++    If yes, do bring interfaces down during system shutdown. If no, leave them
++    in their current state (this is only supported on hosts using systemd).
++    Default: yes (bring interfaces down)
++
+ 
+   IPV6FORWARDING=yes|no
+     Enable or disable global forwarding of incoming IPv6 packets 

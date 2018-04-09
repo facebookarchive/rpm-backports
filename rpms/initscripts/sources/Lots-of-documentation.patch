@@ -1,0 +1,52 @@
+commit b08b340510ea73f3c16305221ce38c8d7040e583
+Author: Phil Dibowitz <phil@ipom.com>
+Date:   8 days ago
+
+    yummy:patchX:Lots-of-documentation.patch
+
+Lots of documentation
+
+    
+    Docs for stuff I added in #2, #6, and #16.
+
+diff --git a/sysconfig.txt b/sysconfig.txt
+index f927cb3..66c9de2 100644
+--- a/sysconfig.txt
++++ b/sysconfig.txt
+@@ -598,6 +598,12 @@ Files in /etc/sysconfig/network-scripts/
+   For dynamic addressing (BOOTPROTO=dhcp) only DEVICE needs to
+   be set; all the rest will be determined by the boot protocol.
+ 
++    IPV6_SET_SYSCTLS=yes|no
++      If set, network-scripts will attempt to set sysctls based on the setup
++      of the interface. For example, will try to set `accept_ra` for interfaces
++      where $IPV6_AUTOCONF is set to `yes`. Defaults to `yes`, set to `no` if you
++      want to manage these yourself.
++
+   Base items being deprecated:
+     NETWORK=<will be calculated automatically with ipcalc>
+     BROADCAST=<will be calculated automatically with ipcalc>
+@@ -636,6 +642,10 @@ Files in /etc/sysconfig/network-scripts/
+     IPV6_PRIVACY=rfc3041
+       Enables RFC 3041 IPv6 privacy support if set.
+       Default: RFC 3041 support disabled
++    IPV6_FORCE_ACCEPT_RA=yes|no
++      By default network-scripts will set `accept_ra` only if $IPV6_AUTOCONF is
++      set to `yes`. If you don't want SLAAC addresses but do want to accept RA,
++      then set this to `yes`. Defaults to `no`.
+ 
+   Special configuration options for multi-homed hosts etc.
+ 	IPV6_ROUTER=yes|no: Controls IPv6 autoconfiguration
+@@ -713,6 +723,12 @@ Files in /etc/sysconfig/network-scripts/
+     BRIDGE=<br* device>
+       If set, the ethernet device is not assigned an address.  It is added to
+       the specified bridge device instead.
++    EXTRA_ROUTE_OPTS=<string of route options>
++      Extra options to add to the interface route. For example, let's say you
++      wanted an interface route to have an mtu of 1480, but wanted the
++      interface to still have a route of 1500, you could set "mtu 1480" here.
++      Anything here is appended to the `ip route add` or `ip route replace`
++      command.
+ 
+    Deprecated, but supported:
+     ETHTOOL_OPTS=...

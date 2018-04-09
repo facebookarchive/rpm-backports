@@ -1,0 +1,103 @@
+From a81b5e8ec984ca2a8ee7167eb87f6fc9db737843 Mon Sep 17 00:00:00 2001
+From: "David Kaspar [Dee'Kej]" <dkaspar@redhat.com>
+Date: Mon, 10 Jul 2017 18:16:35 +0200
+Subject: [PATCH] ARPUPDATE introduced
+
+  The ARPUPDATE option has been introduced. It defaults to 'yes'.
+
+  By setting the ARPUPDATE to 'no', administrator can disable
+  updating neighbouring computers with ARP information about current
+  NIC. This is especially needed when using LVS Load Balancing with
+  Direct routing enabled.
+---
+ sysconfig.txt                               | 5 +++++
+ sysconfig/network-scripts/ifup-aliases      | 4 +++-
+ sysconfig/network-scripts/ifup-eth          | 2 +-
+ sysconfig/network-scripts/network-functions | 6 ++++++
+ 4 files changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/sysconfig.txt b/sysconfig.txt
+index a4c05da..7adc381 100644
+--- a/sysconfig.txt
++++ b/sysconfig.txt
+@@ -586,6 +586,11 @@ Files in /etc/sysconfig/network-scripts/
+       If set to 'no', ifup will not try to determine, if requested ip address
+       is used by other machine in network.
+       Defaults to 'yes'.
++    ARPUPDATE=yes|no
++      If set to 'no' the neighbours in current network will not be updated with
++      ARP information about this NIC. This is especially handy using LVS Load
++      Balancing with Direct Routing enabled.
++      Defaults to 'yes'.
+     IPV4_FAILURE_FATAL=yes|no
+       If set to yes, ifup-eth will end immediately after ipv4 dhclient fails.
+       Defaults to 'no'.
+diff --git a/sysconfig/network-scripts/ifup-aliases b/sysconfig/network-scripts/ifup-aliases
+index fbc1547..52d43ea 100755
+--- a/sysconfig/network-scripts/ifup-aliases
++++ b/sysconfig/network-scripts/ifup-aliases
+@@ -127,6 +127,7 @@ eval ` (
+     echo default_GATEWAY=$GATEWAY\;;
+     echo default_NO_ALIASROUTING=$NO_ALIASROUTING\;;
+     echo default_ARPCHECK=$ARPCHECK\;;
++    echo default_ARPUPDATE=$ARPUPDATE\;;
+ ) `
+ [ -z "$default_GATEWAY" ] && default_GATEWAY=$network_GATEWAY
+ 
+@@ -142,6 +143,7 @@ function ini_env ()
+     NO_ALIASROUTING=$default_NO_ALIASROUTING
+     ONPARENT=""
+     ARPCHECK=$default_ARPCHECK
++    ARPUPDATE=$default_ARPUPDATE
+ }
+ 
+ function is_default_gateway ()
+@@ -279,7 +281,7 @@ function new_interface ()
+             dev ${parent_device} label ${DEVICE}
+ 
+         # update ARP cache of neighboring computers:
+-        if [ "${REALDEVICE}" != "lo" ]; then
++        if ! is_false "${ARPUPDATE}" && [ "${REALDEVICE}" != "lo" ]; then
+             /sbin/arping -q -A -c 1 -I ${parent_device} ${IPADDR}
+             ( sleep 2; /sbin/arping -q -U -c 1 -I ${parent_device} ${IPADDR} ) > /dev/null 2>&1 < /dev/null &
+         fi
+diff --git a/sysconfig/network-scripts/ifup-eth b/sysconfig/network-scripts/ifup-eth
+index 3da5c16..5096a5d 100755
+--- a/sysconfig/network-scripts/ifup-eth
++++ b/sysconfig/network-scripts/ifup-eth
+@@ -274,7 +274,7 @@ else
+             fi
+ 
+             # update ARP cache of neighboring computers
+-            if [ "${REALDEVICE}" != "lo" ]; then
++            if ! is_false "${arpupdate[$idx]}" && [ "${REALDEVICE}" != "lo" ]; then
+                 /sbin/arping -q -A -c 1 -I ${REALDEVICE} ${ipaddr[$idx]}
+                 ( sleep 2;
+                 /sbin/arping -q -U -c 1 -I ${REALDEVICE} ${ipaddr[$idx]} ) > /dev/null 2>&1 < /dev/null &
+diff --git a/sysconfig/network-scripts/network-functions b/sysconfig/network-scripts/network-functions
+index 1867c38..7f5dfb0 100644
+--- a/sysconfig/network-scripts/network-functions
++++ b/sysconfig/network-scripts/network-functions
+@@ -222,6 +222,7 @@ expand_config ()
+         netmask[$i]=$(eval echo '$'NETMASK$idx)
+         broadcast[$i]=$(eval echo '$'BROADCAST$idx)
+         arpcheck[$i]=$(eval echo '$'ARPCHECK$idx)
++        arpupdate[$i]=$(eval echo '$'ARPUPDATE$idx)
+ 
+         if [ "${prefix[$i]}x" != "x" ]; then
+             val=$(/bin/ipcalc --netmask "${ipaddr[$i]}/${prefix[$i]}")
+@@ -248,6 +249,11 @@ expand_config ()
+             arpcheck[$i]=${arpcheck[$i],,*}
+         fi
+ 
++        if [ "${arpupdate[$i]}x" != "x" ]; then
++            arpupdate[$i]=${arpupdate[$i]##ARPUPDATE=}
++            arpupdate[$i]=${arpupdate[$i],,*}
++        fi
++
+         i=$((i+1))
+     done
+ 
+-- 
+2.9.5
+

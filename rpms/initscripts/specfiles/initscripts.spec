@@ -1,12 +1,12 @@
 Summary: The inittab file and the /etc/init.d scripts
 Name: initscripts
-Version: 9.49.30
+Version: 9.49.39
 # ppp-watch is GPLv2+, everything else is GPLv2
 License: GPLv2 and GPLv2+
 Group: System Environment/Base
-Release: 3.fb5%{?dist}
-URL: http://fedorahosted.org/releases/i/n/initscripts/
-Source: http://fedorahosted.org/releases/i/n/initscripts/initscripts-%{version}.tar.bz2
+Release: 1.fb3%{?dist}.1
+URL: https://github.com/fedora-sysv/initscripts
+Source: https://github.com/fedora-sysv/initscripts/archive/%{version}.tar.gz#/%{name}-%{version}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
 Obsoletes: initscripts-legacy <= 9.39
 Requires: /bin/awk, sed, coreutils
@@ -18,7 +18,7 @@ Requires: bash >= 3.0
 Requires: sysvinit-tools >= 2.87-5
 Conflicts: systemd < 23-1
 Conflicts: systemd-units < 23-1
-Conflicts: lvm2 < 2.02.98-3
+Conflicts: lvm2 < 2.02.100-5
 Conflicts: dmraid < 1.0.0.rc16-18
 Requires: systemd
 Requires: iproute, /sbin/arping, findutils
@@ -35,15 +35,10 @@ Requires(preun): /sbin/chkconfig
 BuildRequires: glib2-devel popt-devel gettext pkgconfig
 Provides: /sbin/service
 
-Patch1: 0001-autorelabel-call-dracut-initramfs-restore-before-for.patch
-Patch2: 0001-autorelabel-turn-quota-off-before-relabeling.patch
-Patch3: 0001-source_config-tell-NetworkManger-to-load-ifcfg-file-.patch
-Patch4: Backport-latest-network-scripts.patch
-Patch5: Backport-latest-functions-script.patch
-Patch6: sync-network-scripts-from-master.patch
-Patch7: 0001-network-add-knob-to-optionally-keep-interfaces-up-du.patch
-
-
+Patch0001: initscripts-9.49.39-introduce-ARPUDATE.patch
+Patch2: network--add-knob-to-optionally-keep-interfaces-up-during-shutdown---154-.patch
+Patch3: ifup-tunnel--Support--external--tunnels---172-.patch
+Patch4: Lots-of-documentation.patch
 
 
 %description
@@ -64,15 +59,10 @@ Currently, this consists of various memory checking code.
 
 %prep
 %setup -q
-%patch1 -p1
+%patch001 -p1
 %patch2 -p1
 %patch3 -p1
 %patch4 -p1
-%patch5 -p1
-%patch6 -p1
-%patch7 -p1
-
-
 
 
 %build
@@ -175,9 +165,9 @@ rm -rf $RPM_BUILD_ROOT
 /etc/sysconfig/network-scripts/ifup-ctc
 %endif
 %config(noreplace) /etc/networks
-/etc/rwtab
+%config(noreplace) /etc/rwtab
+%config(noreplace) /etc/statetab
 %dir /etc/rwtab.d
-/etc/statetab
 %dir /etc/statetab.d
 /usr/lib/systemd/rhel-*
 /usr/lib/systemd/system/*
@@ -230,6 +220,8 @@ rm -rf $RPM_BUILD_ROOT
 /usr/lib/tmpfiles.d/initscripts.conf
 %dir /usr/libexec/initscripts
 %dir /usr/libexec/initscripts/legacy-actions
+%ghost %{_localstatedir}/log/dmesg
+%ghost %{_localstatedir}/log/dmesg.old
 
 %files -n debugmode
 %defattr(-,root,root)
@@ -237,28 +229,94 @@ rm -rf $RPM_BUILD_ROOT
 /etc/profile.d/debug*
 
 %changelog
-* Mon Nov 27 2017 Davide Cavalca <dcavalca@fb.com> - 9.49.30-3.fb5%{?dist}
-- backport network fix from PR#154
+* Thu Apr 05 2018 Phil Dibowitz <phil@ipom.com> - 9.49.39-1.fb3%{?dist}.1
+- Lots of documentation  Docs for stuff I added in #2, #6, and #16.
 
-* Tue Nov 15 2016 Phil Dibowitz <phild@fb.com> - 9.49.30-3.fb4%{?dist}
-- sync network-scripts from master
+* Thu Apr 05 2018 Phil Dibowitz <phil@ipom.com> - 9.49.39-1.fb3%{?dist}.1
+- ifup-tunnel: Support 'external' tunnels (#172)  * ifup-tunnel:
+  Support 'external' tunnels  This is a newish feature upstream. You
+  can now set the external flag on a ip6_tunnel type interface (though
+  not the primary one, ip6tnl0), and doing so will allow it to
+  decapsulate any packet, and assuming that the inner address is the
+  one on that interface, it'll drop it back on the stack.  This is
+  useful for DSR vips. While v6-in-v6 was already supported, this
+  allows v4-in-v6 which is necessary to serve v4 traffic in a v6only
+  infrastructure.  There's comments in ifup-tunnel that imply it was
+  designed only for GRE tunnels, but this still seems like the best
+  place for this.
 
-* Fri Nov 04 2016 Davide Cavalca <dcavalca@fb.com> - 9.49.30-3.fb3
-- Backport latest /etc/rc.d/init.d/functions
+* Thu Apr 05 2018 Davide Cavalca <davide125@tiscali.it> - 9.49.39-1.fb3%{?dist}.1
+- network: add knob to optionally keep interfaces up during shutdown
+  (#154)  * network: add knob to optionally keep interfaces up during
+  shutdown
 
-* Wed Nov 02 2016 Phil Dibowitz <phild@fb.com> - 9.49.30-3.fb2
-- Facebook rebuild
+* Fri Nov 03 2017 David Kaspar [Dee'Kej] <dkaspar@redhat.com> - 9.49.39-1.el7_4.1
+- ARUPDATE option introduced
 
-* Wed Nov 02 2016 Phil Dibowitz <phild@fb.com> - 9.49.30-3.fb1
-- Backport latest network-scripts
+* Wed May 03 2017 David Kaspar [Dee'Kej] <dkaspar@redhat.com> - 9.49.39-1
+- sysconfig.txt: mention previously introduced NO_DHCP_HOSTNAME option
+- DHCP_FQDN and DHCP_SEND_HOSTNAME introduced
+- re-add missing $HOSTNAME initialization
+- ifup: add support for VLAN_EGRESS_PRIORITY_MAP
+- rhel-autorelabel: synchronize cached writes before reboot
 
-* Thu Jun 16 2016 Lukáš Nykrýn <lnykryn@redhat.com> - 9.49.30-1.3
+* Thu Mar 30 2017 David Kaspar [Dee'Kej] <dkaspar@redhat.com> - 9.49.38-1
+- ifdown-eth: we need to flush global scope as well
+- killproc/status: add missing '-b <binary>' option
+- specfile: mark 'rwtab' and 'statetab' as config files
+- spec: we need newer lvm
+- rwtab: add /var/lib/systemd/timers
+- ifup-eth: remove quote marks
+- 9.70-sync: Move everything to github
+- 9.70-sync: rwtab updated
+- 9.70-sync: service file updated
+- 9.70-sync: syconfig.txt updated
+- 9.70-sync: systemd/rhel-import-state updated
+- 9.70-sync: sysconfig/network-scripts/* updated - part 2
+- 9.70-sync: sysconfig/network-scripts/* updated - part 1
+- 9.70-sync: rc.d/init.d/network updated
+- 9.70-sync: rc.d/init.d/netconsole updated
+- 9.70-sync: rc.d/init.d/functions updated
+- 9.70-sync: ipv6-6to4.howto example updated
+- 9.70-sync: examples/networking/ifcfg-bridge updated
+- network: load NetworkManager connection via dbus
+- network: check for running NetworkManager via dbus
+
+* Mon Sep 12 2016 Lukáš Nykrýn <lnykryn@redhat.com> - 9.49.37-1
+- rhel-import-state: fix broken order of parameters
+
+* Fri Sep 09 2016 Lukáš Nykrýn <lnykryn@redhat.com> - 9.49.36-1
+- import-state: copy just some attributes
+
+* Tue Aug 02 2016 Lukáš Nykrýn <lnykryn@redhat.com> - 9.49.35-1
+- functions: systemctl show now returns an error when unit does not exist
+
+* Fri Jul 15 2016 Lukáš Nykrýn <lnykryn@redhat.com> - 9.49.34-1
+- import-state: restore also sensitivity part of SELinux context
+
+* Thu Jul 14 2016 Lukáš Nykrýn <lnykryn@redhat.com> - 9.49.33-1
+- network: run after network-pre.target
+
+* Thu Jun 23 2016 Lukáš Nykrýn <lnykryn@redhat.com> - 9.49.32-1
+- ifup-eth: fix setting preferred_lft and valid_lft
+
+* Mon Jun 13 2016 Lukáš Nykrýn <lnykryn@redhat.com> - 9.49.31-1
+- ipv6: wait for all global IPv6 addresses to leave the "tentative" state
 - source_config: tell NetworkManger to load ifcfg file even for NM_CONTROLLED=no
-
-* Tue Mar 15 2016 Lukáš Nykrýn <lnykryn@redhat.com> - 9.49.30-1.2
+- ifup-aliases: inherit ARPCHECK from parent device
+- rhel-dmesg: don't start in containers
+- ifup-eth: fix typo in error message (#1038776)
+- sysctl.conf: steal comments about /usr,/etc,... from fedora's sysctl.conf
+- rwtab: /var/lib/nfs needs to copy the files
+- functions: improve killing loops
+- ipcalc: detect invalid mask
+- ifup: set valid_lft and preferred_lft to forever for static ip
+- service: use systemd mangle for given service
+- ifup-post: check resolve.conf also with DNS2
+- ifdown-post: remove resolv.conf only in specific cases
+- spec: ghost /var/log/dmesg
+- network-functions: is_available_wait should wait even in the case that is_available returns 2
 - autorelabel: turn quota off before relabeling
-
-* Tue Feb 02 2016 Lukáš Nykrýn <lnykryn@redhat.com> - 9.49.30-1.1
 - autorelabel: call dracut-initramfs-restore before forced reboot
 
 * Wed Sep 16 2015 Lukáš Nykrýn <lnykryn@redhat.com> - 9.49.30-1
@@ -475,7 +533,13 @@ rm -rf $RPM_BUILD_ROOT
 - check an IP address for existence in ifup-alias (#852005)
 - sync FSF address with GPL 2 text.
 - fix rpmlint's spaces vs tabs warning.
-- fix bogus %changelog
+- fix bogus %changelog dates.
+- build with $RPM_LD_FLAGS.
+- use -sf, not -s. (#901827)
+- add /usr/libexec/initscripts to file list (#894475)
+- rename term256 to 256term (glob sort) (#849429)
+- readd missing shebang. (#885821)
+- migrate even further away from /etc/sysconfig/network for hostname, and /etc/sysconfig/i18n.
 
 * Fri Dec  7 2012 Bill Nottingham <notting@redhat.com> - 9.43-1
 - 60-net.rules: explicitly set the interface name (#870859)
@@ -2108,7 +2172,7 @@ rm -rf $RPM_BUILD_ROOT
   recognize "probe" as an argument
 
 * Wed Mar 12 2003 Bill Nottingham <notting@redhat.com> 7.14-1
-- do not handle changed chain name; change was reverted
+* - do not handle changed chain name; change was reverted
 
 * Tue Feb 25 2003 Bill Nottingham <notting@redhat.com> 7.13-1
 - handle 7.x SYSFONTACM settings in setsysfont (#84183)
