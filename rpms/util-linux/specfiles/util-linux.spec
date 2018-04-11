@@ -633,7 +633,9 @@ exit 0
 %{_mandir}/man8/agetty.8*
 %{_mandir}/man8/blkdiscard.8*
 %{_mandir}/man8/blkid.8*
+%ifnarch i686
 %{_mandir}/man8/blkzone.8*
+%endif
 %{_mandir}/man8/blockdev.8*
 %{_mandir}/man8/chcpu.8*
 %{_mandir}/man8/chmem.8*
@@ -681,7 +683,9 @@ exit 0
 %{_sbindir}/agetty
 %{_sbindir}/blkdiscard
 %{_sbindir}/blkid
+%ifnarch i686
 %{_sbindir}/blkzone
+%endif
 %{_sbindir}/blockdev
 %{_sbindir}/chcpu
 %{_sbindir}/ctrlaltdel
@@ -718,7 +722,9 @@ exit 0
 %{compldir}/addpart
 %{compldir}/blkdiscard
 %{compldir}/blkid
+%ifnarch i686
 %{compldir}/blkzone
+%endif
 %{compldir}/blockdev
 %{compldir}/cal
 %{compldir}/chcpu
