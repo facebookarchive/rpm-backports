@@ -20,7 +20,7 @@
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
 Version:        238
-Release:        7.fb1
+Release:        7.fb2
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -57,6 +57,8 @@ Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
 
 Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
 Patch1001:      FB-disable-test-execute.patch
+Patch1002:      0a55947c583f49c79076a82d4c94ee6c6c0345d5.patch
+Patch1003:      268d7522f93348b96f7b8e7f1331ba5c91e64900.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -706,6 +708,10 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Tue May 15 2018 Davide Cavalca <dcavalca@fb.com> - 238-7.fb2
+- Backport htejun's io.latency patch
+- Backport guro's cgroup2 BPF device controller patch
+
 * Thu Apr  5 2018 Davide Cavalca <dcavalca@fb.com> - 238-7.fb1
 - Facebook rebuild
 - Reenable tests (except test-execute which is still broken)
