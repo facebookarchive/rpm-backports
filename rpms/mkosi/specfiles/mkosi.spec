@@ -1,6 +1,6 @@
 Name:           mkosi
 Version:        4
-Release:        2.fb2%{?dist}
+Release:        2.fb3%{?dist}
 Summary:        Create legacy-free OS images
 
 License:        LGPLv2+
@@ -12,7 +12,9 @@ Source3:        RPM-GPG-KEY-fedora-25-x86_64
 Source4:        RPM-GPG-KEY-fedora-26-x86_64
 Source5:        RPM-GPG-KEY-fedora-27-x86_64
 Source6:        RPM-GPG-KEY-fedora-28-x86_64
+Source7:        RPM-GPG-KEY-fedora-29-x86_64
 Patch0001:	0001-Check-architecture-lazily.patch
+Patch0002:  f1901d31243f2f3bdd4a17afe779ea8085e4db2b.patch
 
 BuildArch:      noarch
 
@@ -61,6 +63,7 @@ install -m 0644 %SOURCE3 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedo
 install -m 0644 %SOURCE4 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-26-x86_64
 install -m 0644 %SOURCE5 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-27-x86_64
 install -m 0644 %SOURCE6 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-28-x86_64
+install -m 0644 %SOURCE7 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-29-x86_64
 
 %files
 %license LICENSE
@@ -72,12 +75,17 @@ install -m 0644 %SOURCE6 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedo
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-26-x86_64
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-27-x86_64
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-28-x86_64
+%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-29-x86_64
 
 %check
 # just a smoke test for syntax or import errors
 %buildroot/usr/bin/mkosi --help
 
 %changelog
+* Fri May 25 2018 Davide Cavalca <dcavalca@fb.com> - 4-2.fb3
+- Add Fedora 29 GPG key
+- Backport https://github.com/systemd/mkosi/pull/250
+
 * Thu Feb 22 2018 Davide Cavalca <dcavalca@fb.com> - 4-2.fb2
 - Move to python36
 - Reenable smoketest
