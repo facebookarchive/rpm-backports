@@ -1,35 +1,56 @@
-From 0a55947c583f49c79076a82d4c94ee6c6c0345d5 Mon Sep 17 00:00:00 2001
+From f4ca091fd28f76751d87dc714660bd78ba397eb0 Mon Sep 17 00:00:00 2001
 From: Tejun Heo <tj@kernel.org>
-Date: Wed, 2 May 2018 11:45:49 -0700
-Subject: [PATCH] cgroup: add support for io.latency
+Date: Wed, 13 Jun 2018 14:16:35 -0700
+Subject: [PATCH] core: add IODeviceLatencyTargetSec
 
-Add IODeviceLatencyTarget config option which configures io.latency on cgroup2.
+This adds support for the following proposed latency based IO control
+mechanism.
+
+  https://lkml.org/lkml/2018/6/5/428
 ---
- man/systemd.resource-control.xml      |  19 ++++++
- src/core/cgroup.c                     |  44 ++++++++++++++
+ man/systemd.resource-control.xml      |  29 +++++++--
+ src/core/cgroup.c                     |  56 ++++++++++++++---
  src/core/cgroup.h                     |   9 +++
- src/core/dbus-cgroup.c                | 110 ++++++++++++++++++++++++++++++++++
+ src/core/dbus-cgroup.c                | 111 ++++++++++++++++++++++++++++++++++
  src/core/load-fragment-gperf.gperf.m4 |   1 +
- src/core/load-fragment.c              |  73 ++++++++++++++++++++++
+ src/core/load-fragment.c              |  72 ++++++++++++++++++++++
  src/core/load-fragment.h              |   1 +
- src/shared/bus-unit-util.c            |  30 ++++++++++
- src/systemctl/systemctl.c             |  20 +++++++
- 9 files changed, 307 insertions(+)
+ src/shared/bus-unit-util.c            |  31 ++++++++++
+ src/systemctl/systemctl.c             |  22 +++++++
+ 9 files changed, 320 insertions(+), 12 deletions(-)
 
 diff --git a/man/systemd.resource-control.xml b/man/systemd.resource-control.xml
-index 482f657..b55e5ca 100644
+index 482f65777f8..730bdbc868b 100644
 --- a/man/systemd.resource-control.xml
 +++ b/man/systemd.resource-control.xml
-@@ -466,6 +466,25 @@
+@@ -400,11 +400,11 @@
+         <listitem>
+           <para>Set the per-device overall block I/O weight for the executed processes, if the unified control group
+           hierarchy is used on the system. Takes a space-separated pair of a file path and a weight value to specify
+-          the device specific weight value, between 1 and 10000. (Example: "/dev/sda 1000"). The file path may be
+-          specified as path to a block device node or as any other file, in which case the backing block device of the
+-          file system of the file is determined. This controls the <literal>io.weight</literal> control group
+-          attribute, which defaults to 100. Use this option multiple times to set weights for multiple devices. For
+-          details about this control group attribute, see <ulink
++          the device specific weight value, between 1 and 10000. (Example: <literal>/dev/sda 1000</literal>). The file
++          path may be specified as path to a block device node or as any other file, in which case the backing block
++          device of the file system of the file is determined. This controls the <literal>io.weight</literal> control
++          group attribute, which defaults to 100. Use this option multiple times to set weights for multiple devices.
++          For details about this control group attribute, see <ulink
+           url="https://www.kernel.org/doc/Documentation/cgroup-v2.txt">cgroup-v2.txt</ulink>.</para>
+ 
+           <para>Implies <literal>IOAccounting=true</literal>.</para>
+@@ -465,6 +465,25 @@
+         </listitem>
        </varlistentry>
  
-       <varlistentry>
-+        <term><varname>IODeviceLatencyTarget=<replaceable>device</replaceable> <replaceable>target</replaceable></varname></term>
++      <varlistentry>
++        <term><varname>IODeviceLatencyTargetSec=<replaceable>device</replaceable> <replaceable>target</replaceable></varname></term>
 +
 +        <listitem>
 +          <para>Set the per-device average target I/O latency for the executed processes, if the unified control group
-+          hierarchy is used on the system. Takes a space-separated pair of a file path and a value to specify the
-+          device specific latency target in microseconds. (Example: "/dev/sda 20000"). The file path may be specified
++          hierarchy is used on the system. Takes a file path and a timespan separated by a space to specify
++          the device specific latency target. (Example: "/dev/sda 25ms"). The file path may be specified
 +          as path to a block device node or as any other file, in which case the backing block device of the file
 +          system of the file is determined. This controls the <literal>io.latency</literal> control group
 +          attribute. Use this option multiple times to set latency target for multiple devices. For details about this
@@ -42,16 +63,15 @@ index 482f657..b55e5ca 100644
 +        </listitem>
 +      </varlistentry>
 +
-+      <varlistentry>
+       <varlistentry>
          <term><varname>IPAccounting=</varname></term>
  
-         <listitem>
 diff --git a/src/core/cgroup.c b/src/core/cgroup.c
-index 2577832..0fb0952 100644
+index 0164fdb86d3..e7283839b6d 100644
 --- a/src/core/cgroup.c
 +++ b/src/core/cgroup.c
-@@ -127,6 +127,15 @@ void cgroup_context_free_io_device_limit(CGroupContext *c, CGroupIODeviceLimit *
-         free(l);
+@@ -119,6 +119,15 @@ void cgroup_context_free_io_device_weight(CGroupContext *c, CGroupIODeviceWeight
+         free(w);
  }
  
 +void cgroup_context_free_io_device_latency(CGroupContext *c, CGroupIODeviceLatency *l) {
@@ -63,33 +83,69 @@ index 2577832..0fb0952 100644
 +        free(l);
 +}
 +
- void cgroup_context_free_blockio_device_weight(CGroupContext *c, CGroupBlockIODeviceWeight *w) {
+ void cgroup_context_free_io_device_limit(CGroupContext *c, CGroupIODeviceLimit *l) {
          assert(c);
-         assert(w);
-@@ -154,6 +163,9 @@ void cgroup_context_done(CGroupContext *c) {
-         while (c->io_device_limits)
-                 cgroup_context_free_io_device_limit(c, c->io_device_limits);
+         assert(l);
+@@ -152,6 +161,9 @@ void cgroup_context_done(CGroupContext *c) {
+         while (c->io_device_weights)
+                 cgroup_context_free_io_device_weight(c, c->io_device_weights);
  
 +        while (c->io_device_latencies)
 +                cgroup_context_free_io_device_latency(c, c->io_device_latencies);
 +
-         while (c->blockio_device_weights)
-                 cgroup_context_free_blockio_device_weight(c, c->blockio_device_weights);
+         while (c->io_device_limits)
+                 cgroup_context_free_io_device_limit(c, c->io_device_limits);
  
-@@ -648,6 +660,28 @@ static unsigned cgroup_apply_io_device_limit(Unit *u, const char *dev_path, uint
-         return n;
+@@ -171,6 +183,7 @@ void cgroup_context_done(CGroupContext *c) {
+ void cgroup_context_dump(CGroupContext *c, FILE* f, const char *prefix) {
+         CGroupIODeviceLimit *il;
+         CGroupIODeviceWeight *iw;
++        CGroupIODeviceLatency *l;
+         CGroupBlockIODeviceBandwidth *b;
+         CGroupBlockIODeviceWeight *w;
+         CGroupDeviceAllow *a;
+@@ -249,11 +262,18 @@ void cgroup_context_dump(CGroupContext *c, FILE* f, const char *prefix) {
+ 
+         LIST_FOREACH(device_weights, iw, c->io_device_weights)
+                 fprintf(f,
+-                        "%sIODeviceWeight=%s %" PRIu64,
++                        "%sIODeviceWeight=%s %" PRIu64 "\n",
+                         prefix,
+                         iw->path,
+                         iw->weight);
+ 
++        LIST_FOREACH(device_latencies, l, c->io_device_latencies)
++                fprintf(f,
++                        "%sIODeviceLatencyTargetSec=%s %s\n",
++                        prefix,
++                        l->path,
++                        format_timespan(u, sizeof(u), l->target_usec, 1));
++
+         LIST_FOREACH(device_limits, il, c->io_device_limits) {
+                 char buf[FORMAT_BYTES_MAX];
+                 CGroupIOLimitType type;
+@@ -551,6 +571,7 @@ static bool cgroup_context_has_io_config(CGroupContext *c) {
+                 c->io_weight != CGROUP_WEIGHT_INVALID ||
+                 c->startup_io_weight != CGROUP_WEIGHT_INVALID ||
+                 c->io_device_weights ||
++                c->io_device_latencies ||
+                 c->io_device_limits;
  }
  
-+static unsigned cgroup_apply_io_device_latency(Unit *u, const char *dev_path, uint64_t target) {
+@@ -624,6 +645,26 @@ static void cgroup_apply_blkio_device_weight(Unit *u, const char *dev_path, uint
+                               "Failed to set blkio.weight_device: %m");
+ }
+ 
++static void cgroup_apply_io_device_latency(Unit *u, const char *dev_path, usec_t target) {
 +        char buf[DECIMAL_STR_MAX(dev_t)*2+2+7+DECIMAL_STR_MAX(uint64_t)+1];
 +        dev_t dev;
 +        int r;
 +
 +        r = lookup_block_device(dev_path, &dev);
 +        if (r < 0)
-+                return 0;
++                return;
 +
-+        if (target != CGROUP_LIMIT_MAX)
++        if (target != USEC_INFINITY)
 +                xsprintf(buf, "%u:%u target=%" PRIu64 "\n", major(dev), minor(dev), target);
 +        else
 +                xsprintf(buf, "%u:%u target=max\n", major(dev), minor(dev));
@@ -97,33 +153,67 @@ index 2577832..0fb0952 100644
 +        r = cg_set_attribute("io", u->cgroup_path, "io.latency", buf);
 +        if (r < 0)
 +                log_unit_full(u, IN_SET(r, -ENOENT, -EROFS, -EACCES) ? LOG_DEBUG : LOG_WARNING, r,
-+                              "Failed to set io.latency: %m");
-+
-+        return target != CGROUP_LIMIT_MAX;
++                              "Failed to set io.latency on cgroup %s: %m", u->cgroup_path);
 +}
 +
- static unsigned cgroup_apply_blkio_device_limit(Unit *u, const char *dev_path, uint64_t rbps, uint64_t wbps) {
-         char buf[DECIMAL_STR_MAX(dev_t)*2+2+DECIMAL_STR_MAX(uint64_t)+1];
-         dev_t dev;
-@@ -821,6 +855,16 @@ static void cgroup_context_apply(
+ static void cgroup_apply_io_device_limit(Unit *u, const char *dev_path, uint64_t *limits) {
+         char limit_bufs[_CGROUP_IO_LIMIT_TYPE_MAX][DECIMAL_STR_MAX(uint64_t)];
+         char buf[DECIMAL_STR_MAX(dev_t)*2+2+(6+DECIMAL_STR_MAX(uint64_t)+1)*4];
+@@ -800,13 +841,11 @@ static void cgroup_context_apply(
+                         if (has_io) {
+                                 CGroupIODeviceWeight *w;
+ 
+-                                /* FIXME: no way to reset this list */
+                                 LIST_FOREACH(device_weights, w, c->io_device_weights)
+                                         cgroup_apply_io_device_weight(u, w->path, w->weight);
+                         } else if (has_blockio) {
+                                 CGroupBlockIODeviceWeight *w;
+ 
+-                                /* FIXME: no way to reset this list */
+                                 LIST_FOREACH(device_weights, w, c->blockio_device_weights) {
+                                         weight = cgroup_weight_blkio_to_io(w->weight);
+ 
+@@ -816,9 +855,15 @@ static void cgroup_context_apply(
                                          cgroup_apply_io_device_weight(u, w->path, weight);
                                  }
                          }
 +
-+                        /* Apply latency targets and free ones without config. */
 +                        if (has_io) {
-+                                CGroupIODeviceLatency *l, *next;
++                                CGroupIODeviceLatency *l;
 +
-+                                LIST_FOREACH_SAFE(device_latencies, l, next, c->io_device_latencies) {
-+                                        if (!cgroup_apply_io_device_latency(u, l->path, l->target))
-+                                                cgroup_context_free_io_device_latency(c, l);
-+                                }
++                                LIST_FOREACH(device_latencies, l, c->io_device_latencies)
++                                        cgroup_apply_io_device_latency(u, l->path, l->target_usec);
 +                        }
                  }
  
-                 /* Apply limits and free ones without config. */
+-                /* Apply limits and free ones without config. */
+                 if (has_io) {
+                         CGroupIODeviceLimit *l;
+ 
+@@ -875,7 +920,6 @@ static void cgroup_context_apply(
+                         if (has_io) {
+                                 CGroupIODeviceWeight *w;
+ 
+-                                /* FIXME: no way to reset this list */
+                                 LIST_FOREACH(device_weights, w, c->io_device_weights) {
+                                         weight = cgroup_weight_io_to_blkio(w->weight);
+ 
+@@ -887,13 +931,11 @@ static void cgroup_context_apply(
+                         } else if (has_blockio) {
+                                 CGroupBlockIODeviceWeight *w;
+ 
+-                                /* FIXME: no way to reset this list */
+                                 LIST_FOREACH(device_weights, w, c->blockio_device_weights)
+                                         cgroup_apply_blkio_device_weight(u, w->path, w->weight);
+                         }
+                 }
+ 
+-                /* Apply limits and free ones without config. */
+                 if (has_io) {
+                         CGroupIODeviceLimit *l;
+ 
 diff --git a/src/core/cgroup.h b/src/core/cgroup.h
-index b8d1a09..dec822b 100644
+index ef3ee14ad0e..f9142fabd20 100644
 --- a/src/core/cgroup.h
 +++ b/src/core/cgroup.h
 @@ -18,6 +18,7 @@ typedef struct CGroupContext CGroupContext;
@@ -141,7 +231,7 @@ index b8d1a09..dec822b 100644
 +struct CGroupIODeviceLatency {
 +        LIST_FIELDS(CGroupIODeviceLatency, device_latencies);
 +        char *path;
-+        uint64_t target;
++        usec_t target_usec;
 +};
 +
  struct CGroupBlockIODeviceWeight {
@@ -153,9 +243,9 @@ index b8d1a09..dec822b 100644
          LIST_HEAD(CGroupIODeviceLimit, io_device_limits);
 +        LIST_HEAD(CGroupIODeviceLatency, io_device_latencies);
  
+         uint64_t memory_min;
          uint64_t memory_low;
-         uint64_t memory_high;
-@@ -138,6 +146,7 @@ CGroupMask cgroup_context_get_mask(CGroupContext *c);
+@@ -139,6 +147,7 @@ CGroupMask cgroup_context_get_mask(CGroupContext *c);
  void cgroup_context_free_device_allow(CGroupContext *c, CGroupDeviceAllow *a);
  void cgroup_context_free_io_device_weight(CGroupContext *c, CGroupIODeviceWeight *w);
  void cgroup_context_free_io_device_limit(CGroupContext *c, CGroupIODeviceLimit *l);
@@ -164,7 +254,7 @@ index b8d1a09..dec822b 100644
  void cgroup_context_free_blockio_device_bandwidth(CGroupContext *c, CGroupBlockIODeviceBandwidth *b);
  
 diff --git a/src/core/dbus-cgroup.c b/src/core/dbus-cgroup.c
-index d170f6a..12b4e4c 100644
+index 4eb72269792..60002071cfd 100644
 --- a/src/core/dbus-cgroup.c
 +++ b/src/core/dbus-cgroup.c
 @@ -124,6 +124,36 @@ static int property_get_io_device_limits(
@@ -193,7 +283,7 @@ index d170f6a..12b4e4c 100644
 +                return r;
 +
 +        LIST_FOREACH(device_latencies, l, c->io_device_latencies) {
-+                r = sd_bus_message_append(reply, "(st)", l->path, l->target);
++                r = sd_bus_message_append(reply, "(st)", l->path, l->target_usec);
 +                if (r < 0)
 +                        return r;
 +        }
@@ -208,15 +298,15 @@ index d170f6a..12b4e4c 100644
          SD_BUS_PROPERTY("IOWriteBandwidthMax", "a(st)", property_get_io_device_limits, 0, 0),
          SD_BUS_PROPERTY("IOReadIOPSMax", "a(st)", property_get_io_device_limits, 0, 0),
          SD_BUS_PROPERTY("IOWriteIOPSMax", "a(st)", property_get_io_device_limits, 0, 0),
-+        SD_BUS_PROPERTY("IODeviceLatencyTarget", "a(st)", property_get_io_device_latency, 0, 0),
++        SD_BUS_PROPERTY("IODeviceLatencyTargetUSec", "a(st)", property_get_io_device_latency, 0, 0),
          SD_BUS_PROPERTY("BlockIOAccounting", "b", bus_property_get_bool, offsetof(CGroupContext, blockio_accounting), 0),
          SD_BUS_PROPERTY("BlockIOWeight", "t", NULL, offsetof(CGroupContext, blockio_weight), 0),
          SD_BUS_PROPERTY("StartupBlockIOWeight", "t", NULL, offsetof(CGroupContext, startup_blockio_weight), 0),
-@@ -846,6 +877,85 @@ int bus_cgroup_set_property(
+@@ -844,6 +875,86 @@ int bus_cgroup_set_property(
  
                  return 1;
  
-+        } else if (streq(name, "IODeviceLatencyTarget")) {
++        } else if (streq(name, "IODeviceLatencyTargetUSec")) {
 +                const char *path;
 +                uint64_t target;
 +                unsigned n = 0;
@@ -227,9 +317,8 @@ index d170f6a..12b4e4c 100644
 +
 +                while ((r = sd_bus_message_read(message, "(st)", &path, &target)) > 0) {
 +
-+                        if (!path_startswith(path, "/dev") &&
-+                            !path_startswith(path, "/run/systemd/inaccessible/"))
-+                                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Path %s specified in %s= is not a device file in /dev", name, path);
++                        if (!path_is_normalized(path))
++                                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Path '%s' specified in %s= is not normalized.", name, path);
 +
 +                        if (!UNIT_WRITE_FLAGS_NOOP(flags)) {
 +                                CGroupIODeviceLatency *a = NULL, *b;
@@ -254,7 +343,7 @@ index d170f6a..12b4e4c 100644
 +                                        LIST_PREPEND(device_latencies, c->io_device_latencies, a);
 +                                }
 +
-+                                a->target = target;
++                                a->target_usec = target;
 +                        }
 +
 +                        n++;
@@ -267,6 +356,7 @@ index d170f6a..12b4e4c 100644
 +                if (!UNIT_WRITE_FLAGS_NOOP(flags)) {
 +                        _cleanup_free_ char *buf = NULL;
 +                        _cleanup_fclose_ FILE *f = NULL;
++                        char ts[FORMAT_TIMESPAN_MAX];
 +                        CGroupIODeviceLatency *a;
 +                        size_t size = 0;
 +
@@ -283,9 +373,10 @@ index d170f6a..12b4e4c 100644
 +
 +                        (void) __fsetlocking(f, FSETLOCKING_BYCALLER);
 +
-+                        fputs("IODeviceLatencyTarget=\n", f);
++                        fputs("IODeviceLatencyTargetSec=\n", f);
 +                        LIST_FOREACH(device_latencies, a, c->io_device_latencies)
-+                                fprintf(f, "IODeviceLatencyTarget=%s %" PRIu64 "\n", a->path, a->target);
++                                fprintf(f, "IODeviceLatencyTargetSec=%s %s\n",
++                                        a->path, format_timespan(ts, sizeof(ts), a->target_usec, 1));
 +
 +                        r = fflush_and_check(f);
 +                        if (r < 0)
@@ -299,22 +390,22 @@ index d170f6a..12b4e4c 100644
                  const char *path;
                  bool read = true;
 diff --git a/src/core/load-fragment-gperf.gperf.m4 b/src/core/load-fragment-gperf.gperf.m4
-index 5d90a7c..f79add5 100644
+index 15fb47838c0..c72e2b33305 100644
 --- a/src/core/load-fragment-gperf.gperf.m4
 +++ b/src/core/load-fragment-gperf.gperf.m4
-@@ -174,6 +174,7 @@ $1.IOReadBandwidthMax,           config_parse_io_limit,              0,
+@@ -177,6 +177,7 @@ $1.IOReadBandwidthMax,           config_parse_io_limit,              0,
  $1.IOWriteBandwidthMax,          config_parse_io_limit,              0,                             offsetof($1, cgroup_context)
  $1.IOReadIOPSMax,                config_parse_io_limit,              0,                             offsetof($1, cgroup_context)
  $1.IOWriteIOPSMax,               config_parse_io_limit,              0,                             offsetof($1, cgroup_context)
-+$1.IODeviceLatencyTarget,        config_parse_io_device_latency,     0,                             offsetof($1, cgroup_context)
++$1.IODeviceLatencyTargetSec,     config_parse_io_device_latency,     0,                             offsetof($1, cgroup_context)
  $1.BlockIOAccounting,            config_parse_bool,                  0,                             offsetof($1, cgroup_context.blockio_accounting)
  $1.BlockIOWeight,                config_parse_blockio_weight,        0,                             offsetof($1, cgroup_context.blockio_weight)
  $1.StartupBlockIOWeight,         config_parse_blockio_weight,        0,                             offsetof($1, cgroup_context.startup_blockio_weight)
 diff --git a/src/core/load-fragment.c b/src/core/load-fragment.c
-index 9699421..af07d17 100644
+index 935f6be8077..7d9645df68d 100644
 --- a/src/core/load-fragment.c
 +++ b/src/core/load-fragment.c
-@@ -3721,6 +3721,79 @@ int config_parse_io_limit(
+@@ -3338,6 +3338,77 @@ int config_parse_io_device_weight(
          return 0;
  }
  
@@ -330,12 +421,11 @@ index 9699421..af07d17 100644
 +                void *data,
 +                void *userdata) {
 +
-+        _cleanup_free_ char *path = NULL;
++        _cleanup_free_ char *path = NULL, *resolved = NULL;
 +        CGroupIODeviceLatency *l;
 +        CGroupContext *c = data;
-+        const char *target;
-+        uint64_t u;
-+        size_t n;
++        const char *p = rvalue;
++        usec_t usec;
 +        int r;
 +
 +        assert(filename);
@@ -349,86 +439,86 @@ index 9699421..af07d17 100644
 +                return 0;
 +        }
 +
-+        n = strcspn(rvalue, WHITESPACE);
-+        target = rvalue + n;
-+        target += strspn(target, WHITESPACE);
-+
-+        if (isempty(target)) {
-+                log_syntax(unit, LOG_ERR, filename, line, 0, "Expected block device and device latency target. Ignoring.");
-+                return 0;
-+        }
-+
-+        path = strndup(rvalue, n);
-+        if (!path)
++        r = extract_first_word(&p, &path, NULL, EXTRACT_QUOTES);
++        if (r == -ENOMEM)
 +                return log_oom();
-+
-+        if (!path_startswith(path, "/dev") &&
-+            !path_startswith(path, "/run/systemd/inaccessible/")) {
-+                log_syntax(unit, LOG_ERR, filename, line, 0, "Invalid device node path '%s'. Ignoring.", path);
++        if (r < 0) {
++                log_syntax(unit, LOG_WARNING, filename, line, r,
++                           "Invalid syntax, ignoring: %s", rvalue);
++                return 0;
++        }
++        if (r == 0 || isempty(p)) {
++                log_syntax(unit, LOG_WARNING, filename, line, 0,
++                           "Failed to extract device path and latency from '%s', ignoring.", rvalue);
 +                return 0;
 +        }
 +
-+        if (streq("infinity", target)) {
-+                u = CGROUP_LIMIT_MAX;
-+        } else {
-+                r = safe_atou64(target, &u);
-+                if (r < 0) {
-+                        log_syntax(unit, LOG_ERR, filename, line, r, "IO latency target '%s' invalid. Ignoring.", target);
-+                        return 0;
-+                }
++        r = unit_full_printf(userdata, path, &resolved);
++        if (r < 0) {
++                log_syntax(unit, LOG_WARNING, filename, line, r,
++                           "Failed to resolve unit specifiers in '%s', ignoring: %m", path);
++                return 0;
++        }
++
++        r = path_simplify_and_warn(resolved, 0, unit, filename, line, lvalue);
++        if (r < 0)
++                return 0;
++
++        if (parse_sec(p, &usec) < 0) {
++                log_syntax(unit, LOG_ERR, filename, line, 0, "Failed to parse timer value, ignoring: %s", p);
++                return 0;
 +        }
 +
 +        l = new0(CGroupIODeviceLatency, 1);
 +        if (!l)
 +                return log_oom();
 +
-+        l->path = path;
-+        path = NULL;
-+
-+        l->target = u;
++        l->path = TAKE_PTR(resolved);
++        l->target_usec = usec;
 +
 +        LIST_PREPEND(device_latencies, c->io_device_latencies, l);
 +        return 0;
 +}
 +
- int config_parse_blockio_weight(
+ int config_parse_io_limit(
                  const char *unit,
                  const char *filename,
-@@ -4966,6 +5038,7 @@ void unit_dump_config_items(FILE *f) {
+@@ -4527,6 +4598,7 @@ void unit_dump_config_items(FILE *f) {
+                 { config_parse_device_policy,         "POLICY" },
                  { config_parse_io_limit,              "LIMIT" },
-                 { config_parse_io_weight,             "WEIGHT" },
                  { config_parse_io_device_weight,      "DEVICEWEIGHT" },
 +                { config_parse_io_device_latency,     "DEVICELATENCY" },
                  { config_parse_blockio_bandwidth,     "BANDWIDTH" },
                  { config_parse_blockio_weight,        "WEIGHT" },
                  { config_parse_blockio_device_weight, "DEVICEWEIGHT" },
 diff --git a/src/core/load-fragment.h b/src/core/load-fragment.h
-index 6d9b13c..3d48de0 100644
+index 9a3ccd9d265..d68f86b5538 100644
 --- a/src/core/load-fragment.h
 +++ b/src/core/load-fragment.h
-@@ -78,6 +78,7 @@ int config_parse_device_allow(const char *unit, const char *filename, unsigned l
- int config_parse_io_weight(const char *unit, const char *filename, unsigned line, const char *section, unsigned section_line, const char *lvalue, int ltype, const char *rvalue, void *data, void *userdata);
- int config_parse_io_device_weight(const char *unit, const char *filename, unsigned line, const char *section, unsigned section_line, const char *lvalue, int ltype, const char *rvalue, void *data, void *userdata);
- int config_parse_io_limit(const char *unit, const char *filename, unsigned line, const char *section, unsigned section_line, const char *lvalue, int ltype, const char *rvalue, void *data, void *userdata);
-+int config_parse_io_device_latency(const char *unit, const char *filename, unsigned line, const char *section, unsigned section_line, const char *lvalue, int ltype, const char *rvalue, void *data, void *userdata);
- int config_parse_blockio_weight(const char *unit, const char *filename, unsigned line, const char *section, unsigned section_line, const char *lvalue, int ltype, const char *rvalue, void *data, void *userdata);
- int config_parse_blockio_device_weight(const char *unit, const char *filename, unsigned line, const char *section, unsigned section_line, const char *lvalue, int ltype, const char *rvalue, void *data, void *userdata);
- int config_parse_blockio_bandwidth(const char *unit, const char *filename, unsigned line, const char *section, unsigned section_line, const char *lvalue, int ltype, const char *rvalue, void *data, void *userdata);
+@@ -74,6 +74,7 @@ CONFIG_PARSER_PROTOTYPE(config_parse_tasks_max);
+ CONFIG_PARSER_PROTOTYPE(config_parse_delegate);
+ CONFIG_PARSER_PROTOTYPE(config_parse_device_policy);
+ CONFIG_PARSER_PROTOTYPE(config_parse_device_allow);
++CONFIG_PARSER_PROTOTYPE(config_parse_io_device_latency);
+ CONFIG_PARSER_PROTOTYPE(config_parse_io_device_weight);
+ CONFIG_PARSER_PROTOTYPE(config_parse_io_limit);
+ CONFIG_PARSER_PROTOTYPE(config_parse_blockio_weight);
 diff --git a/src/shared/bus-unit-util.c b/src/shared/bus-unit-util.c
-index a3b9bee..57e5a17 100644
+index 01d820349ab..d8ad6551d6b 100644
 --- a/src/shared/bus-unit-util.c
 +++ b/src/shared/bus-unit-util.c
-@@ -555,6 +555,36 @@ static int bus_append_cgroup_property(sd_bus_message *m, const char *field, cons
+@@ -555,6 +555,37 @@ static int bus_append_cgroup_property(sd_bus_message *m, const char *field, cons
                  return 1;
          }
  
-+        if (streq(field, "IODeviceLatencyTarget")) {
++        if (streq(field, "IODeviceLatencyTargetSec")) {
++                const char *field_usec = "IODeviceLatencyTargetUSec";
 +
 +                if (isempty(eq))
-+                        r = sd_bus_message_append(m, "(sv)", field, "a(st)", 0);
++                        r = sd_bus_message_append(m, "(sv)", field_usec, "a(st)", USEC_INFINITY);
 +                else {
 +                        const char *path, *target, *e;
-+                        uint64_t u;
++                        usec_t usec;
 +
 +                        e = strchr(eq, ' ');
 +                        if (!e) {
@@ -439,11 +529,11 @@ index a3b9bee..57e5a17 100644
 +                        path = strndupa(eq, e - eq);
 +                        target = e+1;
 +
-+                        r = safe_atou64(target, &u);
++                        r = parse_sec(target, &usec);
 +                        if (r < 0)
 +                                return log_error_errno(r, "Failed to parse %s value %s: %m", field, target);
 +
-+                        r = sd_bus_message_append(m, "(sv)", field, "a(st)", 1, path, u);
++                        r = sd_bus_message_append(m, "(sv)", field_usec, "a(st)", 1, path, usec);
 +                }
 +
 +                if (r < 0)
@@ -456,15 +546,16 @@ index a3b9bee..57e5a17 100644
                  unsigned char prefixlen;
                  union in_addr_union prefix = {};
 diff --git a/src/systemctl/systemctl.c b/src/systemctl/systemctl.c
-index 49395ce..96d9073 100644
+index c9d2912e135..e7ec28217a5 100644
 --- a/src/systemctl/systemctl.c
 +++ b/src/systemctl/systemctl.c
-@@ -4872,6 +4872,26 @@ static int print_property(const char *name, sd_bus_message *m, bool value, bool
+@@ -4865,6 +4865,28 @@ static int print_property(const char *name, sd_bus_message *m, bool value, bool
  
-                         return 0;
+                         return 1;
  
-+                }  else if (contents[1] == SD_BUS_TYPE_STRUCT_BEGIN &&
-+                            streq(name, "IODeviceLatencyTarget")) {
++                }  else if (contents[0] == SD_BUS_TYPE_STRUCT_BEGIN &&
++                            streq(name, "IODeviceLatencyTargetUSec")) {
++                        char ts[FORMAT_TIMESPAN_MAX];
 +                        const char *path;
 +                        uint64_t target;
 +
@@ -473,7 +564,8 @@ index 49395ce..96d9073 100644
 +                                return bus_log_parse_error(r);
 +
 +                        while ((r = sd_bus_message_read(m, "(st)", &path, &target)) > 0)
-+                                print_prop(name, "%s %"PRIu64, strna(path), target);
++                                print_prop(name, "%s %s", strna(path),
++                                           format_timespan(ts, sizeof(ts), target, 1));
 +                        if (r < 0)
 +                                return bus_log_parse_error(r);
 +
@@ -481,11 +573,8 @@ index 49395ce..96d9073 100644
 +                        if (r < 0)
 +                                return bus_log_parse_error(r);
 +
-+                        return 0;
++                        return 1;
 +
-                 } else if (contents[1] == SD_BUS_TYPE_BYTE && streq(name, "StandardInputData")) {
+                 } else if (contents[0] == SD_BUS_TYPE_BYTE && streq(name, "StandardInputData")) {
                          _cleanup_free_ char *h = NULL;
                          const void *p;
--- 
-2.9.5
-

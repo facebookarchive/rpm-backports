@@ -7,6 +7,8 @@
 %global __global_fcflags %{optflags} -I%_fmoddir
 %global __global_ldflags -Wl,-z,relro %{_hardened_ldflags}
 
+#global stable 1
+
 # We ship a .pc file but don't want to have a dep on pkg-config. We
 # strip the automatically generated dep here and instead co-own the
 # directory.
@@ -19,15 +21,15 @@
 
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
-Version:        238
-Release:        7.fb3
+Version:        239
+Release:        1.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
 
 # download tarballs with "spectool -g systemd.spec"
 %if %{defined gitcommit}
-Source0:        https://github.com/systemd/systemd/archive/%{?gitcommit}.tar.gz#/%{name}-%{gitcommitshort}.tar.gz
+Source0:        https://github.com/systemd/systemd%{?stable:-stable}/archive/%{?gitcommit}.tar.gz#/%{name}-%{gitcommitshort}.tar.gz
 %else
 Source0:        https://github.com/systemd/systemd/archive/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
 %endif
@@ -47,21 +49,14 @@ Source10:       systemd-udev-trigger-no-reload.conf
 Source11:       20-grubby.install
 Source12:       https://raw.githubusercontent.com/systemd/systemd/1000522a60ceade446773c67031b47a566d4a70d/src/login/systemd-user.m4
 
-Patch0001:      0001-test-cgroup-util-bail-out-when-running-under-mock.patch
-Patch0002:      0002-basic-fs-util-skip-fsync_directory_of_file-if-proc-s.patch
-Patch0003:      0003-core-when-reloading-delay-any-actions-on-journal-and.patch
-Patch0004:      0004-udev-net-id-Fix-check-for-address-to-keep-interface-.patch
-Patch0005:      0005-core-don-t-include-libmount.h-in-a-header-file-8580.patch
 
 Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
 
 Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
 Patch1001:      FB-disable-test-execute.patch
-Patch1002:      0a55947c583f49c79076a82d4c94ee6c6c0345d5.patch
-Patch1003:      0001-core-add-support-for-cgroup-v2-device-controller.patch
-Patch1004:      0002-device-cgroup-controller-fixup.patch
-Patch1005:      0003-bump-memlock-rlimit-to-64M.patch
-Patch1006:      9148.patch
+Patch1002:      9244.patch
+Patch1003:      9247.patch
+Patch1004:      9410.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -630,8 +625,6 @@ udevadm hwdb --update &>/dev/null
 grep -q -E '^KEYMAP="?fi-latin[19]"?' /etc/vconsole.conf 2>/dev/null &&
     sed -i.rpm.bak -r 's/^KEYMAP="?fi-latin[19]"?/KEYMAP="fi"/' /etc/vconsole.conf || :
 
-exit 0
-
 %preun udev
 %systemd_preun %udev_services
 if [ $1 -eq 1 ] ; then
@@ -711,13 +704,36 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
-* Wed May 31 2018 Davide Cavalca <dcavalca@fb.com> - 238-7.fb3
+* Mon Jun 25 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb1
+- Facebook rebuild
+- backport PR#9244 and PR#9247 (new cgroup2 features)
+- backport PR#9410 (gnutls detection, fix for #9403)
+
+* Fri Jun 22 2018 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 239-1
+- Update to latest version, mostly bug fixes and new functionality,
+  very little breaking changes. See
+  https://github.com/systemd/systemd/blob/v239/NEWS for details.
+
+* Tue Jun 19 2018 Miro Hrončok <mhroncok@redhat.com>
+- Rebuilt for Python 3.7
+
+* Thu May 31 2018 Davide Cavalca <dcavalca@fb.com> - 238-7.fb3
 - Update cgroup2 BPF device controller patches
 - Backport PR#9148 to mitigate pid watching issue on git
 
 * Tue May 15 2018 Davide Cavalca <dcavalca@fb.com> - 238-7.fb2
 - Backport htejun's io.latency patch
 - Backport guro's cgroup2 BPF device controller patch
+
+* Fri May 11 2018 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 238-8.git0e0aa59
+- Backport a number of patches (documentation, hwdb updates)
+- Fixes for tmpfiles 'e' entries
+- systemd-networkd crashes
+- XEN virtualization detection on hyper-v
+- Avoid relabelling /sys/fs/cgroup if not needed (#1576240)
+
+* Wed Apr 18 2018 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 238-7.fc28.1
+- Allow fake Delegate= setting on slices (#1568594)
 
 * Thu Apr  5 2018 Davide Cavalca <dcavalca@fb.com> - 238-7.fb1
 - Facebook rebuild

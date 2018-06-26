@@ -1,8 +1,8 @@
 diff --git a/src/test/meson.build b/src/test/meson.build
-index 4f28ef8..89ce51a 100644
+index 7da7e3a..f82f855 100644
 --- a/src/test/meson.build
 +++ b/src/test/meson.build
-@@ -557,17 +557,6 @@ tests += [
+@@ -550,18 +550,6 @@ tests += [
            libmount,
            libblkid]],
  
@@ -15,7 +15,8 @@ index 4f28ef8..89ce51a 100644
 -          libseccomp,
 -          libselinux,
 -          libmount,
--          libblkid]],
+-          libblkid],
+-         '', 'timeout=360'],
 -
          [['src/test/test-siphash24.c'],
           [],
