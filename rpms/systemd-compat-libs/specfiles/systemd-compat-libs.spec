@@ -10,15 +10,14 @@
 
 Name:           systemd-compat-libs
 Url:            https://github.com/facebookincubator/systemd-compat-libs
-Version:        238
-Release:        7.fb3
+Version:        239
+Release:        1.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+
 Summary:        Compatibility libraries for systemd
 
 Source0:        https://github.com/facebookincubator/systemd-compat-libs/archive/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
 Source1:        https://github.com/systemd/systemd/archive/v%{version}.tar.gz#/systemd-%{version}.tar.gz
-Source2:        https://github.com/facebookincubator/systemd-compat-libs/archive/raw/master/wrap-patches/systemd-%{version}-wrap-patch.tar.gz
 
 BuildRequires:  meson >= 0.44
 BuildRequires:  git
@@ -54,7 +53,6 @@ to systemd-compat-libs.
 %autopatch -p1
 mkdir -p subprojects/packagecache
 cp -p %SOURCE1 subprojects/packagecache/
-cp -p %SOURCE2 subprojects/packagecache/
 
 %build
 export LANG=en_US.UTF-8
@@ -89,6 +87,9 @@ export LC_ALL=en_US.UTF-8
 %{_libdir}/pkgconfig/libsystemd-id128.pc
 
 %changelog
+* Mon Jun 25 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb1
+- New upstream release
+
 * Wed May 16 2018 Davide Cavalca <dcavalca@fb.com> - 238-7.fb3
 - Bump version to match systemd packages
 
