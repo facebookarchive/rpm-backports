@@ -22,7 +22,7 @@
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
 Version:        239
-Release:        1.fb1
+Release:        1.fb2
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -57,6 +57,9 @@ Patch1001:      FB-disable-test-execute.patch
 Patch1002:      9244.patch
 Patch1003:      9247.patch
 Patch1004:      9410.patch
+Patch1005:      9460.patch
+Patch1006:      9500.patch
+Patch1007:      FB-revert-c58fd466a313a1f93df1792822e358c67990bcdf.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -704,6 +707,11 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Wed Jul  4 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb2
+- backport PR#9460 (followup to PR#9410)
+- backport PR#9500 (support for StandardOutput=append:)
+- revert c58fd46 (part of PR#8403) to workaround a FB-specific build issue
+
 * Mon Jun 25 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb1
 - Facebook rebuild
 - backport PR#9244 and PR#9247 (new cgroup2 features)

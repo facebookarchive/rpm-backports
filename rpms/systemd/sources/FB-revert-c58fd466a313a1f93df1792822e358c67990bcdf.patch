@@ -1,0 +1,23 @@
+From c58fd466a313a1f93df1792822e358c67990bcdf Mon Sep 17 00:00:00 2001
+From: Evegeny Vereshchagin <evvers@ya.ru>
+Date: Fri, 9 Mar 2018 01:10:42 +0000
+Subject: [PATCH] tests: make / private after creating a mount namespace
+
+so that the test never affects the root namespace.
+---
+ src/test/test-process-util.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/test/test-process-util.c b/src/test/test-process-util.c
+index 0e5a9d811d7..1a0164e601f 100644
+--- a/src/test/test-process-util.c
++++ b/src/test/test-process-util.c
+@@ -193,8 +193,6 @@ static void test_get_process_cmdline_harder(void) {
+         assert_se(pid == 0);
+         assert_se(unshare(CLONE_NEWNS) >= 0);
+ 
+-        assert_se(mount(NULL, "/", NULL, MS_PRIVATE|MS_REC, NULL) >= 0);
+-
+         fd = mkostemp(path, O_CLOEXEC);
+         assert_se(fd >= 0);
+ 
