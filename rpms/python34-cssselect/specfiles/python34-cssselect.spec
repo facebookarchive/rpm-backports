@@ -1,4 +1,4 @@
-%global with_tests 1
+# %global with_tests 1
 
 Name:           python34-cssselect
 Version:        0.9.1
