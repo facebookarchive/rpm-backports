@@ -8,7 +8,7 @@ Summary:        Parses CSS3 Selectors and translates them to XPath 1.0
 
 License:        BSD
 URL:            http://packages.python.org/cssselect/
-Source0:        http://pypi.python.org/packages/source/c/cssselect/cssselect-%{version}.tar.gz
+Source0:        https://pypi.python.org/packages/source/c/cssselect/cssselect-%{version}.tar.gz
 
 BuildArch:      noarch
 
@@ -18,8 +18,8 @@ BuildRequires:  python34-lxml
 %endif # if with_tests
 
 %description
-Cssselect parses CSS3 Selectors and translates them to XPath 1.0 expressions. 
-Such expressions can be used in lxml or another XPath engine to find the 
+Cssselect parses CSS3 Selectors and translates them to XPath 1.0 expressions.
+Such expressions can be used in lxml or another XPath engine to find the
 matching elements in an XML or HTML document.
 
 %prep
@@ -81,9 +81,9 @@ chmod 755 $RPM_BUILD_ROOT/%{python3_sitelib}/cssselect/tests.py
 
 * Fri Jan 17 2014 Eduardo Echeverria <echevemaster@gmail.com> 0.9.1-1
 - Update to latest upstream.
-- although this package have py3 support, the resultant python3 package 
+- although this package have py3 support, the resultant python3 package
   doesn't existed, reason? On install section, py3 setup install must be first,
-  if not, with every running of setup.py install, setup.py overwrite the files, 
+  if not, with every running of setup.py install, setup.py overwrite the files,
   this behaviour has been fixed
 - Workaround for python2 macro in epel versions
 - use python2 macro instead of python
@@ -100,9 +100,7 @@ chmod 755 $RPM_BUILD_ROOT/%{python3_sitelib}/cssselect/tests.py
 - Add tests.
 
 * Fri Nov 09 2012 Kevin Fenzi <kevin@scrye.com> 0.7.1-2
-- Fixes from review. 
+- Fixes from review.
 
 * Fri Nov 09 2012 Kevin Fenzi <kevin@scrye.com> 0.7.1-1
 - Initial version for review
-
-
