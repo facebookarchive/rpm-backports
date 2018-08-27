@@ -1,0 +1,25 @@
+From b7e02683b2089d7ba0698924b044f9c1783eb969 Mon Sep 17 00:00:00 2001
+From: Roman Gushchin <guro@fb.com>
+Date: Thu, 23 Aug 2018 10:46:20 -0700
+Subject: [PATCH 2/4] core: bump mlock ulimit to 64Mb
+
+---
+ src/core/main.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/core/main.c b/src/core/main.c
+index 078decb43..ebd450c10 100644
+--- a/src/core/main.c
++++ b/src/core/main.c
+@@ -1190,7 +1190,7 @@ static int bump_rlimit_memlock(struct rlimit *saved_rlimit) {
+         if (getrlimit(RLIMIT_MEMLOCK, saved_rlimit) < 0)
+                 return log_warning_errno(errno, "Reading RLIMIT_MEMLOCK failed, ignoring: %m");
+ 
+-        r = setrlimit_closest(RLIMIT_MEMLOCK, &RLIMIT_MAKE_CONST(1024ULL*1024ULL*16ULL));
++        r = setrlimit_closest(RLIMIT_MEMLOCK, &RLIMIT_MAKE_CONST(1024ULL*1024ULL*64ULL));
+         if (r < 0)
+                 return log_warning_errno(r, "Setting RLIMIT_MEMLOCK failed, ignoring: %m");
+ 
+-- 
+2.17.1
+

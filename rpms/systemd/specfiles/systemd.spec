@@ -22,7 +22,7 @@
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
 Version:        239
-Release:        1.fb2
+Release:        1.fb3
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -60,6 +60,10 @@ Patch1004:      9410.patch
 Patch1005:      9460.patch
 Patch1006:      9500.patch
 Patch1007:      FB-revert-c58fd466a313a1f93df1792822e358c67990bcdf.patch
+Patch1011:      0001-libbpf.h-add-BPF_JMP_A-macro.patch
+Patch1012:      0002-core-bump-mlock-ulimit-to-64Mb.patch
+Patch1013:      0003-core-support-cgroup-v2-device-controller.patch
+Patch1014:      0004-core-add-debug-for-cgroup-bpf-ops.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -707,6 +711,9 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Fri Aug 24 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb3
+- backport new version of guro's cgroup2 BPF device controller patch
+
 * Wed Jul  4 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb2
 - backport PR#9460 (followup to PR#9410)
 - backport PR#9500 (support for StandardOutput=append:)
