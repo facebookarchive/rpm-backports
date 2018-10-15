@@ -25,3 +25,12 @@ from Rawhide:
 * debootstrap-1.0.81-1.fc24
 * keyrings-filesystem-1-5.fc24
 * python35-3.5.2-3.fc23
+
+## Contribute
+
+See the CONTRIBUTING file for how to help out.
+
+## License
+
+The RPM specfiles in this repository are released under the MIT license. See
+LICENSE for more details.
