@@ -22,7 +22,7 @@
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
 Version:        239
-Release:        1.fb4
+Release:        1.fb5
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -64,6 +64,7 @@ Patch1009:      10203.patch
 Patch1010:      10363.patch
 Patch1011:      10368.patch
 Patch1012:      FB-fix-test-mock-homedir.patch
+Patch1013:      10507-10567.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -712,6 +713,10 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Fri Nov  2 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb5
+- Backport PR#10507 (don't require CPU controller for CPU accounting)
+- Backport PR#10567 (DisableControllers= directive)
+
 * Fri Oct 12 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb4
 - Backport PR#10062 (cgroup2 BPF device controller support)
 - Backport PR#10203, PR#10363 (tests fixes for supplementary groups)

@@ -1,0 +1,762 @@
+diff --git a/man/systemd.resource-control.xml b/man/systemd.resource-control.xml
+index 0ab69f5..2a4a8d8 100644
+--- a/man/systemd.resource-control.xml
++++ b/man/systemd.resource-control.xml
+@@ -754,6 +754,33 @@
+         </listitem>
+       </varlistentry>
+ 
++      <varlistentry>
++        <term><varname>DisableControllers=</varname></term>
++
++        <listitem>
++          <para>Disables controllers from being enabled for a unit and
++          its children. If a controller listed is already in use by this unit
++          or is in use within its subtree, the controller will be removed from
++          the subtree. This can be used to disallow this unit or units within
++          its subtree from implicitly or explicitly enabling a controller.
++          Defaults to not disabling any controllers.</para>
++
++          <para>It may not be possible to successfully disable a controller if
++          the unit or any child of the unit in question delegates controllers
++          to its children, as any delegated subtree of the cgroup hierarchy
++          is unmanaged by systemd.</para>
++
++          <para>Multiple controllers may be specified, separated by spaces. You
++          may also pass <varname>DisableControllers=</varname> multiple times,
++          in which case each new instance adds another controller to disable.
++          Passing <varname>DisableControllers=</varname> by itself with no
++          controller name present resets the disabled controller list.</para>
++
++          <para>Valid controllers are <option>cpu</option>, <option>cpuacct</option>,
++          <option>io</option>, <option>blkio</option>, <option>memory</option>,
++          <option>devices</option>, and <option>pids</option>.</para>
++        </listitem>
++      </varlistentry>
+     </variablelist>
+   </refsect1>
+ 
+diff --git a/src/core/cgroup.c b/src/core/cgroup.c
+index 286818a..2144387 100644
+--- a/src/core/cgroup.c
++++ b/src/core/cgroup.c
+@@ -2,6 +2,7 @@
+ 
+ #include <fcntl.h>
+ #include <fnmatch.h>
++#include <sys/utsname.h>
+ 
+ #include "alloc-util.h"
+ #include "blockdev-util.h"
+@@ -1141,16 +1142,77 @@ static void cgroup_context_apply(
+                 cgroup_apply_firewall(u);
+ }
+ 
++CGroupMask get_cpu_accounting_mask(void) {
++        static CGroupMask needed_mask = (CGroupMask) -1;
++
++        /* On kernel ≥4.15 with unified hierarchy, cpu.stat's usage_usec is
++         * provided externally from the CPU controller, which means we don't
++         * need to enable the CPU controller just to get metrics. This is good,
++         * because enabling the CPU controller comes at a minor performance
++         * hit, especially when it's propagated deep into large hierarchies.
++         * There's also no separate CPU accounting controller available within
++         * a unified hierarchy.
++         *
++         * This combination of factors results in the desired cgroup mask to
++         * enable for CPU accounting varying as follows (FIXME: all
++         * hybrid/legacy cases should ideally only have CGROUP_MASK_CPUACCT,
++         * but due to issue 10580 they need both CGROUP_MASK_CPUACCT and
++         * CGROUP_MASK_CPU):
++         *
++         *                   ╔═════════════════════╤═════════════════════╗
++         *                   ║     Linux ≥4.15     │     Linux <4.15     ║
++         *   ╔═══════════════╬═════════════════════╪═════════════════════╣
++         *   ║ Unified       ║ nothing             │ CPU                 ║
++         *   ╟───────────────╫─────────────────────┼─────────────────────╢
++         *   ║ Hybrid/Legacy ║ CPUACCT | CPU       │ CPUACCT | CPU       ║
++         *   ╚═══════════════╩═════════════════════╧═════════════════════╝
++         *
++         * We check kernel version here instead of manually checking whether
++         * cpu.stat is present for every cgroup, as that check in itself would
++         * already be fairly expensive.
++         *
++         * Kernels where this patch has been backported will therefore have the
++         * CPU controller enabled unnecessarily. This is more expensive than
++         * necessary, but harmless. ☺️
++         */
++
++        if (needed_mask == (CGroupMask) -1) {
++                if (cg_all_unified()) {
++                        struct utsname u;
++                        assert_se(uname(&u) >= 0);
++
++                        if (str_verscmp(u.release, "4.15") < 0)
++                                needed_mask = CGROUP_MASK_CPU;
++                        else
++                                needed_mask = 0;
++                } else
++                        /* FIXME: Issue 10580. We should only need
++                         * CGROUP_MASK_CPU but this interacts badly with
++                         * default JoinControllers= */
++                        needed_mask = CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT;
++        }
++
++        return needed_mask;
++}
++
++bool cpu_accounting_is_cheap(void) {
++        return get_cpu_accounting_mask() == 0;
++}
++
+ CGroupMask cgroup_context_get_mask(CGroupContext *c) {
+         CGroupMask mask = 0;
+ 
+         /* Figure out which controllers we need */
+ 
+-        if (c->cpu_accounting ||
+-            cgroup_context_has_cpu_weight(c) ||
++        /* FIXME: Issue 10580. We should only need CGROUP_MASK_CPU but this
++         * interacts badly with default JoinControllers= */
++        if (cgroup_context_has_cpu_weight(c) ||
+             cgroup_context_has_cpu_shares(c) ||
+             c->cpu_quota_per_sec_usec != USEC_INFINITY)
+-                mask |= CGROUP_MASK_CPUACCT | CGROUP_MASK_CPU;
++                mask |= CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT;
++
++        if (c->cpu_accounting)
++                mask |= get_cpu_accounting_mask();
+ 
+         if (cgroup_context_has_io_config(c) || cgroup_context_has_blockio_config(c))
+                 mask |= CGROUP_MASK_IO | CGROUP_MASK_BLKIO;
+@@ -1189,7 +1251,7 @@ CGroupMask unit_get_own_mask(Unit *u) {
+         if (!c)
+                 return 0;
+ 
+-        return cgroup_context_get_mask(c) | unit_get_bpf_mask(u) | unit_get_delegate_mask(u);
++        return (cgroup_context_get_mask(c) | unit_get_bpf_mask(u) | unit_get_delegate_mask(u)) & ~unit_get_ancestor_disable_mask(u);
+ }
+ 
+ CGroupMask unit_get_delegate_mask(Unit *u) {
+@@ -1259,6 +1321,30 @@ CGroupMask unit_get_siblings_mask(Unit *u) {
+         return unit_get_subtree_mask(u); /* we are the top-level slice */
+ }
+ 
++CGroupMask unit_get_disable_mask(Unit *u) {
++        CGroupContext *c;
++
++        c = unit_get_cgroup_context(u);
++        if (!c)
++                return 0;
++
++        return c->disable_controllers;
++}
++
++CGroupMask unit_get_ancestor_disable_mask(Unit *u) {
++        CGroupMask mask = unit_get_disable_mask(u);
++
++        assert(u);
++
++        /* Returns the mask of controllers which are marked as forcibly
++         * disabled in any ancestor unit or the unit in question. */
++
++        if (UNIT_ISSET(u->slice))
++                mask |= unit_get_ancestor_disable_mask(UNIT_DEREF(u->slice));
++
++        return mask;
++}
++
+ CGroupMask unit_get_subtree_mask(Unit *u) {
+ 
+         /* Returns the mask of this subtree, meaning of the group
+@@ -1279,6 +1365,7 @@ CGroupMask unit_get_target_mask(Unit *u) {
+ 
+         mask = unit_get_own_mask(u) | unit_get_members_mask(u) | unit_get_siblings_mask(u);
+         mask &= u->manager->cgroup_supported;
++        mask &= ~unit_get_ancestor_disable_mask(u);
+ 
+         return mask;
+ }
+@@ -1293,6 +1380,7 @@ CGroupMask unit_get_enable_mask(Unit *u) {
+ 
+         mask = unit_get_members_mask(u);
+         mask &= u->manager->cgroup_supported;
++        mask &= ~unit_get_ancestor_disable_mask(u);
+ 
+         return mask;
+ }
+@@ -1752,6 +1840,30 @@ static bool unit_has_mask_realized(
+                 u->cgroup_invalidated_mask == 0;
+ }
+ 
++static bool unit_has_mask_disables_realized(
++                Unit *u,
++                CGroupMask target_mask,
++                CGroupMask enable_mask) {
++
++        assert(u);
++
++        return u->cgroup_realized &&
++                (u->cgroup_realized_mask & target_mask) == u->cgroup_realized_mask &&
++                (u->cgroup_enabled_mask & enable_mask) == u->cgroup_enabled_mask;
++}
++
++static bool unit_has_mask_enables_realized(
++                Unit *u,
++                CGroupMask target_mask,
++                CGroupMask enable_mask) {
++
++        assert(u);
++
++        return u->cgroup_realized &&
++                (u->cgroup_realized_mask | target_mask) == u->cgroup_realized_mask &&
++                (u->cgroup_enabled_mask | enable_mask) == u->cgroup_enabled_mask;
++}
++
+ static void unit_add_to_cgroup_realize_queue(Unit *u) {
+         assert(u);
+ 
+@@ -1772,10 +1884,142 @@ static void unit_remove_from_cgroup_realize_queue(Unit *u) {
+         u->in_cgroup_realize_queue = false;
+ }
+ 
++/* Controllers can only be enabled breadth-first, from the root of the
++ * hierarchy downwards to the unit in question. */
++static int unit_realize_cgroup_now_enable_breadth_first(Unit *u, ManagerState state) {
++        CGroupMask target_mask, enable_mask;
++        int r;
++
++        assert(u);
++
++        /* First go deal with this unit's parent, or we won't be able to enable
++         * any new controllers at this layer. */
++        if (UNIT_ISSET(u->slice)) {
++                r = unit_realize_cgroup_now_enable_breadth_first(UNIT_DEREF(u->slice), state);
++                if (r < 0)
++                        return r;
++        }
++
++        target_mask = unit_get_target_mask(u);
++        enable_mask = unit_get_enable_mask(u);
++
++        /* We can only enable in this direction, don't try to disable anything.
++         */
++        if (!unit_has_mask_enables_realized(u, target_mask, enable_mask)) {
++                CGroupMask new_target_mask, new_enable_mask;
++
++                new_target_mask = u->cgroup_realized_mask | target_mask;
++                new_enable_mask = u->cgroup_enabled_mask | enable_mask;
++
++                r = unit_create_cgroup(u, new_target_mask, new_enable_mask);
++                if (r < 0)
++                        return r;
++
++                cgroup_context_apply(u, new_target_mask, state);
++                cgroup_xattr_apply(u);
++        }
++
++        return 0;
++}
++
++/* Controllers can only be disabled depth-first, from the leaves of the
++ * hierarchy upwards to the unit in question. */
++static int unit_realize_cgroup_now_disable_depth_first(Unit *u, ManagerState state) {
++        Iterator i;
++        Unit *m;
++        void *v;
++
++        assert(u);
++
++        if (u->type != UNIT_SLICE)
++                return 0;
++
++        HASHMAP_FOREACH_KEY(v, m, u->dependencies[UNIT_BEFORE], i) {
++                CGroupMask target_mask, enable_mask;
++
++                if (m == u)
++                        continue;
++
++                if (UNIT_DEREF(m->slice) != u)
++                        continue;
++
++                /* The cgroup for this unit might not actually be fully
++                 * realised yet, in which case it isn't holding any controllers
++                 * open anyway. */
++                if (!m->cgroup_path)
++                        continue;
++
++                /* We must disable those below us first in order to release the
++                 * controller. */
++                if (m->type == UNIT_SLICE)
++                        unit_realize_cgroup_now_disable_depth_first(m, state);
++
++                target_mask = unit_get_target_mask(m);
++                enable_mask = unit_get_enable_mask(m);
++
++                /* We can only disable in this direction, don't try to enable
++                 * anything. */
++                if (!unit_has_mask_disables_realized(m, target_mask, enable_mask)) {
++                        CGroupMask new_target_mask, new_enable_mask;
++                        int r;
++
++                        new_target_mask = m->cgroup_realized_mask & target_mask;
++                        new_enable_mask = m->cgroup_enabled_mask & enable_mask;
++
++                        r = unit_create_cgroup(m, new_target_mask, new_enable_mask);
++                        if (r < 0)
++                                return r;
++
++                        cgroup_context_apply(m, new_target_mask, state);
++                        cgroup_xattr_apply(m);
++                }
++        }
++
++        return 0;
++}
++
+ /* Check if necessary controllers and attributes for a unit are in place.
+  *
+- * If so, do nothing.
+- * If not, create paths, move processes over, and set attributes.
++ * - If so, do nothing.
++ * - If not, create paths, move processes over, and set attributes.
++ *
++ * Controllers can only be *enabled* in a breadth-first way, and *disabled* in
++ * a depth-first way. As such the process looks like this:
++ *
++ * Suppose we have a cgroup hierarchy which looks like this:
++ *
++ *             root
++ *            /    \
++ *           /      \
++ *          /        \
++ *         a          b
++ *        / \        / \
++ *       /   \      /   \
++ *      c     d    e     f
++ *     / \   / \  / \   / \
++ *     h i   j k  l m   n o
++ *
++ * 1. We want to realise cgroup "d" now.
++ * 2. cgroup "a" has DisableControllers=cpu in the associated unit.
++ * 3. cgroup "k" just started requesting the memory controller.
++ *
++ * To make this work we must do the following in order:
++ *
++ * 1. Disable CPU controller in k, j
++ * 2. Disable CPU controller in d
++ * 3. Enable memory controller in root
++ * 4. Enable memory controller in a
++ * 5. Enable memory controller in d
++ * 6. Enable memory controller in k
++ *
++ * Notice that we need to touch j in one direction, but not the other. We also
++ * don't go beyond d when disabling -- it's up to "a" to get realized if it
++ * wants to disable further. The basic rules are therefore:
++ *
++ * - If you're disabling something, you need to realise all of the cgroups from
++ *   your recursive descendants to the root. This starts from the leaves.
++ * - If you're enabling something, you need to realise from the root cgroup
++ *   downwards, but you don't need to iterate your recursive descendants.
+  *
+  * Returns 0 on success and < 0 on failure. */
+ static int unit_realize_cgroup_now(Unit *u, ManagerState state) {
+@@ -1792,14 +2036,19 @@ static int unit_realize_cgroup_now(Unit *u, ManagerState state) {
+         if (unit_has_mask_realized(u, target_mask, enable_mask))
+                 return 0;
+ 
+-        /* First, realize parents */
++        /* Disable controllers below us, if there are any */
++        r = unit_realize_cgroup_now_disable_depth_first(u, state);
++        if (r < 0)
++                return r;
++
++        /* Enable controllers above us, if there are any */
+         if (UNIT_ISSET(u->slice)) {
+-                r = unit_realize_cgroup_now(UNIT_DEREF(u->slice), state);
++                r = unit_realize_cgroup_now_enable_breadth_first(UNIT_DEREF(u->slice), state);
+                 if (r < 0)
+                         return r;
+         }
+ 
+-        /* And then do the real work */
++        /* Now actually deal with the cgroup we were trying to realise */
+         r = unit_create_cgroup(u, target_mask, enable_mask);
+         if (r < 0)
+                 return r;
+@@ -2579,13 +2828,15 @@ static int unit_get_cpu_usage_raw(Unit *u, nsec_t *ret) {
+         r = cg_all_unified();
+         if (r < 0)
+                 return r;
++
++        /* Requisite controllers for CPU accounting are not enabled */
++        if ((get_cpu_accounting_mask() & ~u->cgroup_realized_mask) != 0)
++                return -ENODATA;
++
+         if (r > 0) {
+                 _cleanup_free_ char *val = NULL;
+                 uint64_t us;
+ 
+-                if ((u->cgroup_realized_mask & CGROUP_MASK_CPU) == 0)
+-                        return -ENODATA;
+-
+                 r = cg_get_keyed_attribute("cpu", u->cgroup_path, "cpu.stat", STRV_MAKE("usage_usec"), &val);
+                 if (r < 0)
+                         return r;
+@@ -2598,9 +2849,6 @@ static int unit_get_cpu_usage_raw(Unit *u, nsec_t *ret) {
+ 
+                 ns = us * NSEC_PER_USEC;
+         } else {
+-                if ((u->cgroup_realized_mask & CGROUP_MASK_CPUACCT) == 0)
+-                        return -ENODATA;
+-
+                 r = cg_get_attribute("cpuacct", u->cgroup_path, "cpuacct.usage", &v);
+                 if (r == -ENOENT)
+                         return -ENODATA;
+diff --git a/src/core/cgroup.h b/src/core/cgroup.h
+index fa7d102..5ea2781 100644
+--- a/src/core/cgroup.h
++++ b/src/core/cgroup.h
+@@ -118,6 +118,8 @@ struct CGroupContext {
+ 
+         bool delegate;
+         CGroupMask delegate_controllers;
++
++        CGroupMask disable_controllers;
+ };
+ 
+ /* Used when querying IP accounting data */
+@@ -151,6 +153,8 @@ CGroupMask unit_get_delegate_mask(Unit *u);
+ CGroupMask unit_get_members_mask(Unit *u);
+ CGroupMask unit_get_siblings_mask(Unit *u);
+ CGroupMask unit_get_subtree_mask(Unit *u);
++CGroupMask unit_get_disable_mask(Unit *u);
++CGroupMask unit_get_ancestor_disable_mask(Unit *u);
+ 
+ CGroupMask unit_get_target_mask(Unit *u);
+ CGroupMask unit_get_enable_mask(Unit *u);
+@@ -216,3 +220,6 @@ const char* cgroup_device_policy_to_string(CGroupDevicePolicy i) _const_;
+ CGroupDevicePolicy cgroup_device_policy_from_string(const char *s) _pure_;
+ 
+ bool unit_cgroup_delegate(Unit *u);
++
++CGroupMask get_cpu_accounting_mask(void);
++bool cpu_accounting_is_cheap(void);
+diff --git a/src/core/dbus-cgroup.c b/src/core/dbus-cgroup.c
+index 856d9d9..3e6abf7 100644
+--- a/src/core/dbus-cgroup.c
++++ b/src/core/dbus-cgroup.c
+@@ -303,6 +303,39 @@ static int property_get_ip_address_access(
+         return sd_bus_message_close_container(reply);
+ }
+ 
++static int property_get_disable_controller(
++                sd_bus *bus,
++                const char *path,
++                const char *interface,
++                const char *property,
++                sd_bus_message *reply,
++                void *userdata,
++                sd_bus_error *error) {
++
++        CGroupContext *c = userdata;
++        CGroupController ctrl;
++        int r;
++
++        assert(bus);
++        assert(reply);
++        assert(c);
++
++        r = sd_bus_message_open_container(reply, 'a', "s");
++        if (r < 0)
++                return r;
++
++        for (ctrl = 0; ctrl < _CGROUP_CONTROLLER_MAX; ctrl++) {
++                if ((c->disable_controllers & CGROUP_CONTROLLER_TO_MASK(ctrl)) == 0)
++                        continue;
++
++                r = sd_bus_message_append(reply, "s", cgroup_controller_to_string(ctrl));
++                if (r < 0)
++                        return r;
++        }
++
++        return sd_bus_message_close_container(reply);
++}
++
+ const sd_bus_vtable bus_cgroup_vtable[] = {
+         SD_BUS_VTABLE_START(0),
+         SD_BUS_PROPERTY("Delegate", "b", bus_property_get_bool, offsetof(CGroupContext, delegate), 0),
+@@ -342,6 +375,7 @@ const sd_bus_vtable bus_cgroup_vtable[] = {
+         SD_BUS_PROPERTY("IPAccounting", "b", bus_property_get_bool, offsetof(CGroupContext, ip_accounting), 0),
+         SD_BUS_PROPERTY("IPAddressAllow", "a(iayu)", property_get_ip_address_access, offsetof(CGroupContext, ip_address_allow), 0),
+         SD_BUS_PROPERTY("IPAddressDeny", "a(iayu)", property_get_ip_address_access, offsetof(CGroupContext, ip_address_deny), 0),
++        SD_BUS_PROPERTY("DisableControllers", "as", property_get_disable_controller, 0, 0),
+         SD_BUS_VTABLE_END
+ };
+ 
+@@ -603,7 +637,7 @@ int bus_cgroup_set_property(
+         flags |= UNIT_PRIVATE;
+ 
+         if (streq(name, "CPUAccounting"))
+-                return bus_cgroup_set_boolean(u, name, &c->cpu_accounting, CGROUP_MASK_CPUACCT|CGROUP_MASK_CPU, message, flags, error);
++                return bus_cgroup_set_boolean(u, name, &c->cpu_accounting, get_cpu_accounting_mask(), message, flags, error);
+ 
+         if (streq(name, "CPUWeight"))
+                 return bus_cgroup_set_cpu_weight(u, name, &c->cpu_weight, message, flags, error);
+diff --git a/src/core/load-fragment-gperf.gperf.m4 b/src/core/load-fragment-gperf.gperf.m4
+index 3f207ed..0ed7ec7 100644
+--- a/src/core/load-fragment-gperf.gperf.m4
++++ b/src/core/load-fragment-gperf.gperf.m4
+@@ -188,6 +188,7 @@ $1.BlockIOWriteBandwidth,        config_parse_blockio_bandwidth,     0,
+ $1.TasksAccounting,              config_parse_bool,                  0,                             offsetof($1, cgroup_context.tasks_accounting)
+ $1.TasksMax,                     config_parse_tasks_max,             0,                             offsetof($1, cgroup_context.tasks_max)
+ $1.Delegate,                     config_parse_delegate,              0,                             offsetof($1, cgroup_context)
++$1.DisableControllers,           config_parse_disable_controllers,   0,                             offsetof($1, cgroup_context)
+ $1.IPAccounting,                 config_parse_bool,                  0,                             offsetof($1, cgroup_context.ip_accounting)
+ $1.IPAddressAllow,               config_parse_ip_address_access,     0,                             offsetof($1, cgroup_context.ip_address_allow)
+ $1.IPAddressDeny,                config_parse_ip_address_access,     0,                             offsetof($1, cgroup_context.ip_address_deny)
+diff --git a/src/core/load-fragment.c b/src/core/load-fragment.c
+index 666ad36..5338231 100644
+--- a/src/core/load-fragment.c
++++ b/src/core/load-fragment.c
+@@ -4211,6 +4211,41 @@ int config_parse_job_running_timeout_sec(
+         return 0;
+ }
+ 
++int config_parse_disable_controllers(
++                const char *unit,
++                const char *filename,
++                unsigned line,
++                const char *section,
++                unsigned section_line,
++                const char *lvalue,
++                int ltype,
++                const char *rvalue,
++                void *data,
++                void *userdata) {
++
++        int r;
++        CGroupContext *c = data;
++        CGroupMask disabled_mask;
++
++        /* 1. If empty, make all controllers eligible for use again.
++         * 2. If non-empty, merge all listed controllers, space separated. */
++
++        if (isempty(rvalue)) {
++                c->disable_controllers = 0;
++                return 0;
++        }
++
++        r = cg_mask_from_string(rvalue, &disabled_mask);
++        if (r < 0 || disabled_mask <= 0) {
++                log_syntax(unit, LOG_ERR, filename, line, r, "Invalid cgroup string: %s, ignoring", rvalue);
++                return 0;
++        }
++
++        c->disable_controllers |= disabled_mask;
++
++        return 0;
++}
++
+ #define FOLLOW_MAX 8
+ 
+ static int open_follow(char **filename, FILE **_f, Set *names, char **_final) {
+diff --git a/src/core/load-fragment.h b/src/core/load-fragment.h
+index ea4ffc5..adfacc2 100644
+--- a/src/core/load-fragment.h
++++ b/src/core/load-fragment.h
+@@ -103,6 +103,7 @@ CONFIG_PARSER_PROTOTYPE(config_parse_job_timeout_sec);
+ CONFIG_PARSER_PROTOTYPE(config_parse_job_running_timeout_sec);
+ CONFIG_PARSER_PROTOTYPE(config_parse_log_extra_fields);
+ CONFIG_PARSER_PROTOTYPE(config_parse_collect_mode);
++CONFIG_PARSER_PROTOTYPE(config_parse_disable_controllers);
+ 
+ /* gperf prototypes */
+ const struct ConfigPerfItem* load_fragment_gperf_lookup(const char *key, GPERF_LEN_TYPE length);
+diff --git a/src/core/main.c b/src/core/main.c
+index f1ec325..52373b5 100644
+--- a/src/core/main.c
++++ b/src/core/main.c
+@@ -28,6 +28,7 @@
+ #include "bus-error.h"
+ #include "bus-util.h"
+ #include "capability-util.h"
++#include "cgroup.h"
+ #include "clock-util.h"
+ #include "conf-parser.h"
+ #include "cpu-set-util.h"
+@@ -118,7 +119,7 @@ static nsec_t arg_timer_slack_nsec = NSEC_INFINITY;
+ static usec_t arg_default_timer_accuracy_usec = 1 * USEC_PER_MINUTE;
+ static Set* arg_syscall_archs = NULL;
+ static FILE* arg_serialization = NULL;
+-static bool arg_default_cpu_accounting = false;
++static int arg_default_cpu_accounting = -1;
+ static bool arg_default_io_accounting = false;
+ static bool arg_default_ip_accounting = false;
+ static bool arg_default_blockio_accounting = false;
+@@ -690,7 +691,7 @@ static int parse_config_file(void) {
+                 { "Manager", "DefaultLimitNICE",          config_parse_rlimit,           RLIMIT_NICE, arg_default_rlimit           },
+                 { "Manager", "DefaultLimitRTPRIO",        config_parse_rlimit,           RLIMIT_RTPRIO, arg_default_rlimit         },
+                 { "Manager", "DefaultLimitRTTIME",        config_parse_rlimit,           RLIMIT_RTTIME, arg_default_rlimit         },
+-                { "Manager", "DefaultCPUAccounting",      config_parse_bool,             0, &arg_default_cpu_accounting            },
++                { "Manager", "DefaultCPUAccounting",      config_parse_tristate,         0, &arg_default_cpu_accounting            },
+                 { "Manager", "DefaultIOAccounting",       config_parse_bool,             0, &arg_default_io_accounting             },
+                 { "Manager", "DefaultIPAccounting",       config_parse_bool,             0, &arg_default_ip_accounting             },
+                 { "Manager", "DefaultBlockIOAccounting",  config_parse_bool,             0, &arg_default_blockio_accounting        },
+@@ -739,7 +740,14 @@ static void set_manager_defaults(Manager *m) {
+         m->default_restart_usec = arg_default_restart_usec;
+         m->default_start_limit_interval = arg_default_start_limit_interval;
+         m->default_start_limit_burst = arg_default_start_limit_burst;
+-        m->default_cpu_accounting = arg_default_cpu_accounting;
++
++        /* On 4.15+ with unified hierarchy, CPU accounting is essentially free as it doesn't require the CPU
++         * controller to be enabled, so the default is to enable it unless we got told otherwise. */
++        if (arg_default_cpu_accounting >= 0)
++                m->default_cpu_accounting = arg_default_cpu_accounting;
++        else
++                m->default_cpu_accounting = cpu_accounting_is_cheap();
++
+         m->default_io_accounting = arg_default_io_accounting;
+         m->default_ip_accounting = arg_default_ip_accounting;
+         m->default_blockio_accounting = arg_default_blockio_accounting;
+diff --git a/src/test/test-cgroup-mask.c b/src/test/test-cgroup-mask.c
+index 2da5d3f..99da8fd 100644
+--- a/src/test/test-cgroup-mask.c
++++ b/src/test/test-cgroup-mask.c
+@@ -5,6 +5,7 @@
+ 
+ #include <stdio.h>
+ 
++#include "cgroup.h"
+ #include "macro.h"
+ #include "manager.h"
+ #include "rm-rf.h"
+@@ -16,8 +17,9 @@
+ static int test_cgroup_mask(void) {
+         _cleanup_(rm_rf_physical_and_freep) char *runtime_dir = NULL;
+         _cleanup_(manager_freep) Manager *m = NULL;
+-        Unit *son, *daughter, *parent, *root, *grandchild, *parent_deep;
++        Unit *son, *daughter, *parent, *root, *grandchild, *parent_deep, *nomem_parent, *nomem_leaf;
+         int r;
++        CGroupMask cpu_accounting_mask = get_cpu_accounting_mask();
+ 
+         r = enter_cgroup_subroot();
+         if (r == -ENOMEDIUM) {
+@@ -54,18 +56,25 @@ static int test_cgroup_mask(void) {
+         assert_se(manager_load_startable_unit_or_warn(m, "daughter.service", NULL, &daughter) >= 0);
+         assert_se(manager_load_startable_unit_or_warn(m, "grandchild.service", NULL, &grandchild) >= 0);
+         assert_se(manager_load_startable_unit_or_warn(m, "parent-deep.slice", NULL, &parent_deep) >= 0);
++        assert_se(manager_load_startable_unit_or_warn(m, "nomem.slice", NULL, &nomem_parent) >= 0);
++        assert_se(manager_load_startable_unit_or_warn(m, "nomemleaf.service", NULL, &nomem_leaf) >= 0);
++
+         assert_se(UNIT_DEREF(son->slice) == parent);
+         assert_se(UNIT_DEREF(daughter->slice) == parent);
+         assert_se(UNIT_DEREF(parent_deep->slice) == parent);
+         assert_se(UNIT_DEREF(grandchild->slice) == parent_deep);
++        assert_se(UNIT_DEREF(nomem_leaf->slice) == nomem_parent);
+         root = UNIT_DEREF(parent->slice);
++        assert_se(UNIT_DEREF(nomem_parent->slice) == root);
+ 
+         /* Verify per-unit cgroups settings. */
+         assert_se(unit_get_own_mask(son) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT));
+-        assert_se(unit_get_own_mask(daughter) == 0);
++        assert_se(unit_get_own_mask(daughter) == cpu_accounting_mask);
+         assert_se(unit_get_own_mask(grandchild) == 0);
+         assert_se(unit_get_own_mask(parent_deep) == CGROUP_MASK_MEMORY);
+         assert_se(unit_get_own_mask(parent) == (CGROUP_MASK_IO | CGROUP_MASK_BLKIO));
++        assert_se(unit_get_own_mask(nomem_parent) == 0);
++        assert_se(unit_get_own_mask(nomem_leaf) == (CGROUP_MASK_IO | CGROUP_MASK_BLKIO));
+         assert_se(unit_get_own_mask(root) == 0);
+ 
+         /* Verify aggregation of member masks */
+@@ -73,24 +82,30 @@ static int test_cgroup_mask(void) {
+         assert_se(unit_get_members_mask(daughter) == 0);
+         assert_se(unit_get_members_mask(grandchild) == 0);
+         assert_se(unit_get_members_mask(parent_deep) == 0);
+-        assert_se(unit_get_members_mask(parent) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_MEMORY));
+-        assert_se(unit_get_members_mask(root) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_IO | CGROUP_MASK_BLKIO | CGROUP_MASK_MEMORY));
++        assert_se(unit_get_members_mask(parent) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | cpu_accounting_mask | CGROUP_MASK_MEMORY));
++        assert_se(unit_get_members_mask(nomem_parent) == (CGROUP_MASK_IO | CGROUP_MASK_BLKIO));
++        assert_se(unit_get_members_mask(nomem_leaf) == 0);
++        assert_se(unit_get_members_mask(root) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | cpu_accounting_mask | CGROUP_MASK_IO | CGROUP_MASK_BLKIO | CGROUP_MASK_MEMORY));
+ 
+         /* Verify aggregation of sibling masks. */
+-        assert_se(unit_get_siblings_mask(son) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_MEMORY));
+-        assert_se(unit_get_siblings_mask(daughter) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_MEMORY));
++        assert_se(unit_get_siblings_mask(son) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | cpu_accounting_mask | CGROUP_MASK_MEMORY));
++        assert_se(unit_get_siblings_mask(daughter) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | cpu_accounting_mask | CGROUP_MASK_MEMORY));
+         assert_se(unit_get_siblings_mask(grandchild) == 0);
+-        assert_se(unit_get_siblings_mask(parent_deep) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_MEMORY));
+-        assert_se(unit_get_siblings_mask(parent) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_IO | CGROUP_MASK_BLKIO | CGROUP_MASK_MEMORY));
+-        assert_se(unit_get_siblings_mask(root) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_IO | CGROUP_MASK_BLKIO | CGROUP_MASK_MEMORY));
++        assert_se(unit_get_siblings_mask(parent_deep) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | cpu_accounting_mask | CGROUP_MASK_MEMORY));
++        assert_se(unit_get_siblings_mask(parent) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | cpu_accounting_mask | CGROUP_MASK_IO | CGROUP_MASK_BLKIO | CGROUP_MASK_MEMORY));
++        assert_se(unit_get_siblings_mask(nomem_parent) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_IO | CGROUP_MASK_BLKIO | CGROUP_MASK_MEMORY));
++        assert_se(unit_get_siblings_mask(nomem_leaf) == (CGROUP_MASK_IO | CGROUP_MASK_BLKIO));
++        assert_se(unit_get_siblings_mask(root) == (CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | cpu_accounting_mask | CGROUP_MASK_IO | CGROUP_MASK_BLKIO | CGROUP_MASK_MEMORY));
+ 
+         /* Verify aggregation of target masks. */
+-        assert_se(unit_get_target_mask(son) == ((CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_MEMORY) & m->cgroup_supported));
+-        assert_se(unit_get_target_mask(daughter) == ((CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_MEMORY) & m->cgroup_supported));
++        assert_se(unit_get_target_mask(son) == ((CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | cpu_accounting_mask | CGROUP_MASK_MEMORY) & m->cgroup_supported));
++        assert_se(unit_get_target_mask(daughter) == ((CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | cpu_accounting_mask | CGROUP_MASK_MEMORY) & m->cgroup_supported));
+         assert_se(unit_get_target_mask(grandchild) == 0);
+-        assert_se(unit_get_target_mask(parent_deep) == ((CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_MEMORY) & m->cgroup_supported));
+-        assert_se(unit_get_target_mask(parent) == ((CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_IO | CGROUP_MASK_BLKIO | CGROUP_MASK_MEMORY) & m->cgroup_supported));
+-        assert_se(unit_get_target_mask(root) == ((CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_IO | CGROUP_MASK_BLKIO | CGROUP_MASK_MEMORY) & m->cgroup_supported));
++        assert_se(unit_get_target_mask(parent_deep) == ((CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | cpu_accounting_mask | CGROUP_MASK_MEMORY) & m->cgroup_supported));
++        assert_se(unit_get_target_mask(parent) == ((CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | cpu_accounting_mask | CGROUP_MASK_IO | CGROUP_MASK_BLKIO | CGROUP_MASK_MEMORY) & m->cgroup_supported));
++        assert_se(unit_get_target_mask(nomem_parent) == ((CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | CGROUP_MASK_IO | CGROUP_MASK_BLKIO) & m->cgroup_supported));
++        assert_se(unit_get_target_mask(nomem_leaf) == ((CGROUP_MASK_IO | CGROUP_MASK_BLKIO) & m->cgroup_supported));
++        assert_se(unit_get_target_mask(root) == ((CGROUP_MASK_CPU | CGROUP_MASK_CPUACCT | cpu_accounting_mask | CGROUP_MASK_IO | CGROUP_MASK_BLKIO | CGROUP_MASK_MEMORY) & m->cgroup_supported));
+ 
+         return 0;
+ }
+diff --git a/test/daughter.service b/test/daughter.service
+index aebedca..c790b9d 100644
+--- a/test/daughter.service
++++ b/test/daughter.service
+@@ -5,3 +5,4 @@ Description=Daughter Service
+ Slice=parent.slice
+ Type=oneshot
+ ExecStart=/bin/true
++CPUAccounting=true
+diff --git a/test/meson.build b/test/meson.build
+index 986bb7f..2a6204c 100644
+--- a/test/meson.build
++++ b/test/meson.build
+@@ -18,6 +18,8 @@ test_data_files = '''
+         hwdb/10-bad.hwdb
+         journal-data/journal-1.txt
+         journal-data/journal-2.txt
++        nomem.slice
++        nomemleaf.service
+         parent-deep.slice
+         parent.slice
+         sched_idle_bad.service
+diff --git a/test/nomem.slice b/test/nomem.slice
+new file mode 100644
+index 0000000..9c5d208
+--- /dev/null
++++ b/test/nomem.slice
+@@ -0,0 +1,5 @@
++[Unit]
++Description=Nomem Parent Slice
++
++[Slice]
++DisableControllers=memory
+diff --git a/test/nomemleaf.service b/test/nomemleaf.service
+new file mode 100644
+index 0000000..3cbaccb
+--- /dev/null
++++ b/test/nomemleaf.service
+@@ -0,0 +1,9 @@
++[Unit]
++Description=Nomem Leaf Service
++
++[Service]
++Slice=nomem.slice
++Type=oneshot
++ExecStart=/bin/true
++IOWeight=200
++MemoryAccounting=true
