@@ -1,0 +1,1045 @@
+From 17f149556af0c0610b44f7353de34487b168317d Mon Sep 17 00:00:00 2001
+From: Roman Gushchin <guro@fb.com>
+Date: Sun, 30 Sep 2018 11:33:16 +0100
+Subject: [PATCH 1/4] core: refactor bpf firewall support into a
+ pseudo-controller
+
+The idea is to introduce a concept of bpf-based pseudo-controllers
+to make adding new bpf-based features easier.
+---
+ src/basic/cgroup-util.c     |  1 +
+ src/basic/cgroup-util.h     |  6 ++++
+ src/core/cgroup.c           | 72 +++++++++++++++++++++++--------------
+ src/core/cgroup.h           |  3 +-
+ src/core/unit.c             | 17 +++------
+ src/core/unit.h             |  9 +----
+ src/test/test-cgroup-mask.c |  2 +-
+ 7 files changed, 61 insertions(+), 49 deletions(-)
+
+diff --git a/src/basic/cgroup-util.c b/src/basic/cgroup-util.c
+index daa15dbfcbe..6c38e590312 100644
+--- a/src/basic/cgroup-util.c
++++ b/src/basic/cgroup-util.c
+@@ -2767,6 +2767,7 @@ static const char *cgroup_controller_table[_CGROUP_CONTROLLER_MAX] = {
+         [CGROUP_CONTROLLER_MEMORY] = "memory",
+         [CGROUP_CONTROLLER_DEVICES] = "devices",
+         [CGROUP_CONTROLLER_PIDS] = "pids",
++        [CGROUP_CONTROLLER_BPF_FIREWALL] = "bpf-firewall",
+ };
+ 
+ DEFINE_STRING_TABLE_LOOKUP(cgroup_controller, CGroupController);
+diff --git a/src/basic/cgroup-util.h b/src/basic/cgroup-util.h
+index 1a28a8163aa..23602b6da95 100644
+--- a/src/basic/cgroup-util.h
++++ b/src/basic/cgroup-util.h
+@@ -19,6 +19,7 @@
+ 
+ /* An enum of well known cgroup controllers */
+ typedef enum CGroupController {
++        /* Original cgroup controllers */
+         CGROUP_CONTROLLER_CPU,
+         CGROUP_CONTROLLER_CPUACCT,    /* v1 only */
+         CGROUP_CONTROLLER_IO,         /* v2 only */
+@@ -26,6 +27,10 @@ typedef enum CGroupController {
+         CGROUP_CONTROLLER_MEMORY,
+         CGROUP_CONTROLLER_DEVICES,    /* v1 only */
+         CGROUP_CONTROLLER_PIDS,
++
++        /* BPF-based pseudo-controllers, v2 only */
++        CGROUP_CONTROLLER_BPF_FIREWALL,
++
+         _CGROUP_CONTROLLER_MAX,
+         _CGROUP_CONTROLLER_INVALID = -1,
+ } CGroupController;
+@@ -41,6 +46,7 @@ typedef enum CGroupMask {
+         CGROUP_MASK_MEMORY = CGROUP_CONTROLLER_TO_MASK(CGROUP_CONTROLLER_MEMORY),
+         CGROUP_MASK_DEVICES = CGROUP_CONTROLLER_TO_MASK(CGROUP_CONTROLLER_DEVICES),
+         CGROUP_MASK_PIDS = CGROUP_CONTROLLER_TO_MASK(CGROUP_CONTROLLER_PIDS),
++        CGROUP_MASK_BPF_FIREWALL = CGROUP_CONTROLLER_TO_MASK(CGROUP_CONTROLLER_BPF_FIREWALL),
+         _CGROUP_MASK_ALL = CGROUP_CONTROLLER_TO_MASK(_CGROUP_CONTROLLER_MAX) - 1
+ } CGroupMask;
+ 
+diff --git a/src/core/cgroup.c b/src/core/cgroup.c
+index 7e07b2f13c7..c390e696817 100644
+--- a/src/core/cgroup.c
++++ b/src/core/cgroup.c
+@@ -770,7 +770,6 @@ static void cgroup_apply_firewall(Unit *u) {
+ static void cgroup_context_apply(
+                 Unit *u,
+                 CGroupMask apply_mask,
+-                bool apply_bpf,
+                 ManagerState state) {
+ 
+         const char *path;
+@@ -781,7 +780,7 @@ static void cgroup_context_apply(
+         assert(u);
+ 
+         /* Nothing to do? Exit early! */
+-        if (apply_mask == 0 && !apply_bpf)
++        if (apply_mask == 0)
+                 return;
+ 
+         /* Some cgroup attributes are not supported on the root cgroup, hence silently ignore */
+@@ -1127,7 +1126,7 @@ static void cgroup_context_apply(
+                 }
+         }
+ 
+-        if (apply_bpf)
++        if (apply_mask & CGROUP_MASK_BPF_FIREWALL)
+                 cgroup_apply_firewall(u);
+ }
+ 
+@@ -1161,6 +1160,15 @@ CGroupMask cgroup_context_get_mask(CGroupContext *c) {
+         return mask;
+ }
+ 
++CGroupMask unit_get_bpf_mask(Unit *u) {
++        CGroupMask mask = 0;
++
++        if (unit_get_needs_bpf_firewall(u))
++                mask |= CGROUP_MASK_BPF_FIREWALL;
++
++        return mask;
++}
++
+ CGroupMask unit_get_own_mask(Unit *u) {
+         CGroupContext *c;
+ 
+@@ -1170,7 +1178,7 @@ CGroupMask unit_get_own_mask(Unit *u) {
+         if (!c)
+                 return 0;
+ 
+-        return cgroup_context_get_mask(c) | unit_get_delegate_mask(u);
++        return cgroup_context_get_mask(c) | unit_get_bpf_mask(u) | unit_get_delegate_mask(u);
+ }
+ 
+ CGroupMask unit_get_delegate_mask(Unit *u) {
+@@ -1278,7 +1286,7 @@ CGroupMask unit_get_enable_mask(Unit *u) {
+         return mask;
+ }
+ 
+-bool unit_get_needs_bpf(Unit *u) {
++bool unit_get_needs_bpf_firewall(Unit *u) {
+         CGroupContext *c;
+         Unit *p;
+         assert(u);
+@@ -1508,8 +1516,7 @@ int unit_pick_cgroup_path(Unit *u) {
+ static int unit_create_cgroup(
+                 Unit *u,
+                 CGroupMask target_mask,
+-                CGroupMask enable_mask,
+-                bool needs_bpf) {
++                CGroupMask enable_mask) {
+ 
+         CGroupContext *c;
+         int r;
+@@ -1549,7 +1556,6 @@ static int unit_create_cgroup(
+         u->cgroup_realized = true;
+         u->cgroup_realized_mask = target_mask;
+         u->cgroup_enabled_mask = enable_mask;
+-        u->cgroup_bpf_state = needs_bpf ? UNIT_CGROUP_BPF_ON : UNIT_CGROUP_BPF_OFF;
+ 
+         if (u->type != UNIT_SLICE && !unit_cgroup_delegate(u)) {
+ 
+@@ -1725,16 +1731,14 @@ static void cgroup_xattr_apply(Unit *u) {
+ static bool unit_has_mask_realized(
+                 Unit *u,
+                 CGroupMask target_mask,
+-                CGroupMask enable_mask,
+-                bool needs_bpf) {
++                CGroupMask enable_mask) {
+ 
+         assert(u);
+ 
+         return u->cgroup_realized &&
+                 u->cgroup_realized_mask == target_mask &&
+                 u->cgroup_enabled_mask == enable_mask &&
+-                ((needs_bpf && u->cgroup_bpf_state == UNIT_CGROUP_BPF_ON) ||
+-                 (!needs_bpf && u->cgroup_bpf_state == UNIT_CGROUP_BPF_OFF));
++                u->cgroup_invalidated_mask == 0;
+ }
+ 
+ static void unit_add_to_cgroup_realize_queue(Unit *u) {
+@@ -1765,7 +1769,6 @@ static void unit_remove_from_cgroup_realize_queue(Unit *u) {
+  * Returns 0 on success and < 0 on failure. */
+ static int unit_realize_cgroup_now(Unit *u, ManagerState state) {
+         CGroupMask target_mask, enable_mask;
+-        bool needs_bpf, apply_bpf;
+         int r;
+ 
+         assert(u);
+@@ -1774,16 +1777,10 @@ static int unit_realize_cgroup_now(Unit *u, ManagerState state) {
+ 
+         target_mask = unit_get_target_mask(u);
+         enable_mask = unit_get_enable_mask(u);
+-        needs_bpf = unit_get_needs_bpf(u);
+ 
+-        if (unit_has_mask_realized(u, target_mask, enable_mask, needs_bpf))
++        if (unit_has_mask_realized(u, target_mask, enable_mask))
+                 return 0;
+ 
+-        /* Make sure we apply the BPF filters either when one is configured, or if none is configured but previously
+-         * the state was anything but off. This way, if a unit with a BPF filter applied is reconfigured to lose it
+-         * this will trickle down properly to cgroupfs. */
+-        apply_bpf = needs_bpf || u->cgroup_bpf_state != UNIT_CGROUP_BPF_OFF;
+-
+         /* First, realize parents */
+         if (UNIT_ISSET(u->slice)) {
+                 r = unit_realize_cgroup_now(UNIT_DEREF(u->slice), state);
+@@ -1792,12 +1789,12 @@ static int unit_realize_cgroup_now(Unit *u, ManagerState state) {
+         }
+ 
+         /* And then do the real work */
+-        r = unit_create_cgroup(u, target_mask, enable_mask, needs_bpf);
++        r = unit_create_cgroup(u, target_mask, enable_mask);
+         if (r < 0)
+                 return r;
+ 
+         /* Finally, apply the necessary attributes. */
+-        cgroup_context_apply(u, target_mask, apply_bpf, state);
++        cgroup_context_apply(u, target_mask, state);
+         cgroup_xattr_apply(u);
+ 
+         return 0;
+@@ -1863,8 +1860,7 @@ static void unit_add_siblings_to_cgroup_realize_queue(Unit *u) {
+                          * any changes. */
+                         if (unit_has_mask_realized(m,
+                                                    unit_get_target_mask(m),
+-                                                   unit_get_enable_mask(m),
+-                                                   unit_get_needs_bpf(m)))
++                                                   unit_get_enable_mask(m)))
+                                 continue;
+ 
+                         unit_add_to_cgroup_realize_queue(m);
+@@ -2207,11 +2203,25 @@ static int on_cgroup_inotify_event(sd_event_source *s, int fd, uint32_t revents,
+         }
+ }
+ 
++static int cg_bpf_mask_supported(CGroupMask *ret) {
++        CGroupMask mask = 0;
++        int r;
++
++        /* BPF-based firewall */
++        r = bpf_firewall_supported();
++        if (r > 0)
++                mask |= CGROUP_MASK_BPF_FIREWALL;
++
++        *ret = mask;
++        return 0;
++}
++
+ int manager_setup_cgroup(Manager *m) {
+         _cleanup_free_ char *path = NULL;
+         const char *scope_path;
+         CGroupController c;
+         int r, all_unified;
++        CGroupMask mask;
+         char *e;
+ 
+         assert(m);
+@@ -2341,10 +2351,18 @@ int manager_setup_cgroup(Manager *m) {
+         if (!all_unified && m->test_run_flags == 0)
+                 (void) cg_set_attribute("memory", "/", "memory.use_hierarchy", "1");
+ 
+-        /* 8. Figure out which controllers are supported, and log about it */
++        /* 8. Figure out which controllers are supported */
+         r = cg_mask_supported(&m->cgroup_supported);
+         if (r < 0)
+                 return log_error_errno(r, "Failed to determine supported controllers: %m");
++
++        /* 9. Figure out which bpf-based pseudo-controllers are supported */
++        r = cg_bpf_mask_supported(&mask);
++        if (r < 0)
++                return log_error_errno(r, "Failed to determine supported bpf-based pseudo-controllers: %m");
++        m->cgroup_supported |= mask;
++
++        /* 10. Log which controllers are supported */
+         for (c = 0; c < _CGROUP_CONTROLLER_MAX; c++)
+                 log_debug("Controller '%s' supported: %s", cgroup_controller_to_string(c), yes_no(m->cgroup_supported & CGROUP_CONTROLLER_TO_MASK(c)));
+ 
+@@ -2718,10 +2736,10 @@ void unit_invalidate_cgroup_bpf(Unit *u) {
+         if (!UNIT_HAS_CGROUP_CONTEXT(u))
+                 return;
+ 
+-        if (u->cgroup_bpf_state == UNIT_CGROUP_BPF_INVALIDATED) /* NOP? */
++        if (u->cgroup_invalidated_mask & CGROUP_MASK_BPF_FIREWALL) /* NOP? */
+                 return;
+ 
+-        u->cgroup_bpf_state = UNIT_CGROUP_BPF_INVALIDATED;
++        u->cgroup_invalidated_mask |= CGROUP_MASK_BPF_FIREWALL;
+         unit_add_to_cgroup_realize_queue(u);
+ 
+         /* If we are a slice unit, we also need to put compile a new BPF program for all our children, as the IP access
+diff --git a/src/core/cgroup.h b/src/core/cgroup.h
+index 5517bd79fb3..d7daed3fe05 100644
+--- a/src/core/cgroup.h
++++ b/src/core/cgroup.h
+@@ -157,7 +157,8 @@ CGroupMask unit_get_subtree_mask(Unit *u);
+ CGroupMask unit_get_target_mask(Unit *u);
+ CGroupMask unit_get_enable_mask(Unit *u);
+ 
+-bool unit_get_needs_bpf(Unit *u);
++bool unit_get_needs_bpf_firewall(Unit *u);
++CGroupMask unit_get_bpf_mask(Unit *u);
+ 
+ void unit_update_cgroup_members_masks(Unit *u);
+ 
+diff --git a/src/core/unit.c b/src/core/unit.c
+index 853db527f78..663df3e3c59 100644
+--- a/src/core/unit.c
++++ b/src/core/unit.c
+@@ -93,7 +93,7 @@ Unit *unit_new(Manager *m, size_t size) {
+         u->ref_uid = UID_INVALID;
+         u->ref_gid = GID_INVALID;
+         u->cpu_usage_last = NSEC_INFINITY;
+-        u->cgroup_bpf_state = UNIT_CGROUP_BPF_INVALIDATED;
++        u->cgroup_invalidated_mask |= CGROUP_MASK_BPF_FIREWALL;
+ 
+         u->ip_accounting_ingress_map_fd = -1;
+         u->ip_accounting_egress_map_fd = -1;
+@@ -3253,7 +3253,7 @@ int unit_serialize(Unit *u, FILE *f, FDSet *fds, bool serialize_jobs) {
+         unit_serialize_item(u, f, "cgroup-realized", yes_no(u->cgroup_realized));
+         (void) unit_serialize_cgroup_mask(f, "cgroup-realized-mask", u->cgroup_realized_mask);
+         (void) unit_serialize_cgroup_mask(f, "cgroup-enabled-mask", u->cgroup_enabled_mask);
+-        unit_serialize_item_format(u, f, "cgroup-bpf-realized", "%i", u->cgroup_bpf_state);
++        (void) unit_serialize_cgroup_mask(f, "cgroup-invalidated-mask", u->cgroup_invalidated_mask);
+ 
+         if (uid_is_valid(u->ref_uid))
+                 unit_serialize_item_format(u, f, "ref-uid", UID_FMT, u->ref_uid);
+@@ -3568,18 +3568,11 @@ int unit_deserialize(Unit *u, FILE *f, FDSet *fds) {
+                                 log_unit_debug(u, "Failed to parse cgroup-enabled-mask %s, ignoring.", v);
+                         continue;
+ 
+-                } else if (streq(l, "cgroup-bpf-realized")) {
+-                        int i;
++                } else if (streq(l, "cgroup-invalidated-mask")) {
+ 
+-                        r = safe_atoi(v, &i);
++                        r = cg_mask_from_string(v, &u->cgroup_invalidated_mask);
+                         if (r < 0)
+-                                log_unit_debug(u, "Failed to parse cgroup BPF state %s, ignoring.", v);
+-                        else
+-                                u->cgroup_bpf_state =
+-                                        i < 0 ? UNIT_CGROUP_BPF_INVALIDATED :
+-                                        i > 0 ? UNIT_CGROUP_BPF_ON :
+-                                        UNIT_CGROUP_BPF_OFF;
+-
++                                log_unit_debug(u, "Failed to parse cgroup-invalidated-mask %s, ignoring.", v);
+                         continue;
+ 
+                 } else if (streq(l, "ref-uid")) {
+diff --git a/src/core/unit.h b/src/core/unit.h
+index 2c2819f38e2..5a97d9f27c0 100644
+--- a/src/core/unit.h
++++ b/src/core/unit.h
+@@ -105,12 +105,6 @@ struct UnitRef {
+         LIST_FIELDS(UnitRef, refs_by_target);
+ };
+ 
+-typedef enum UnitCGroupBPFState {
+-        UNIT_CGROUP_BPF_OFF = 0,
+-        UNIT_CGROUP_BPF_ON = 1,
+-        UNIT_CGROUP_BPF_INVALIDATED = -1,
+-} UnitCGroupBPFState;
+-
+ typedef struct Unit {
+         Manager *manager;
+ 
+@@ -258,6 +252,7 @@ typedef struct Unit {
+         char *cgroup_path;
+         CGroupMask cgroup_realized_mask;
+         CGroupMask cgroup_enabled_mask;
++        CGroupMask cgroup_invalidated_mask;
+         CGroupMask cgroup_subtree_mask;
+         CGroupMask cgroup_members_mask;
+         int cgroup_inotify_wd;
+@@ -336,8 +331,6 @@ typedef struct Unit {
+         bool cgroup_members_mask_valid:1;
+         bool cgroup_subtree_mask_valid:1;
+ 
+-        UnitCGroupBPFState cgroup_bpf_state:2;
+-
+         /* Reset cgroup accounting next time we fork something off */
+         bool reset_accounting:1;
+ 
+diff --git a/src/test/test-cgroup-mask.c b/src/test/test-cgroup-mask.c
+index bab27edf545..c4df3253653 100644
+--- a/src/test/test-cgroup-mask.c
++++ b/src/test/test-cgroup-mask.c
+@@ -100,7 +100,7 @@ static void test_cg_mask_to_string_one(CGroupMask mask, const char *t) {
+ 
+ static void test_cg_mask_to_string(void) {
+         test_cg_mask_to_string_one(0, NULL);
+-        test_cg_mask_to_string_one(_CGROUP_MASK_ALL, "cpu cpuacct io blkio memory devices pids");
++        test_cg_mask_to_string_one(_CGROUP_MASK_ALL, "cpu cpuacct io blkio memory devices pids bpf-firewall");
+         test_cg_mask_to_string_one(CGROUP_MASK_CPU, "cpu");
+         test_cg_mask_to_string_one(CGROUP_MASK_CPUACCT, "cpuacct");
+         test_cg_mask_to_string_one(CGROUP_MASK_IO, "io");
+
+From e867866623893c7683c5df9b5a0d0d9801bebfe2 Mon Sep 17 00:00:00 2001
+From: Roman Gushchin <guro@fb.com>
+Date: Thu, 23 Aug 2018 10:45:26 -0700
+Subject: [PATCH 2/4] libbpf.h: add BPF_JMP_A macro
+
+Add unconditional jump macro to use in generated bpf programs.
+---
+ src/shared/linux/libbpf.h | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/src/shared/linux/libbpf.h b/src/shared/linux/libbpf.h
+index ad131fcb12c..391eee5a4e3 100644
+--- a/src/shared/linux/libbpf.h
++++ b/src/shared/linux/libbpf.h
+@@ -174,6 +174,16 @@ struct bpf_insn;
+                 .off   = OFF,					\
+                 .imm   = IMM })
+ 
++/* Unconditional jumps */
++
++#define BPF_JMP_A(OFF)						\
++        ((struct bpf_insn) {					\
++                .code  = BPF_JMP | BPF_JA,			\
++                .dst_reg = 0,					\
++                .src_reg = 0,					\
++                .off   = OFF,					\
++                .imm   = 0 })
++
+ /* Raw code statement block */
+ 
+ #define BPF_RAW_INSN(CODE, DST, SRC, OFF, IMM)			\
+
+From 91cfdd8d29b353dc1fd825673c9a23e00c92a341 Mon Sep 17 00:00:00 2001
+From: Roman Gushchin <guro@fb.com>
+Date: Thu, 23 Aug 2018 10:46:20 -0700
+Subject: [PATCH 3/4] core: bump mlock ulimit to 64Mb
+
+Bpf programs are charged against memlock ulimit, and the default value
+can be too tight on machines with many cgroups and attached bpf programs.
+
+Let's bump it to 64Mb.
+---
+ src/core/main.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/core/main.c b/src/core/main.c
+index ce45f2ded23..88656dcabf5 100644
+--- a/src/core/main.c
++++ b/src/core/main.c
+@@ -1201,7 +1201,7 @@ static int bump_rlimit_memlock(struct rlimit *saved_rlimit) {
+         if (getrlimit(RLIMIT_MEMLOCK, saved_rlimit) < 0)
+                 return log_warning_errno(errno, "Reading RLIMIT_MEMLOCK failed, ignoring: %m");
+ 
+-        r = setrlimit_closest(RLIMIT_MEMLOCK, &RLIMIT_MAKE_CONST(1024ULL*1024ULL*16ULL));
++        r = setrlimit_closest(RLIMIT_MEMLOCK, &RLIMIT_MAKE_CONST(1024ULL*1024ULL*64ULL));
+         if (r < 0)
+                 return log_warning_errno(r, "Setting RLIMIT_MEMLOCK failed, ignoring: %m");
+ 
+
+From 084c7007804b08d13acc90bf3145c5ac82d1c8a1 Mon Sep 17 00:00:00 2001
+From: Roman Gushchin <guro@fb.com>
+Date: Mon, 8 Oct 2018 14:33:05 -0700
+Subject: [PATCH 4/4] core: support cgroup v2 device controller
+
+Cgroup v2 provides the eBPF-based device controller, which isn't currently
+supported by systemd. This commit aims to provide such support.
+
+There are no user-visible changes, just the device policy and whitelist
+start working if cgroup v2 is used.
+---
+ src/basic/cgroup-util.c     |   1 +
+ src/basic/cgroup-util.h     |   2 +
+ src/core/bpf-devices.c      | 247 ++++++++++++++++++++++++++++++++++++
+ src/core/bpf-devices.h      |  16 +++
+ src/core/cgroup.c           | 125 ++++++++++++------
+ src/core/meson.build        |   2 +
+ src/core/unit.c             |   2 +
+ src/core/unit.h             |   3 +
+ src/test/test-cgroup-mask.c |   2 +-
+ 9 files changed, 360 insertions(+), 40 deletions(-)
+ create mode 100644 src/core/bpf-devices.c
+ create mode 100644 src/core/bpf-devices.h
+
+diff --git a/src/basic/cgroup-util.c b/src/basic/cgroup-util.c
+index 6c38e590312..7728b63a5f2 100644
+--- a/src/basic/cgroup-util.c
++++ b/src/basic/cgroup-util.c
+@@ -2768,6 +2768,7 @@ static const char *cgroup_controller_table[_CGROUP_CONTROLLER_MAX] = {
+         [CGROUP_CONTROLLER_DEVICES] = "devices",
+         [CGROUP_CONTROLLER_PIDS] = "pids",
+         [CGROUP_CONTROLLER_BPF_FIREWALL] = "bpf-firewall",
++        [CGROUP_CONTROLLER_BPF_DEVICES] = "bpf-devices",
+ };
+ 
+ DEFINE_STRING_TABLE_LOOKUP(cgroup_controller, CGroupController);
+diff --git a/src/basic/cgroup-util.h b/src/basic/cgroup-util.h
+index 23602b6da95..73b431a27a5 100644
+--- a/src/basic/cgroup-util.h
++++ b/src/basic/cgroup-util.h
+@@ -30,6 +30,7 @@ typedef enum CGroupController {
+ 
+         /* BPF-based pseudo-controllers, v2 only */
+         CGROUP_CONTROLLER_BPF_FIREWALL,
++        CGROUP_CONTROLLER_BPF_DEVICES,
+ 
+         _CGROUP_CONTROLLER_MAX,
+         _CGROUP_CONTROLLER_INVALID = -1,
+@@ -47,6 +48,7 @@ typedef enum CGroupMask {
+         CGROUP_MASK_DEVICES = CGROUP_CONTROLLER_TO_MASK(CGROUP_CONTROLLER_DEVICES),
+         CGROUP_MASK_PIDS = CGROUP_CONTROLLER_TO_MASK(CGROUP_CONTROLLER_PIDS),
+         CGROUP_MASK_BPF_FIREWALL = CGROUP_CONTROLLER_TO_MASK(CGROUP_CONTROLLER_BPF_FIREWALL),
++        CGROUP_MASK_BPF_DEVICES = CGROUP_CONTROLLER_TO_MASK(CGROUP_CONTROLLER_BPF_DEVICES),
+         _CGROUP_MASK_ALL = CGROUP_CONTROLLER_TO_MASK(_CGROUP_CONTROLLER_MAX) - 1
+ } CGroupMask;
+ 
+diff --git a/src/core/bpf-devices.c b/src/core/bpf-devices.c
+new file mode 100644
+index 00000000000..1a2153122aa
+--- /dev/null
++++ b/src/core/bpf-devices.c
+@@ -0,0 +1,247 @@
++/* SPDX-License-Identifier: LGPL-2.1+ */
++#include <linux/libbpf.h>
++
++#include "bpf-devices.h"
++#include "bpf-program.h"
++
++#define PASS_JUMP_OFF 4096
++
++static int bpf_access_type(const char *acc) {
++        int r = 0;
++
++        assert(acc);
++
++        for (; *acc; acc++)
++                switch(*acc) {
++                case 'r':
++                        r |= BPF_DEVCG_ACC_READ;
++                        break;
++                case 'w':
++                        r |= BPF_DEVCG_ACC_WRITE;
++                        break;
++                case 'm':
++                        r |= BPF_DEVCG_ACC_MKNOD;
++                        break;
++                default:
++                        return -EINVAL;
++                }
++
++        return r;
++}
++
++int cgroup_bpf_whitelist_device(BPFProgram *prog, int type, int major, int minor, const char *acc) {
++        struct bpf_insn insn[] = {
++                BPF_JMP_IMM(BPF_JNE, BPF_REG_2, type, 6), /* compare device type */
++                BPF_MOV32_REG(BPF_REG_1, BPF_REG_3), /* calculate access type */
++                BPF_ALU32_IMM(BPF_AND, BPF_REG_1, 0),
++                BPF_JMP_REG(BPF_JNE, BPF_REG_1, BPF_REG_3, 3), /* compare access type */
++                BPF_JMP_IMM(BPF_JNE, BPF_REG_4, major, 2), /* compare major */
++                BPF_JMP_IMM(BPF_JNE, BPF_REG_5, minor, 1), /* compare minor */
++                BPF_JMP_A(PASS_JUMP_OFF), /* jump to PASS */
++        };
++        int r, access;
++
++        assert(prog);
++        assert(acc);
++
++        access = bpf_access_type(acc);
++        if (access <= 0)
++                return -EINVAL;
++
++        insn[2].imm = access;
++
++        r = bpf_program_add_instructions(prog, insn, ELEMENTSOF(insn));
++        if (r < 0)
++                log_error_errno(r, "Extending device control BPF program failed: %m");
++
++        return r;
++}
++
++int cgroup_bpf_whitelist_major(BPFProgram *prog, int type, int major, const char *acc) {
++        struct bpf_insn insn[] = {
++                BPF_JMP_IMM(BPF_JNE, BPF_REG_2, type, 5), /* compare device type */
++                BPF_MOV32_REG(BPF_REG_1, BPF_REG_3), /* calculate access type */
++                BPF_ALU32_IMM(BPF_AND, BPF_REG_1, 0),
++                BPF_JMP_REG(BPF_JNE, BPF_REG_1, BPF_REG_3, 2), /* compare access type */
++                BPF_JMP_IMM(BPF_JNE, BPF_REG_4, major, 1), /* compare major */
++                BPF_JMP_A(PASS_JUMP_OFF), /* jump to PASS */
++        };
++        int r, access;
++
++        assert(prog);
++        assert(acc);
++
++        access = bpf_access_type(acc);
++        if (access <= 0)
++                return -EINVAL;
++
++        insn[2].imm = access;
++
++        r = bpf_program_add_instructions(prog, insn, ELEMENTSOF(insn));
++        if (r < 0)
++                log_error_errno(r, "Extending device control BPF program failed: %m");
++
++        return r;
++}
++
++int cgroup_init_device_bpf(BPFProgram **ret, CGroupDevicePolicy policy, bool whitelist) {
++        struct bpf_insn pre_insn[] = {
++                /* load device type to r2 */
++                BPF_LDX_MEM(BPF_H, BPF_REG_2, BPF_REG_1,
++                            offsetof(struct bpf_cgroup_dev_ctx, access_type)),
++
++                /* load access type to r3 */
++                BPF_LDX_MEM(BPF_W, BPF_REG_3, BPF_REG_1,
++                            offsetof(struct bpf_cgroup_dev_ctx, access_type)),
++                BPF_ALU32_IMM(BPF_RSH, BPF_REG_3, 16),
++
++                /* load major number to r4 */
++                BPF_LDX_MEM(BPF_W, BPF_REG_4, BPF_REG_1,
++                            offsetof(struct bpf_cgroup_dev_ctx, major)),
++
++                /* load minor number to r5 */
++                BPF_LDX_MEM(BPF_W, BPF_REG_5, BPF_REG_1,
++                            offsetof(struct bpf_cgroup_dev_ctx, minor)),
++        };
++
++        _cleanup_(bpf_program_unrefp) BPFProgram *prog = NULL;
++        int r;
++
++        assert(ret);
++
++        if (policy == CGROUP_AUTO && !whitelist)
++                return 0;
++
++        r = bpf_program_new(BPF_PROG_TYPE_CGROUP_DEVICE, &prog);
++        if (r < 0)
++                return log_error_errno(r, "Loading device control BPF program failed: %m");
++
++        if (policy == CGROUP_CLOSED || whitelist) {
++                r = bpf_program_add_instructions(prog, pre_insn, ELEMENTSOF(pre_insn));
++                if (r < 0)
++                        return log_error_errno(r, "Extending device control BPF program failed: %m");
++        }
++
++        *ret = TAKE_PTR(prog);
++
++        return 0;
++}
++
++int cgroup_apply_device_bpf(Unit *u, BPFProgram *prog, CGroupDevicePolicy policy, bool whitelist) {
++        struct bpf_insn post_insn[] = {
++                /* return DENY */
++                BPF_MOV64_IMM(BPF_REG_0, 0),
++                BPF_JMP_A(1),
++
++        };
++
++        struct bpf_insn exit_insn[] = {
++                /* else return ALLOW */
++                BPF_MOV64_IMM(BPF_REG_0, 1),
++                BPF_EXIT_INSN()
++        };
++
++        _cleanup_free_ char *path = NULL;
++        uint32_t flags;
++        int r;
++
++        if (!prog) {
++                /* Remove existing program. */
++                u->bpf_device_control_installed = bpf_program_unref(u->bpf_device_control_installed);
++                return 0;
++        }
++
++        if (policy != CGROUP_STRICT || whitelist) {
++                size_t off;
++
++                r = bpf_program_add_instructions(prog, post_insn, ELEMENTSOF(post_insn));
++                if (r < 0)
++                        return log_error_errno(r, "Extending device control BPF program failed: %m");
++
++                /* Fixup PASS_JUMP_OFF jump offsets. */
++                for (off = 0; off < prog->n_instructions; off++) {
++                        struct bpf_insn *ins = &prog->instructions[off];
++
++                        if (ins->code == (BPF_JMP | BPF_JA) && ins->off == PASS_JUMP_OFF)
++                                ins->off = prog->n_instructions - off - 1;
++                }
++        } else
++                /* Explicitly forbid everything. */
++                exit_insn[0].imm = 0;
++
++        r = bpf_program_add_instructions(prog, exit_insn, ELEMENTSOF(exit_insn));
++        if (r < 0)
++                return log_error_errno(r, "Extending device control BPF program failed: %m");
++
++        r = cg_get_path(SYSTEMD_CGROUP_CONTROLLER, u->cgroup_path, NULL, &path);
++        if (r < 0)
++                return log_error_errno(r, "Failed to determine cgroup path: %m");
++
++        flags = (u->type == UNIT_SLICE || unit_cgroup_delegate(u)) ? BPF_F_ALLOW_MULTI : 0;
++
++        /* Unref the old BPF program (which will implicitly detach it) right before attaching the new program. */
++        u->bpf_device_control_installed = bpf_program_unref(u->bpf_device_control_installed);
++
++        r = bpf_program_cgroup_attach(prog, BPF_CGROUP_DEVICE, path, flags);
++        if (r < 0)
++                return log_error_errno(r, "Attaching device control BPF program to cgroup %s failed: %m", path);
++
++        /* Remember that this BPF program is installed now. */
++        u->bpf_device_control_installed = bpf_program_ref(prog);
++
++        return 0;
++}
++
++int bpf_devices_supported(void) {
++        struct bpf_insn trivial[] = {
++                BPF_MOV64_IMM(BPF_REG_0, 1),
++                BPF_EXIT_INSN()
++        };
++
++        _cleanup_(bpf_program_unrefp) BPFProgram *program = NULL;
++        static int supported = -1;
++        int r;
++
++        /* Checks whether BPF device controller is supported. For this, we check five things:
++         *
++         * a) whether we are privileged
++         * b) whether the unified hierarchy is being used
++         * c) the BPF implementation in the kernel supports BPF_PROG_TYPE_CGROUP_DEVICE programs, which we require
++         */
++
++        if (supported >= 0)
++                return supported;
++
++        if (geteuid() != 0) {
++                log_debug("Not enough privileges, BPF device control is not supported.");
++                return supported = 0;
++        }
++
++        r = cg_unified_controller(SYSTEMD_CGROUP_CONTROLLER);
++        if (r < 0)
++                return log_error_errno(r, "Can't determine whether the unified hierarchy is used: %m");
++        if (r == 0) {
++                log_debug("Not running with unified cgroups, BPF device control is not supported.");
++                return supported = 0;
++        }
++
++        r = bpf_program_new(BPF_PROG_TYPE_CGROUP_DEVICE, &program);
++        if (r < 0) {
++                log_debug_errno(r, "Can't allocate CGROUP DEVICE BPF program, BPF device control is not supported: %m");
++                return supported = 0;
++        }
++
++        r = bpf_program_add_instructions(program, trivial, ELEMENTSOF(trivial));
++        if (r < 0) {
++                log_debug_errno(r, "Can't add trivial instructions to CGROUP DEVICE BPF program, BPF device control is not supported: %m");
++                return supported = 0;
++        }
++
++        r = bpf_program_load_kernel(program, NULL, 0);
++        if (r < 0) {
++                log_debug_errno(r, "Can't load kernel CGROUP DEVICE BPF program, BPF device control is not supported: %m");
++                return supported = 0;
++        }
++
++        return supported;
++}
+diff --git a/src/core/bpf-devices.h b/src/core/bpf-devices.h
+new file mode 100644
+index 00000000000..f9a6eec028d
+--- /dev/null
++++ b/src/core/bpf-devices.h
+@@ -0,0 +1,16 @@
++/* SPDX-License-Identifier: LGPL-2.1+ */
++#pragma once
++
++#include <inttypes.h>
++
++#include "unit.h"
++
++struct BPFProgram;
++
++int bpf_devices_supported(void);
++
++int cgroup_bpf_whitelist_device(BPFProgram *p, int type, int major, int minor, const char *acc);
++int cgroup_bpf_whitelist_major(BPFProgram *p, int type, int major, const char *acc);
++
++int cgroup_init_device_bpf(BPFProgram **ret, CGroupDevicePolicy policy, bool whitelist);
++int cgroup_apply_device_bpf(Unit *u, BPFProgram *p, CGroupDevicePolicy policy, bool whitelist);
+diff --git a/src/core/cgroup.c b/src/core/cgroup.c
+index c390e696817..a34df2538fa 100644
+--- a/src/core/cgroup.c
++++ b/src/core/cgroup.c
+@@ -7,6 +7,7 @@
+ #include "blockdev-util.h"
+ #include "bpf-firewall.h"
+ #include "btrfs-util.h"
++#include "bpf-devices.h"
+ #include "bus-error.h"
+ #include "cgroup-util.h"
+ #include "cgroup.h"
+@@ -386,8 +387,7 @@ static int lookup_block_device(const char *p, dev_t *ret) {
+         return 0;
+ }
+ 
+-static int whitelist_device(const char *path, const char *node, const char *acc) {
+-        char buf[2+DECIMAL_STR_MAX(dev_t)*2+2+4];
++static int whitelist_device(BPFProgram *prog, const char *path, const char *node, const char *acc) {
+         struct stat st;
+         bool ignore_notfound;
+         int r;
+@@ -414,23 +414,34 @@ static int whitelist_device(const char *path, const char *node, const char *acc)
+                 return -ENODEV;
+         }
+ 
+-        sprintf(buf,
+-                "%c %u:%u %s",
+-                S_ISCHR(st.st_mode) ? 'c' : 'b',
+-                major(st.st_rdev), minor(st.st_rdev),
+-                acc);
++        if (cg_all_unified() > 0) {
++                if (!prog)
++                        return 0;
+ 
+-        r = cg_set_attribute("devices", path, "devices.allow", buf);
+-        if (r < 0)
+-                log_full_errno(IN_SET(r, -ENOENT, -EROFS, -EINVAL, -EACCES) ? LOG_DEBUG : LOG_WARNING, r,
+-                               "Failed to set devices.allow on %s: %m", path);
++                cgroup_bpf_whitelist_device(prog, S_ISCHR(st.st_mode) ? BPF_DEVCG_DEV_CHAR : BPF_DEVCG_DEV_BLOCK,
++                                            major(st.st_rdev), minor(st.st_rdev), acc);
++        } else {
++                char buf[2+DECIMAL_STR_MAX(dev_t)*2+2+4];
++
++                sprintf(buf,
++                        "%c %u:%u %s",
++                        S_ISCHR(st.st_mode) ? 'c' : 'b',
++                        major(st.st_rdev), minor(st.st_rdev),
++                        acc);
++
++                r = cg_set_attribute("devices", path, "devices.allow", buf);
++                if (r < 0)
++                        log_full_errno(IN_SET(r, -ENOENT, -EROFS, -EINVAL, -EACCES) ? LOG_DEBUG : LOG_WARNING,
++                                       r, "Failed to set devices.allow on %s: %m", path);
++        }
+ 
+         return r;
+ }
+ 
+-static int whitelist_major(const char *path, const char *name, char type, const char *acc) {
++static int whitelist_major(BPFProgram *prog, const char *path, const char *name, char type, const char *acc) {
+         _cleanup_fclose_ FILE *f = NULL;
+         char line[LINE_MAX];
++        char *p, *w;
+         bool good = false;
+         int r;
+ 
+@@ -443,7 +454,6 @@ static int whitelist_major(const char *path, const char *name, char type, const
+                 return log_warning_errno(errno, "Cannot open /proc/devices to resolve %s (%c): %m", name, type);
+ 
+         FOREACH_LINE(line, f, goto fail) {
+-                char buf[2+DECIMAL_STR_MAX(unsigned)+3+4], *p, *w;
+                 unsigned maj;
+ 
+                 truncate_nl(line);
+@@ -485,16 +495,27 @@ static int whitelist_major(const char *path, const char *name, char type, const
+                 if (fnmatch(name, w, 0) != 0)
+                         continue;
+ 
+-                sprintf(buf,
+-                        "%c %u:* %s",
+-                        type,
+-                        maj,
+-                        acc);
++                if (cg_all_unified() > 0) {
++                        if (!prog)
++                                continue;
+ 
+-                r = cg_set_attribute("devices", path, "devices.allow", buf);
+-                if (r < 0)
+-                        log_full_errno(IN_SET(r, -ENOENT, -EROFS, -EINVAL, -EACCES) ? LOG_DEBUG : LOG_WARNING, r,
+-                                       "Failed to set devices.allow on %s: %m", path);
++                        cgroup_bpf_whitelist_major(prog,
++                                                   type == 'c' ? BPF_DEVCG_DEV_CHAR : BPF_DEVCG_DEV_BLOCK,
++                                                   maj, acc);
++                } else {
++                        char buf[2+DECIMAL_STR_MAX(unsigned)+3+4];
++
++                        sprintf(buf,
++                                "%c %u:* %s",
++                                type,
++                                maj,
++                                acc);
++
++                        r = cg_set_attribute("devices", path, "devices.allow", buf);
++                        if (r < 0)
++                                log_full_errno(IN_SET(r, -ENOENT, -EROFS, -EINVAL, -EACCES) ? LOG_DEBUG : LOG_WARNING,
++                                               r, "Failed to set devices.allow on %s: %m", path);
++                }
+         }
+ 
+         return 0;
+@@ -1019,20 +1040,27 @@ static void cgroup_context_apply(
+                 }
+         }
+ 
+-        if ((apply_mask & CGROUP_MASK_DEVICES) && !is_root) {
++        if ((apply_mask & (CGROUP_MASK_DEVICES | CGROUP_MASK_BPF_DEVICES)) && !is_root) {
++                _cleanup_(bpf_program_unrefp) BPFProgram *prog = NULL;
+                 CGroupDeviceAllow *a;
+ 
+-                /* Changing the devices list of a populated cgroup
+-                 * might result in EINVAL, hence ignore EINVAL
+-                 * here. */
++                if (cg_all_unified() > 0) {
++                        r = cgroup_init_device_bpf(&prog, c->device_policy, c->device_allow);
++                        if (r < 0)
++                                log_unit_warning_errno(u, r, "Failed to initialize device control bpf program: %m");
++                } else {
++                        /* Changing the devices list of a populated cgroup
++                         * might result in EINVAL, hence ignore EINVAL
++                         * here. */
+ 
+-                if (c->device_allow || c->device_policy != CGROUP_AUTO)
+-                        r = cg_set_attribute("devices", path, "devices.deny", "a");
+-                else
+-                        r = cg_set_attribute("devices", path, "devices.allow", "a");
+-                if (r < 0)
+-                        log_unit_full(u, IN_SET(r, -ENOENT, -EROFS, -EINVAL, -EACCES) ? LOG_DEBUG : LOG_WARNING, r,
+-                                      "Failed to reset devices.list: %m");
++                        if (c->device_allow || c->device_policy != CGROUP_AUTO)
++                                r = cg_set_attribute("devices", path, "devices.deny", "a");
++                        else
++                                r = cg_set_attribute("devices", path, "devices.allow", "a");
++                        if (r < 0)
++                                log_unit_full(u, IN_SET(r, -ENOENT, -EROFS, -EINVAL, -EACCES) ? LOG_DEBUG : LOG_WARNING, r,
++                                              "Failed to reset devices.list: %m");
++                }
+ 
+                 if (c->device_policy == CGROUP_CLOSED ||
+                     (c->device_policy == CGROUP_AUTO && c->device_allow)) {
+@@ -1051,10 +1079,10 @@ static void cgroup_context_apply(
+                         const char *x, *y;
+ 
+                         NULSTR_FOREACH_PAIR(x, y, auto_devices)
+-                                whitelist_device(path, x, y);
++                                whitelist_device(prog, path, x, y);
+ 
+                         /* PTS (/dev/pts) devices may not be duplicated, but accessed */
+-                        whitelist_major(path, "pts", 'c', "rw");
++                        whitelist_major(prog, path, "pts", 'c', "rw");
+                 }
+ 
+                 LIST_FOREACH(device_allow, a, c->device_allow) {
+@@ -1074,14 +1102,26 @@ static void cgroup_context_apply(
+                         acc[k++] = 0;
+ 
+                         if (path_startswith(a->path, "/dev/"))
+-                                whitelist_device(path, a->path, acc);
++                                whitelist_device(prog, path, a->path, acc);
+                         else if ((val = startswith(a->path, "block-")))
+-                                whitelist_major(path, val, 'b', acc);
++                                whitelist_major(prog, path, val, 'b', acc);
+                         else if ((val = startswith(a->path, "char-")))
+-                                whitelist_major(path, val, 'c', acc);
++                                whitelist_major(prog, path, val, 'c', acc);
+                         else
+                                 log_unit_debug(u, "Ignoring device %s while writing cgroup attribute.", a->path);
+                 }
++
++                r = cgroup_apply_device_bpf(u, prog, c->device_policy, c->device_allow);
++                if (r < 0) {
++                        static bool warned = false;
++
++                        log_full_errno(warned ? LOG_DEBUG : LOG_WARNING, r,
++                                 "Unit %s configures device ACL, but the local system doesn't seem to support the BPF-based device controller.\n"
++                                 "Proceeding WITHOUT applying ACL (all devices will be accessible)!\n"
++                                 "(This warning is only shown for the first loaded unit using device ACL.)", u->id);
++
++                        warned = true;
++                }
+         }
+ 
+         if (apply_mask & CGROUP_MASK_PIDS) {
+@@ -1151,7 +1191,7 @@ CGroupMask cgroup_context_get_mask(CGroupContext *c) {
+ 
+         if (c->device_allow ||
+             c->device_policy != CGROUP_AUTO)
+-                mask |= CGROUP_MASK_DEVICES;
++                mask |= CGROUP_MASK_DEVICES | CGROUP_MASK_BPF_DEVICES;
+ 
+         if (c->tasks_accounting ||
+             c->tasks_max != CGROUP_LIMIT_MAX)
+@@ -1942,6 +1982,8 @@ void unit_prune_cgroup(Unit *u) {
+         u->cgroup_realized = false;
+         u->cgroup_realized_mask = 0;
+         u->cgroup_enabled_mask = 0;
++
++        u->bpf_device_control_installed = bpf_program_unref(u->bpf_device_control_installed);
+ }
+ 
+ int unit_search_main_pid(Unit *u, pid_t *ret) {
+@@ -2212,6 +2254,11 @@ static int cg_bpf_mask_supported(CGroupMask *ret) {
+         if (r > 0)
+                 mask |= CGROUP_MASK_BPF_FIREWALL;
+ 
++        /* BPF-based device access control */
++        r = bpf_devices_supported();
++        if (r > 0)
++                mask |= CGROUP_MASK_BPF_DEVICES;
++
+         *ret = mask;
+         return 0;
+ }
+diff --git a/src/core/meson.build b/src/core/meson.build
+index 3852c5e9d89..450d6f72a92 100644
+--- a/src/core/meson.build
++++ b/src/core/meson.build
+@@ -5,6 +5,8 @@ libcore_la_sources = '''
+         audit-fd.h
+         automount.c
+         automount.h
++        bpf-devices.c
++        bpf-devices.h
+         bpf-firewall.c
+         bpf-firewall.h
+         cgroup.c
+diff --git a/src/core/unit.c b/src/core/unit.c
+index 663df3e3c59..783643fb618 100644
+--- a/src/core/unit.c
++++ b/src/core/unit.c
+@@ -666,6 +666,8 @@ void unit_free(Unit *u) {
+         bpf_program_unref(u->ip_bpf_egress);
+         bpf_program_unref(u->ip_bpf_egress_installed);
+ 
++        bpf_program_unref(u->bpf_device_control_installed);
++
+         condition_free_list(u->conditions);
+         condition_free_list(u->asserts);
+ 
+diff --git a/src/core/unit.h b/src/core/unit.h
+index 5a97d9f27c0..dbd33d1c5b2 100644
+--- a/src/core/unit.h
++++ b/src/core/unit.h
+@@ -257,6 +257,9 @@ typedef struct Unit {
+         CGroupMask cgroup_members_mask;
+         int cgroup_inotify_wd;
+ 
++        /* Device Controller BPF program */
++        BPFProgram *bpf_device_control_installed;
++
+         /* IP BPF Firewalling/accounting */
+         int ip_accounting_ingress_map_fd;
+         int ip_accounting_egress_map_fd;
+diff --git a/src/test/test-cgroup-mask.c b/src/test/test-cgroup-mask.c
+index c4df3253653..d9223f5f61f 100644
+--- a/src/test/test-cgroup-mask.c
++++ b/src/test/test-cgroup-mask.c
+@@ -100,7 +100,7 @@ static void test_cg_mask_to_string_one(CGroupMask mask, const char *t) {
+ 
+ static void test_cg_mask_to_string(void) {
+         test_cg_mask_to_string_one(0, NULL);
+-        test_cg_mask_to_string_one(_CGROUP_MASK_ALL, "cpu cpuacct io blkio memory devices pids bpf-firewall");
++        test_cg_mask_to_string_one(_CGROUP_MASK_ALL, "cpu cpuacct io blkio memory devices pids bpf-firewall bpf-devices");
+         test_cg_mask_to_string_one(CGROUP_MASK_CPU, "cpu");
+         test_cg_mask_to_string_one(CGROUP_MASK_CPUACCT, "cpuacct");
+         test_cg_mask_to_string_one(CGROUP_MASK_IO, "io");

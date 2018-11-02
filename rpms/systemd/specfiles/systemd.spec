@@ -22,7 +22,7 @@
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
 Version:        239
-Release:        1.fb3
+Release:        1.fb4
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -53,22 +53,23 @@ Source12:       https://raw.githubusercontent.com/systemd/systemd/1000522a60cead
 Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
 
 Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
-Patch1001:      FB-disable-test-execute.patch
 Patch1002:      9244.patch
 Patch1003:      9247.patch
 Patch1004:      9410.patch
 Patch1005:      9460.patch
 Patch1006:      9500.patch
 Patch1007:      FB-revert-c58fd466a313a1f93df1792822e358c67990bcdf.patch
-Patch1011:      0001-libbpf.h-add-BPF_JMP_A-macro.patch
-Patch1012:      0002-core-bump-mlock-ulimit-to-64Mb.patch
-Patch1013:      0003-core-support-cgroup-v2-device-controller.patch
-Patch1014:      0004-core-add-debug-for-cgroup-bpf-ops.patch
+Patch1008:      10062.patch
+Patch1009:      10203.patch
+Patch1010:      10363.patch
+Patch1011:      10368.patch
+Patch1012:      FB-fix-test-mock-homedir.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
 %endif
 
+BuildRequires:  hostname
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  libcap-devel
@@ -711,6 +712,13 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Fri Oct 12 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb4
+- Backport PR#10062 (cgroup2 BPF device controller support)
+- Backport PR#10203, PR#10363 (tests fixes for supplementary groups)
+- Backport PR#10368 (%g, %G specifiers support)
+- Add hostname to BuildRequires (it's needed by test-execute)
+- Reenable test-execute now that it's finally working
+
 * Fri Aug 24 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb3
 - backport new version of guro's cgroup2 BPF device controller patch
 

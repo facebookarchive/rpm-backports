@@ -11,7 +11,7 @@
 Name:           systemd-compat-libs
 Url:            https://github.com/facebookincubator/systemd-compat-libs
 Version:        239
-Release:        1.fb3
+Release:        1.fb4
 # For a breakdown of the licensing, see README
 License:        LGPLv2+
 Summary:        Compatibility libraries for systemd
@@ -29,6 +29,7 @@ BuildRequires:  gettext
 BuildRequires:  intltool
 BuildRequires:  libxslt
 BuildRequires:  docbook-style-xsl
+BuildRequires:  python34
 Obsoletes:      system-compat-libs < %{version}-%{release}
 
 %description
@@ -87,6 +88,10 @@ export LC_ALL=en_US.UTF-8
 %{_libdir}/pkgconfig/libsystemd-id128.pc
 
 %changelog
+* Fri Oct 12 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb4
+- Bump version to match systemd packages
+- Add python34 to BuildRequires
+
 * Mon Aug 27 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb3
 - Bump version to match systemd packages
 
