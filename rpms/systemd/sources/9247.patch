@@ -8,22 +8,20 @@ mechanism.
 
   https://lkml.org/lkml/2018/6/5/428
 ---
- man/systemd.resource-control.xml      |  29 +++++++--
- src/core/cgroup.c                     |  56 ++++++++++++++---
- src/core/cgroup.h                     |   9 +++
- src/core/dbus-cgroup.c                | 111 ++++++++++++++++++++++++++++++++++
- src/core/load-fragment-gperf.gperf.m4 |   1 +
- src/core/load-fragment.c              |  72 ++++++++++++++++++++++
- src/core/load-fragment.h              |   1 +
- src/shared/bus-unit-util.c            |  31 ++++++++++
- src/systemctl/systemctl.c             |  22 +++++++
+ man/systemd.resource-control.xml      |   29 +++++++-
+ src/core/cgroup.c                     |   56 +++++++++++++++--
+ src/core/cgroup.h                     |    9 ++
+ src/core/dbus-cgroup.c                |  111 ++++++++++++++++++++++++++++++++++
+ src/core/load-fragment-gperf.gperf.m4 |    1 
+ src/core/load-fragment.c              |   72 ++++++++++++++++++++++
+ src/core/load-fragment.h              |    1 
+ src/shared/bus-unit-util.c            |   31 +++++++++
+ src/systemctl/systemctl.c             |   22 ++++++
  9 files changed, 320 insertions(+), 12 deletions(-)
 
-diff --git a/man/systemd.resource-control.xml b/man/systemd.resource-control.xml
-index 482f65777f8..730bdbc868b 100644
 --- a/man/systemd.resource-control.xml
 +++ b/man/systemd.resource-control.xml
-@@ -400,11 +400,11 @@
+@@ -408,11 +408,11 @@
          <listitem>
            <para>Set the per-device overall block I/O weight for the executed processes, if the unified control group
            hierarchy is used on the system. Takes a space-separated pair of a file path and a weight value to specify
@@ -40,7 +38,7 @@ index 482f65777f8..730bdbc868b 100644
            url="https://www.kernel.org/doc/Documentation/cgroup-v2.txt">cgroup-v2.txt</ulink>.</para>
  
            <para>Implies <literal>IOAccounting=true</literal>.</para>
-@@ -465,6 +465,25 @@
+@@ -473,6 +473,25 @@
          </listitem>
        </varlistentry>
  
@@ -66,11 +64,9 @@ index 482f65777f8..730bdbc868b 100644
        <varlistentry>
          <term><varname>IPAccounting=</varname></term>
  
-diff --git a/src/core/cgroup.c b/src/core/cgroup.c
-index 0164fdb86d3..e7283839b6d 100644
 --- a/src/core/cgroup.c
 +++ b/src/core/cgroup.c
-@@ -119,6 +119,15 @@ void cgroup_context_free_io_device_weight(CGroupContext *c, CGroupIODeviceWeight
+@@ -114,6 +114,15 @@ void cgroup_context_free_io_device_weigh
          free(w);
  }
  
@@ -86,7 +82,7 @@ index 0164fdb86d3..e7283839b6d 100644
  void cgroup_context_free_io_device_limit(CGroupContext *c, CGroupIODeviceLimit *l) {
          assert(c);
          assert(l);
-@@ -152,6 +161,9 @@ void cgroup_context_done(CGroupContext *c) {
+@@ -147,6 +156,9 @@ void cgroup_context_done(CGroupContext *
          while (c->io_device_weights)
                  cgroup_context_free_io_device_weight(c, c->io_device_weights);
  
@@ -96,7 +92,7 @@ index 0164fdb86d3..e7283839b6d 100644
          while (c->io_device_limits)
                  cgroup_context_free_io_device_limit(c, c->io_device_limits);
  
-@@ -171,6 +183,7 @@ void cgroup_context_done(CGroupContext *c) {
+@@ -166,6 +178,7 @@ void cgroup_context_done(CGroupContext *
  void cgroup_context_dump(CGroupContext *c, FILE* f, const char *prefix) {
          CGroupIODeviceLimit *il;
          CGroupIODeviceWeight *iw;
@@ -104,7 +100,7 @@ index 0164fdb86d3..e7283839b6d 100644
          CGroupBlockIODeviceBandwidth *b;
          CGroupBlockIODeviceWeight *w;
          CGroupDeviceAllow *a;
-@@ -249,11 +262,18 @@ void cgroup_context_dump(CGroupContext *c, FILE* f, const char *prefix) {
+@@ -246,11 +259,18 @@ void cgroup_context_dump(CGroupContext *
  
          LIST_FOREACH(device_weights, iw, c->io_device_weights)
                  fprintf(f,
@@ -124,7 +120,7 @@ index 0164fdb86d3..e7283839b6d 100644
          LIST_FOREACH(device_limits, il, c->io_device_limits) {
                  char buf[FORMAT_BYTES_MAX];
                  CGroupIOLimitType type;
-@@ -551,6 +571,7 @@ static bool cgroup_context_has_io_config(CGroupContext *c) {
+@@ -548,6 +568,7 @@ static bool cgroup_context_has_io_config
                  c->io_weight != CGROUP_WEIGHT_INVALID ||
                  c->startup_io_weight != CGROUP_WEIGHT_INVALID ||
                  c->io_device_weights ||
@@ -132,7 +128,7 @@ index 0164fdb86d3..e7283839b6d 100644
                  c->io_device_limits;
  }
  
-@@ -624,6 +645,26 @@ static void cgroup_apply_blkio_device_weight(Unit *u, const char *dev_path, uint
+@@ -621,6 +642,26 @@ static void cgroup_apply_blkio_device_we
                                "Failed to set blkio.weight_device: %m");
  }
  
@@ -159,7 +155,7 @@ index 0164fdb86d3..e7283839b6d 100644
  static void cgroup_apply_io_device_limit(Unit *u, const char *dev_path, uint64_t *limits) {
          char limit_bufs[_CGROUP_IO_LIMIT_TYPE_MAX][DECIMAL_STR_MAX(uint64_t)];
          char buf[DECIMAL_STR_MAX(dev_t)*2+2+(6+DECIMAL_STR_MAX(uint64_t)+1)*4];
-@@ -800,13 +841,11 @@ static void cgroup_context_apply(
+@@ -797,13 +838,11 @@ static void cgroup_context_apply(
                          if (has_io) {
                                  CGroupIODeviceWeight *w;
  
@@ -173,7 +169,7 @@ index 0164fdb86d3..e7283839b6d 100644
                                  LIST_FOREACH(device_weights, w, c->blockio_device_weights) {
                                          weight = cgroup_weight_blkio_to_io(w->weight);
  
-@@ -816,9 +855,15 @@ static void cgroup_context_apply(
+@@ -813,9 +852,15 @@ static void cgroup_context_apply(
                                          cgroup_apply_io_device_weight(u, w->path, weight);
                                  }
                          }
@@ -190,7 +186,7 @@ index 0164fdb86d3..e7283839b6d 100644
                  if (has_io) {
                          CGroupIODeviceLimit *l;
  
-@@ -875,7 +920,6 @@ static void cgroup_context_apply(
+@@ -872,7 +917,6 @@ static void cgroup_context_apply(
                          if (has_io) {
                                  CGroupIODeviceWeight *w;
  
@@ -198,7 +194,7 @@ index 0164fdb86d3..e7283839b6d 100644
                                  LIST_FOREACH(device_weights, w, c->io_device_weights) {
                                          weight = cgroup_weight_io_to_blkio(w->weight);
  
-@@ -887,13 +931,11 @@ static void cgroup_context_apply(
+@@ -884,13 +928,11 @@ static void cgroup_context_apply(
                          } else if (has_blockio) {
                                  CGroupBlockIODeviceWeight *w;
  
@@ -212,11 +208,9 @@ index 0164fdb86d3..e7283839b6d 100644
                  if (has_io) {
                          CGroupIODeviceLimit *l;
  
-diff --git a/src/core/cgroup.h b/src/core/cgroup.h
-index ef3ee14ad0e..f9142fabd20 100644
 --- a/src/core/cgroup.h
 +++ b/src/core/cgroup.h
-@@ -18,6 +18,7 @@ typedef struct CGroupContext CGroupContext;
+@@ -12,6 +12,7 @@ typedef struct CGroupContext CGroupConte
  typedef struct CGroupDeviceAllow CGroupDeviceAllow;
  typedef struct CGroupIODeviceWeight CGroupIODeviceWeight;
  typedef struct CGroupIODeviceLimit CGroupIODeviceLimit;
@@ -224,7 +218,7 @@ index ef3ee14ad0e..f9142fabd20 100644
  typedef struct CGroupBlockIODeviceWeight CGroupBlockIODeviceWeight;
  typedef struct CGroupBlockIODeviceBandwidth CGroupBlockIODeviceBandwidth;
  
-@@ -57,6 +58,12 @@ struct CGroupIODeviceLimit {
+@@ -51,6 +52,12 @@ struct CGroupIODeviceLimit {
          uint64_t limits[_CGROUP_IO_LIMIT_TYPE_MAX];
  };
  
@@ -237,7 +231,7 @@ index ef3ee14ad0e..f9142fabd20 100644
  struct CGroupBlockIODeviceWeight {
          LIST_FIELDS(CGroupBlockIODeviceWeight, device_weights);
          char *path;
-@@ -87,6 +94,7 @@ struct CGroupContext {
+@@ -81,6 +88,7 @@ struct CGroupContext {
          uint64_t startup_io_weight;
          LIST_HEAD(CGroupIODeviceWeight, io_device_weights);
          LIST_HEAD(CGroupIODeviceLimit, io_device_limits);
@@ -245,7 +239,7 @@ index ef3ee14ad0e..f9142fabd20 100644
  
          uint64_t memory_min;
          uint64_t memory_low;
-@@ -139,6 +147,7 @@ CGroupMask cgroup_context_get_mask(CGroupContext *c);
+@@ -134,6 +142,7 @@ CGroupMask cgroup_context_get_mask(CGrou
  void cgroup_context_free_device_allow(CGroupContext *c, CGroupDeviceAllow *a);
  void cgroup_context_free_io_device_weight(CGroupContext *c, CGroupIODeviceWeight *w);
  void cgroup_context_free_io_device_limit(CGroupContext *c, CGroupIODeviceLimit *l);
@@ -253,11 +247,9 @@ index ef3ee14ad0e..f9142fabd20 100644
  void cgroup_context_free_blockio_device_weight(CGroupContext *c, CGroupBlockIODeviceWeight *w);
  void cgroup_context_free_blockio_device_bandwidth(CGroupContext *c, CGroupBlockIODeviceBandwidth *b);
  
-diff --git a/src/core/dbus-cgroup.c b/src/core/dbus-cgroup.c
-index 4eb72269792..60002071cfd 100644
 --- a/src/core/dbus-cgroup.c
 +++ b/src/core/dbus-cgroup.c
-@@ -124,6 +124,36 @@ static int property_get_io_device_limits(
+@@ -119,6 +119,36 @@ static int property_get_io_device_limits
          return sd_bus_message_close_container(reply);
  }
  
@@ -294,7 +286,7 @@ index 4eb72269792..60002071cfd 100644
  static int property_get_blockio_device_weight(
                  sd_bus *bus,
                  const char *path,
-@@ -296,6 +326,7 @@ const sd_bus_vtable bus_cgroup_vtable[] = {
+@@ -291,6 +321,7 @@ const sd_bus_vtable bus_cgroup_vtable[]
          SD_BUS_PROPERTY("IOWriteBandwidthMax", "a(st)", property_get_io_device_limits, 0, 0),
          SD_BUS_PROPERTY("IOReadIOPSMax", "a(st)", property_get_io_device_limits, 0, 0),
          SD_BUS_PROPERTY("IOWriteIOPSMax", "a(st)", property_get_io_device_limits, 0, 0),
@@ -302,10 +294,16 @@ index 4eb72269792..60002071cfd 100644
          SD_BUS_PROPERTY("BlockIOAccounting", "b", bus_property_get_bool, offsetof(CGroupContext, blockio_accounting), 0),
          SD_BUS_PROPERTY("BlockIOWeight", "t", NULL, offsetof(CGroupContext, blockio_weight), 0),
          SD_BUS_PROPERTY("StartupBlockIOWeight", "t", NULL, offsetof(CGroupContext, startup_blockio_weight), 0),
-@@ -844,6 +875,86 @@ int bus_cgroup_set_property(
+@@ -840,6 +871,86 @@ int bus_cgroup_set_property(
  
-                 return 1;
- 
+                         r = fflush_and_check(f);
+                         if (r < 0)
++                                return r;
++                        unit_write_setting(u, flags, name, buf);
++                }
++
++                return 1;
++
 +        } else if (streq(name, "IODeviceLatencyTargetUSec")) {
 +                const char *path;
 +                uint64_t target;
@@ -380,20 +378,12 @@ index 4eb72269792..60002071cfd 100644
 +
 +                        r = fflush_and_check(f);
 +                        if (r < 0)
-+                                return r;
-+                        unit_write_setting(u, flags, name, buf);
-+                }
-+
-+                return 1;
-+
-         } else if (STR_IN_SET(name, "BlockIOReadBandwidth", "BlockIOWriteBandwidth")) {
-                 const char *path;
-                 bool read = true;
-diff --git a/src/core/load-fragment-gperf.gperf.m4 b/src/core/load-fragment-gperf.gperf.m4
-index 15fb47838c0..c72e2b33305 100644
+                                 return r;
+                         unit_write_setting(u, flags, name, buf);
+                 }
 --- a/src/core/load-fragment-gperf.gperf.m4
 +++ b/src/core/load-fragment-gperf.gperf.m4
-@@ -177,6 +177,7 @@ $1.IOReadBandwidthMax,           config_parse_io_limit,              0,
+@@ -178,6 +178,7 @@ $1.IOReadBandwidthMax,           config_
  $1.IOWriteBandwidthMax,          config_parse_io_limit,              0,                             offsetof($1, cgroup_context)
  $1.IOReadIOPSMax,                config_parse_io_limit,              0,                             offsetof($1, cgroup_context)
  $1.IOWriteIOPSMax,               config_parse_io_limit,              0,                             offsetof($1, cgroup_context)
@@ -401,11 +391,9 @@ index 15fb47838c0..c72e2b33305 100644
  $1.BlockIOAccounting,            config_parse_bool,                  0,                             offsetof($1, cgroup_context.blockio_accounting)
  $1.BlockIOWeight,                config_parse_blockio_weight,        0,                             offsetof($1, cgroup_context.blockio_weight)
  $1.StartupBlockIOWeight,         config_parse_blockio_weight,        0,                             offsetof($1, cgroup_context.startup_blockio_weight)
-diff --git a/src/core/load-fragment.c b/src/core/load-fragment.c
-index 935f6be8077..7d9645df68d 100644
 --- a/src/core/load-fragment.c
 +++ b/src/core/load-fragment.c
-@@ -3338,6 +3338,77 @@ int config_parse_io_device_weight(
+@@ -3337,6 +3337,77 @@ int config_parse_io_device_weight(
          return 0;
  }
  
@@ -483,7 +471,7 @@ index 935f6be8077..7d9645df68d 100644
  int config_parse_io_limit(
                  const char *unit,
                  const char *filename,
-@@ -4527,6 +4598,7 @@ void unit_dump_config_items(FILE *f) {
+@@ -4526,6 +4597,7 @@ void unit_dump_config_items(FILE *f) {
                  { config_parse_device_policy,         "POLICY" },
                  { config_parse_io_limit,              "LIMIT" },
                  { config_parse_io_device_weight,      "DEVICEWEIGHT" },
@@ -491,11 +479,9 @@ index 935f6be8077..7d9645df68d 100644
                  { config_parse_blockio_bandwidth,     "BANDWIDTH" },
                  { config_parse_blockio_weight,        "WEIGHT" },
                  { config_parse_blockio_device_weight, "DEVICEWEIGHT" },
-diff --git a/src/core/load-fragment.h b/src/core/load-fragment.h
-index 9a3ccd9d265..d68f86b5538 100644
 --- a/src/core/load-fragment.h
 +++ b/src/core/load-fragment.h
-@@ -74,6 +74,7 @@ CONFIG_PARSER_PROTOTYPE(config_parse_tasks_max);
+@@ -68,6 +68,7 @@ CONFIG_PARSER_PROTOTYPE(config_parse_tas
  CONFIG_PARSER_PROTOTYPE(config_parse_delegate);
  CONFIG_PARSER_PROTOTYPE(config_parse_device_policy);
  CONFIG_PARSER_PROTOTYPE(config_parse_device_allow);
@@ -503,11 +489,9 @@ index 9a3ccd9d265..d68f86b5538 100644
  CONFIG_PARSER_PROTOTYPE(config_parse_io_device_weight);
  CONFIG_PARSER_PROTOTYPE(config_parse_io_limit);
  CONFIG_PARSER_PROTOTYPE(config_parse_blockio_weight);
-diff --git a/src/shared/bus-unit-util.c b/src/shared/bus-unit-util.c
-index 01d820349ab..d8ad6551d6b 100644
 --- a/src/shared/bus-unit-util.c
 +++ b/src/shared/bus-unit-util.c
-@@ -555,6 +555,37 @@ static int bus_append_cgroup_property(sd_bus_message *m, const char *field, cons
+@@ -550,6 +550,37 @@ static int bus_append_cgroup_property(sd
                  return 1;
          }
  
@@ -545,11 +529,9 @@ index 01d820349ab..d8ad6551d6b 100644
          if (STR_IN_SET(field, "IPAddressAllow", "IPAddressDeny")) {
                  unsigned char prefixlen;
                  union in_addr_union prefix = {};
-diff --git a/src/systemctl/systemctl.c b/src/systemctl/systemctl.c
-index c9d2912e135..e7ec28217a5 100644
 --- a/src/systemctl/systemctl.c
 +++ b/src/systemctl/systemctl.c
-@@ -4865,6 +4865,28 @@ static int print_property(const char *name, sd_bus_message *m, bool value, bool
+@@ -4866,6 +4866,28 @@ static int print_property(const char *na
  
                          return 1;
  

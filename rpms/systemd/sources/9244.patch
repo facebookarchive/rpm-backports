@@ -9,22 +9,20 @@ merge window.
 
 Add MemoryMin to support memory.min.
 ---
- doc/TRANSIENT-SETTINGS.md             |  1 +
- man/systemd.resource-control.xml      | 21 +++++++++++++++++++++
- src/core/cgroup.c                     |  5 ++++-
- src/core/cgroup.h                     |  1 +
- src/core/dbus-cgroup.c                |  7 +++++++
- src/core/load-fragment-gperf.gperf.m4 |  1 +
- src/core/load-fragment.c              |  4 +++-
- src/shared/bus-unit-util.c            |  2 +-
- src/systemctl/systemctl.c             | 11 +++++++++--
+ doc/TRANSIENT-SETTINGS.md             |    1 +
+ man/systemd.resource-control.xml      |   21 +++++++++++++++++++++
+ src/core/cgroup.c                     |    5 ++++-
+ src/core/cgroup.h                     |    1 +
+ src/core/dbus-cgroup.c                |    7 +++++++
+ src/core/load-fragment-gperf.gperf.m4 |    1 +
+ src/core/load-fragment.c              |    4 +++-
+ src/shared/bus-unit-util.c            |    2 +-
+ src/systemctl/systemctl.c             |   11 +++++++++--
  9 files changed, 48 insertions(+), 5 deletions(-)
 
-diff --git a/doc/TRANSIENT-SETTINGS.md b/doc/TRANSIENT-SETTINGS.md
-index ca9e8387b74..0df36967ac6 100644
 --- a/doc/TRANSIENT-SETTINGS.md
 +++ b/doc/TRANSIENT-SETTINGS.md
-@@ -216,6 +216,7 @@ All cgroup/resource control settings are available for transient units
+@@ -216,6 +216,7 @@ All cgroup/resource control settings are
  ✓ StartupCPUShares=
  ✓ CPUQuota=
  ✓ MemoryAccounting=
@@ -32,15 +30,12 @@ index ca9e8387b74..0df36967ac6 100644
  ✓ MemoryLow=
  ✓ MemoryHigh=
  ✓ MemoryMax=
-diff --git a/man/systemd.resource-control.xml b/man/systemd.resource-control.xml
-index 482f65777f8..19cada2cb23 100644
 --- a/man/systemd.resource-control.xml
 +++ b/man/systemd.resource-control.xml
-@@ -229,6 +229,27 @@
-         </listitem>
+@@ -217,6 +217,27 @@
        </varlistentry>
  
-+      <varlistentry>
+       <varlistentry>
 +        <term><varname>MemoryMin=<replaceable>bytes</replaceable></varname></term>
 +
 +        <listitem>
@@ -61,14 +56,13 @@ index 482f65777f8..19cada2cb23 100644
 +        </listitem>
 +      </varlistentry>
 +
-       <varlistentry>
++      <varlistentry>
          <term><varname>MemoryLow=<replaceable>bytes</replaceable></varname></term>
  
-diff --git a/src/core/cgroup.c b/src/core/cgroup.c
-index adc3e4ab2dd..5cedbb4d7d6 100644
+         <listitem>
 --- a/src/core/cgroup.c
 +++ b/src/core/cgroup.c
-@@ -197,6 +197,7 @@ void cgroup_context_dump(CGroupContext *c, FILE* f, const char *prefix) {
+@@ -193,6 +193,7 @@ void cgroup_context_dump(CGroupContext *
                  "%sStartupIOWeight=%" PRIu64 "\n"
                  "%sBlockIOWeight=%" PRIu64 "\n"
                  "%sStartupBlockIOWeight=%" PRIu64 "\n"
@@ -76,7 +70,7 @@ index adc3e4ab2dd..5cedbb4d7d6 100644
                  "%sMemoryLow=%" PRIu64 "\n"
                  "%sMemoryHigh=%" PRIu64 "\n"
                  "%sMemoryMax=%" PRIu64 "\n"
-@@ -220,6 +221,7 @@ void cgroup_context_dump(CGroupContext *c, FILE* f, const char *prefix) {
+@@ -216,6 +217,7 @@ void cgroup_context_dump(CGroupContext *
                  prefix, c->startup_io_weight,
                  prefix, c->blockio_weight,
                  prefix, c->startup_blockio_weight,
@@ -84,7 +78,7 @@ index adc3e4ab2dd..5cedbb4d7d6 100644
                  prefix, c->memory_low,
                  prefix, c->memory_high,
                  prefix, c->memory_max,
-@@ -678,7 +680,7 @@ static unsigned cgroup_apply_blkio_device_limit(Unit *u, const char *dev_path, u
+@@ -668,7 +670,7 @@ static void cgroup_apply_blkio_device_li
  }
  
  static bool cgroup_context_has_unified_memory_config(CGroupContext *c) {
@@ -93,7 +87,7 @@ index adc3e4ab2dd..5cedbb4d7d6 100644
  }
  
  static void cgroup_apply_unified_memory_limit(Unit *u, const char *file, uint64_t v) {
-@@ -934,6 +936,7 @@ static void cgroup_context_apply(
+@@ -920,6 +922,7 @@ static void cgroup_context_apply(
                                          log_cgroup_compat(u, "Applying MemoryLimit %" PRIu64 " as MemoryMax", max);
                          }
  
@@ -101,11 +95,9 @@ index adc3e4ab2dd..5cedbb4d7d6 100644
                          cgroup_apply_unified_memory_limit(u, "memory.low", c->memory_low);
                          cgroup_apply_unified_memory_limit(u, "memory.high", c->memory_high);
                          cgroup_apply_unified_memory_limit(u, "memory.max", max);
-diff --git a/src/core/cgroup.h b/src/core/cgroup.h
-index ef3ee14ad0e..865dcc3c226 100644
 --- a/src/core/cgroup.h
 +++ b/src/core/cgroup.h
-@@ -88,6 +88,7 @@ struct CGroupContext {
+@@ -82,6 +82,7 @@ struct CGroupContext {
          LIST_HEAD(CGroupIODeviceWeight, io_device_weights);
          LIST_HEAD(CGroupIODeviceLimit, io_device_limits);
  
@@ -113,11 +105,9 @@ index ef3ee14ad0e..865dcc3c226 100644
          uint64_t memory_low;
          uint64_t memory_high;
          uint64_t memory_max;
-diff --git a/src/core/dbus-cgroup.c b/src/core/dbus-cgroup.c
-index d170f6ad9f2..49bbb0ad777 100644
 --- a/src/core/dbus-cgroup.c
 +++ b/src/core/dbus-cgroup.c
-@@ -303,6 +303,7 @@ const sd_bus_vtable bus_cgroup_vtable[] = {
+@@ -298,6 +298,7 @@ const sd_bus_vtable bus_cgroup_vtable[]
          SD_BUS_PROPERTY("BlockIOReadBandwidth", "a(st)", property_get_blockio_device_bandwidths, 0, 0),
          SD_BUS_PROPERTY("BlockIOWriteBandwidth", "a(st)", property_get_blockio_device_bandwidths, 0, 0),
          SD_BUS_PROPERTY("MemoryAccounting", "b", bus_property_get_bool, offsetof(CGroupContext, memory_accounting), 0),
@@ -125,7 +115,7 @@ index d170f6ad9f2..49bbb0ad777 100644
          SD_BUS_PROPERTY("MemoryLow", "t", NULL, offsetof(CGroupContext, memory_low), 0),
          SD_BUS_PROPERTY("MemoryHigh", "t", NULL, offsetof(CGroupContext, memory_high), 0),
          SD_BUS_PROPERTY("MemoryMax", "t", NULL, offsetof(CGroupContext, memory_max), 0),
-@@ -611,6 +612,9 @@ int bus_cgroup_set_property(
+@@ -606,6 +607,9 @@ int bus_cgroup_set_property(
          if (streq(name, "MemoryAccounting"))
                  return bus_cgroup_set_boolean(u, name, &c->memory_accounting, CGROUP_MASK_MEMORY, message, flags, error);
  
@@ -135,7 +125,7 @@ index d170f6ad9f2..49bbb0ad777 100644
          if (streq(name, "MemoryLow"))
                  return bus_cgroup_set_memory(u, name, &c->memory_low, message, flags, error);
  
-@@ -626,6 +630,9 @@ int bus_cgroup_set_property(
+@@ -621,6 +625,9 @@ int bus_cgroup_set_property(
          if (streq(name, "MemoryLimit"))
                  return bus_cgroup_set_memory(u, name, &c->memory_limit, message, flags, error);
  
@@ -145,11 +135,9 @@ index d170f6ad9f2..49bbb0ad777 100644
          if (streq(name, "MemoryLowScale"))
                  return bus_cgroup_set_memory_scale(u, name, &c->memory_low, message, flags, error);
  
-diff --git a/src/core/load-fragment-gperf.gperf.m4 b/src/core/load-fragment-gperf.gperf.m4
-index 44c9978c543..e9ecf6cf6d2 100644
 --- a/src/core/load-fragment-gperf.gperf.m4
 +++ b/src/core/load-fragment-gperf.gperf.m4
-@@ -161,6 +161,7 @@ $1.CPUShares,                    config_parse_cpu_shares,            0,
+@@ -162,6 +162,7 @@ $1.CPUShares,                    config_
  $1.StartupCPUShares,             config_parse_cpu_shares,            0,                             offsetof($1, cgroup_context.startup_cpu_shares)
  $1.CPUQuota,                     config_parse_cpu_quota,             0,                             offsetof($1, cgroup_context)
  $1.MemoryAccounting,             config_parse_bool,                  0,                             offsetof($1, cgroup_context.memory_accounting)
@@ -157,11 +145,9 @@ index 44c9978c543..e9ecf6cf6d2 100644
  $1.MemoryLow,                    config_parse_memory_limit,          0,                             offsetof($1, cgroup_context)
  $1.MemoryHigh,                   config_parse_memory_limit,          0,                             offsetof($1, cgroup_context)
  $1.MemoryMax,                    config_parse_memory_limit,          0,                             offsetof($1, cgroup_context)
-diff --git a/src/core/load-fragment.c b/src/core/load-fragment.c
-index 0953355dce4..736f9504928 100644
 --- a/src/core/load-fragment.c
 +++ b/src/core/load-fragment.c
-@@ -3050,7 +3050,9 @@ int config_parse_memory_limit(
+@@ -3047,7 +3047,9 @@ int config_parse_memory_limit(
                  }
          }
  
@@ -172,11 +158,9 @@ index 0953355dce4..736f9504928 100644
                  c->memory_low = bytes;
          else if (streq(lvalue, "MemoryHigh"))
                  c->memory_high = bytes;
-diff --git a/src/shared/bus-unit-util.c b/src/shared/bus-unit-util.c
-index 64b7ac8d692..6494aa58b78 100644
 --- a/src/shared/bus-unit-util.c
 +++ b/src/shared/bus-unit-util.c
-@@ -418,7 +418,7 @@ static int bus_append_cgroup_property(sd_bus_message *m, const char *field, cons
+@@ -413,7 +413,7 @@ static int bus_append_cgroup_property(sd
                  return 1;
          }
  
@@ -185,11 +169,9 @@ index 64b7ac8d692..6494aa58b78 100644
  
                  if (isempty(eq) || streq(eq, "infinity")) {
                          r = sd_bus_message_append(m, "(sv)", field, "t", CGROUP_LIMIT_MAX);
-diff --git a/src/systemctl/systemctl.c b/src/systemctl/systemctl.c
-index 49b00a77eac..7f6de069839 100644
 --- a/src/systemctl/systemctl.c
 +++ b/src/systemctl/systemctl.c
-@@ -3906,6 +3906,7 @@ typedef struct UnitStatusInfo {
+@@ -3904,6 +3904,7 @@ typedef struct UnitStatusInfo {
  
          /* CGroup */
          uint64_t memory_current;
@@ -197,7 +179,7 @@ index 49b00a77eac..7f6de069839 100644
          uint64_t memory_low;
          uint64_t memory_high;
          uint64_t memory_max;
-@@ -4281,12 +4282,17 @@ static void print_status_info(
+@@ -4283,12 +4284,17 @@ static void print_status_info(
  
                  printf("   Memory: %s", format_bytes(buf, sizeof(buf), i->memory_current));
  
@@ -217,7 +199,7 @@ index 49b00a77eac..7f6de069839 100644
                          if (i->memory_low > 0) {
                                  printf("%slow: %s", prefix, format_bytes(buf, sizeof(buf), i->memory_low));
                                  prefix = " ";
-@@ -4962,6 +4968,7 @@ static int show_one(
+@@ -4964,6 +4970,7 @@ static int show_one(
                  { "Where",                          "s",              NULL,           offsetof(UnitStatusInfo, where)                             },
                  { "What",                           "s",              NULL,           offsetof(UnitStatusInfo, what)                              },
                  { "MemoryCurrent",                  "t",              NULL,           offsetof(UnitStatusInfo, memory_current)                    },

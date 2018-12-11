@@ -5,12 +5,10 @@ Subject: [PATCH] meson: check whether gnutls supports TCP fast open
 
 Fixes #9403
 ---
- README      | 1 +
- meson.build | 2 +-
+ README      |    1 +
+ meson.build |    2 +-
  2 files changed, 2 insertions(+), 1 deletion(-)
 
-diff --git a/README b/README
-index 2cde08c37e1..7d06e048008 100644
 --- a/README
 +++ b/README
 @@ -154,6 +154,7 @@ REQUIREMENTS:
@@ -21,11 +19,9 @@ index 2cde08c37e1..7d06e048008 100644
          elfutils >= 158 (optional)
          polkit (optional)
          pkg-config
-diff --git a/meson.build b/meson.build
-index 04331dd41a1..80f59d77d8a 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -1137,7 +1137,7 @@ substs.set('DEFAULT_DNSSEC_MODE', default_dnssec)
+@@ -1137,7 +1137,7 @@ substs.set('DEFAULT_DNSSEC_MODE', defaul
  
  dns_over_tls = get_option('dns-over-tls')
  if dns_over_tls != 'false'

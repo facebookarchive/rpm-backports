@@ -7,11 +7,13 @@ Date:   Tue Apr 4 16:04:36 2017 -0700
 FB: Add FusionIO device /dev/fio persistante storage udev rule
 
 
-diff --git a/rules/60-persistent-storage.rules b/rules/60-persistent-storage.rules
-index 9817e9c..1e6e7fd 100644
+---
+ rules/60-persistent-storage.rules |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
 --- a/rules/60-persistent-storage.rules
 +++ b/rules/60-persistent-storage.rules
-@@ -7,7 +7,7 @@ ACTION=="remove", GOTO="persistent_storage_end"
+@@ -7,7 +7,7 @@ ACTION=="remove", GOTO="persistent_stora
  ENV{UDEV_DISABLE_PERSISTENT_STORAGE_RULES_FLAG}=="1", GOTO="persistent_storage_end"
  
  SUBSYSTEM!="block", GOTO="persistent_storage_end"

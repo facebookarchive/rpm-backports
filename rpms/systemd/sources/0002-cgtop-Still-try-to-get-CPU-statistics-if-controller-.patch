@@ -1,0 +1,22 @@
+From 94ddb08d74559d23358cd3b75e619abf43f39197 Mon Sep 17 00:00:00 2001
+From: Chris Down <chris@chrisdown.name>
+Date: Sat, 17 Nov 2018 11:47:44 +0000
+Subject: [PATCH 2/3] cgtop: Still try to get CPU statistics if controller-free
+
+If CPU accounting is cheap, no controller necessarily needs to be
+enabled here for us to be able to read statistics.
+---
+ src/cgtop/cgtop.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/src/cgtop/cgtop.c
++++ b/src/cgtop/cgtop.c
+@@ -229,7 +229,7 @@ static int process(
+                 if (g->n_tasks > 0)
+                         g->n_tasks_valid = true;
+ 
+-        } else if (STR_IN_SET(controller, "cpu", "cpuacct")) {
++        } else if (STR_IN_SET(controller, "cpu", "cpuacct") || cpu_accounting_is_cheap()) {
+                 _cleanup_free_ char *p = NULL, *v = NULL;
+                 uint64_t new_usage;
+                 nsec_t timestamp;

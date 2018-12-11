@@ -1,5 +1,8 @@
-diff --git a/test/test-execute/exec-specifier.service b/test/test-execute/exec-specifier.service
-index 7c3f81f2b..bc888da85 100644
+---
+ test/test-execute/exec-specifier.service  |    2 +-
+ test/test-execute/exec-specifier@.service |    2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
 --- a/test/test-execute/exec-specifier.service
 +++ b/test/test-execute/exec-specifier.service
 @@ -23,7 +23,7 @@ ExecStart=sh -c 'test %u = $$(id -un)'
@@ -11,8 +14,6 @@ index 7c3f81f2b..bc888da85 100644
  ExecStart=sh -c 'test %s = /bin/sh'
  ExecStart=sh -c 'test %m = $$(cat /etc/machine-id)'
  ExecStart=sh -c 'test %b = $$(cat /proc/sys/kernel/random/boot_id | sed -e 's/-//g')'
-diff --git a/test/test-execute/exec-specifier@.service b/test/test-execute/exec-specifier@.service
-index a38892684..239a5cf45 100644
 --- a/test/test-execute/exec-specifier@.service
 +++ b/test/test-execute/exec-specifier@.service
 @@ -21,7 +21,7 @@ ExecStart=sh -c 'test %u = $$(id -un)'

@@ -11,14 +11,12 @@ The result of this is undefined and will become a hard error in a future Meson r
 
 Follow-up for f02582f69fe1e7663a87ba80bd4f90d5d23ee75f(#9410).
 ---
- meson.build | 3 ++-
+ meson.build |    3 ++-
  1 file changed, 2 insertions(+), 1 deletion(-)
 
-diff --git a/meson.build b/meson.build
-index 80f59d77d8a..dd904c71487 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -1137,7 +1137,8 @@ substs.set('DEFAULT_DNSSEC_MODE', default_dnssec)
+@@ -1137,7 +1137,8 @@ substs.set('DEFAULT_DNSSEC_MODE', defaul
  
  dns_over_tls = get_option('dns-over-tls')
  if dns_over_tls != 'false'

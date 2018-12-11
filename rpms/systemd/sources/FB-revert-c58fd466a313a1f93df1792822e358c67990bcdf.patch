@@ -5,14 +5,12 @@ Subject: [PATCH] tests: make / private after creating a mount namespace
 
 so that the test never affects the root namespace.
 ---
- src/test/test-process-util.c | 2 ++
- 1 file changed, 2 insertions(+)
+ src/test/test-process-util.c |    2 --
+ 1 file changed, 2 deletions(-)
 
-diff --git a/src/test/test-process-util.c b/src/test/test-process-util.c
-index 0e5a9d811d7..1a0164e601f 100644
 --- a/src/test/test-process-util.c
 +++ b/src/test/test-process-util.c
-@@ -193,8 +193,6 @@ static void test_get_process_cmdline_harder(void) {
+@@ -206,8 +206,6 @@ static void test_get_process_cmdline_har
          assert_se(pid == 0);
          assert_se(unshare(CLONE_NEWNS) >= 0);
  

@@ -1,0 +1,192 @@
+From 1d7145f72cc4eb4231911dc45862a041c21a9e08 Mon Sep 17 00:00:00 2001
+From: Chris Down <chris@chrisdown.name>
+Date: Mon, 15 Oct 2018 12:55:35 +0100
+Subject: [PATCH] analyze: Add "timespan" command to dump time span in usec
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This is useful for a couple of cases, I'm mostly interested in case #1:
+
+1. Verifying "reasonable" values in a trivially scriptable way
+2. Debugging unexpected time span parsing directly
+
+Test Plan:
+
+```
+% build/systemd-analyze timespan 20
+Original: 20
+      μs: 20
+   Human: 20us
+% build/systemd-analyze timespan 20ms
+Original: 20ms
+      μs: 20000
+   Human: 20ms
+% build/systemd-analyze timespan 20z
+Failed to parse time span '20z': Invalid argument
+```
+---
+ man/systemd-analyze.xml     | 10 ++++++++++
+ man/systemd.time.xml        |  4 ++++
+ src/analyze/analyze.c       | 27 +++++++++++++++++++++++++++
+ src/basic/locale-util.c     |  4 +++-
+ src/basic/locale-util.h     |  1 +
+ src/test/test-locale-util.c |  2 +-
+ 6 files changed, 46 insertions(+), 2 deletions(-)
+
+diff --git a/man/systemd-analyze.xml b/man/systemd-analyze.xml
+index 7aa10fc68e2..15e95b0c8f5 100644
+--- a/man/systemd-analyze.xml
++++ b/man/systemd-analyze.xml
+@@ -106,6 +106,12 @@
+       <arg choice="plain">service-watchdogs</arg>
+       <arg choice="opt"><replaceable>BOOL</replaceable></arg>
+     </cmdsynopsis>
++    <cmdsynopsis>
++      <command>systemd-analyze</command>
++      <arg choice="opt" rep="repeat">OPTIONS</arg>
++      <arg choice="plain">timespan</arg>
++      <arg choice="plain" rep="repeat"><replaceable>SPAN</replaceable></arg>
++    </cmdsynopsis>
+   </refsynopsisdiv>
+ 
+   <refsect1>
+@@ -253,6 +259,10 @@ NAutoVTs=8
+     <citerefentry><refentrytitle>systemd.service</refentrytitle><manvolnum>5</manvolnum></citerefentry>.
+     The hardware watchdog is not affected by this setting.</para>
+ 
++    <para><command>systemd-analyze timespan</command> parses a time span and outputs the equivalent value in microseconds, and as a reformatted timespan.
++    The time span should adhere to the same syntax documented in <citerefentry><refentrytitle>systemd.time</refentrytitle><manvolnum>7</manvolnum></citerefentry>.
++    Values without associated magnitudes are parsed as seconds.</para>
++
+     <para>If no command is passed, <command>systemd-analyze
+     time</command> is implied.</para>
+ 
+diff --git a/man/systemd.time.xml b/man/systemd.time.xml
+index ad78b611a16..ac2437b8e1f 100644
+--- a/man/systemd.time.xml
++++ b/man/systemd.time.xml
+@@ -74,6 +74,10 @@
+ 1y 12month
+ 55s500ms
+ 300ms20s 5day</programlisting>
++
++    <para>One can use the <command>timespan</command> command of
++    <citerefentry><refentrytitle>systemd-analyze</refentrytitle><manvolnum>1</manvolnum></citerefentry>
++    to normalise a textual time span for testing and validation purposes.</para>
+   </refsect1>
+ 
+   <refsect1>
+diff --git a/src/analyze/analyze.c b/src/analyze/analyze.c
+index 54dd7de105d..0e37ecbea6e 100644
+--- a/src/analyze/analyze.c
++++ b/src/analyze/analyze.c
+@@ -4,6 +4,7 @@
+ ***/
+ 
+ #include <getopt.h>
++#include <inttypes.h>
+ #include <locale.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -33,6 +34,7 @@
+ #include "special.h"
+ #include "strv.h"
+ #include "strxcpyx.h"
++#include "time-util.h"
+ #include "terminal-util.h"
+ #include "unit-name.h"
+ #include "util.h"
+@@ -1551,6 +1553,29 @@ static int dump_syscall_filters(int argc, char *argv[], void *userdata) {
+ }
+ #endif
+ 
++static int dump_timespan(int argc, char *argv[], void *userdata) {
++        char **input_timespan;
++
++        STRV_FOREACH(input_timespan, strv_skip(argv, 1)) {
++                int r;
++                usec_t usec_magnitude = 1, output_usecs;
++                char ft_buf[FORMAT_TIMESPAN_MAX];
++
++                r = parse_time(*input_timespan, &output_usecs, USEC_PER_SEC);
++                if (r < 0)
++                        return log_error_errno(r, "Failed to parse time span '%s': %m", *input_timespan);
++
++                printf("Original: %s\n", *input_timespan);
++                printf("      %ss: %" PRIu64 "\n", special_glyph(MU), output_usecs);
++                printf("   Human: %s\n", format_timespan(ft_buf, sizeof(ft_buf), output_usecs, usec_magnitude));
++
++                if (input_timespan[1])
++                        putchar('\n');
++        }
++
++        return EXIT_SUCCESS;
++}
++
+ static int test_calendar(int argc, char *argv[], void *userdata) {
+         int ret = 0, r;
+         char **p;
+@@ -1706,6 +1706,7 @@ static int help(int argc, char *argv[], void *userdata) {
+                "  verify FILE...           Check unit files for correctness\n"
+                "  calendar SPEC...         Validate repetitive calendar time events\n"
+                "  service-watchdogs [BOOL] Get/set service watchdog state\n"
++               "  timespan SPAN...         Validate a time span\n"
+                , program_invocation_short_name);
+ 
+         /* When updating this list, including descriptions, apply
+@@ -1900,6 +1926,7 @@ int main(int argc, char *argv[]) {
+                 { "verify",            2,        VERB_ANY, 0,            do_verify              },
+                 { "calendar",          2,        VERB_ANY, 0,            test_calendar          },
+                 { "service-watchdogs", VERB_ANY, 2,        0,            service_watchdogs      },
++                { "timespan",          2,        VERB_ANY, 0,            dump_timespan          },
+                 {}
+         };
+ 
+diff --git a/src/basic/locale-util.c b/src/basic/locale-util.c
+index 3ad352f22f3..8b89bd00244 100644
+--- a/src/basic/locale-util.c
++++ b/src/basic/locale-util.c
+@@ -367,7 +367,8 @@ const char *special_glyph(SpecialGlyph code) {
+                         [BLACK_CIRCLE]       = "*",
+                         [ARROW]              = "->",
+                         [MDASH]              = "-",
+-                        [ELLIPSIS]           = "..."
++                        [ELLIPSIS]           = "...",
++                        [MU]                 = "u",
+                 },
+ 
+                 /* UTF-8 */
+@@ -381,6 +382,7 @@ const char *special_glyph(SpecialGlyph code) {
+                         [ARROW]              = "\342\206\222",             /* → */
+                         [MDASH]              = "\342\200\223",             /* – */
+                         [ELLIPSIS]           = "\342\200\246",             /* … */
++                        [MU]                 = "\316\274",                 /* μ */
+                 },
+         };
+ 
+diff --git a/src/basic/locale-util.h b/src/basic/locale-util.h
+index 775fe8bc728..7762254940d 100644
+--- a/src/basic/locale-util.h
++++ b/src/basic/locale-util.h
+@@ -48,6 +48,7 @@ typedef enum {
+         ARROW,
+         MDASH,
+         ELLIPSIS,
++        MU,
+         _SPECIAL_GLYPH_MAX
+ } SpecialGlyph;
+ 
+diff --git a/src/test/test-locale-util.c b/src/test/test-locale-util.c
+index 8ffae8ca03d..3634534782d 100644
+--- a/src/test/test-locale-util.c
++++ b/src/test/test-locale-util.c
+@@ -65,7 +65,7 @@ static void test_keymaps(void) {
+ 
+ #define dump_glyph(x) log_info(STRINGIFY(x) ": %s", special_glyph(x))
+ static void dump_special_glyphs(void) {
+-        assert_cc(ELLIPSIS + 1 == _SPECIAL_GLYPH_MAX);
++        assert_cc(MU + 1 == _SPECIAL_GLYPH_MAX);
+ 
+         log_info("/* %s */", __func__);
+ 

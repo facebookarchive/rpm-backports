@@ -5,27 +5,25 @@ Subject: [PATCH 1/3] Add support for opening files for appending or truncation
 
 Fixes #8983
 ---
- man/systemd.exec.xml                               |  7 +++-
- src/core/dbus-execute.c                            | 38 +++++++++++++++++-----
- src/core/execute.c                                 | 23 +++++++++++--
- src/core/execute.h                                 |  2 ++
- src/core/load-fragment.c                           | 22 +++++++++++++
- src/core/main.c                                    |  4 +--
- src/test/test-execute.c                            |  7 ++++
- test/meson.build                                   |  3 ++
- .../exec-standardoutput-append.service             | 12 +++++++
- test/test-execute/exec-standardoutput-file.service | 12 +++++++
- .../exec-standardoutput-truncate.service           | 12 +++++++
- 11 files changed, 129 insertions(+), 13 deletions(-)
+ man/systemd.exec.xml                                   |    7 ++-
+ src/core/dbus-execute.c                                |   36 +++++++++++++----
+ src/core/execute.c                                     |   23 +++++++++-
+ src/core/execute.h                                     |    2 
+ src/core/load-fragment.c                               |   22 ++++++++++
+ src/core/main.c                                        |    4 -
+ src/test/test-execute.c                                |    7 +++
+ test/meson.build                                       |    3 +
+ test/test-execute/exec-standardoutput-append.service   |   12 +++++
+ test/test-execute/exec-standardoutput-file.service     |   12 +++++
+ test/test-execute/exec-standardoutput-truncate.service |   12 +++++
+ 11 files changed, 127 insertions(+), 13 deletions(-)
  create mode 100644 test/test-execute/exec-standardoutput-append.service
  create mode 100644 test/test-execute/exec-standardoutput-file.service
  create mode 100644 test/test-execute/exec-standardoutput-truncate.service
 
-diff --git a/man/systemd.exec.xml b/man/systemd.exec.xml
-index 68291c145e7..b6a71226acf 100644
 --- a/man/systemd.exec.xml
 +++ b/man/systemd.exec.xml
-@@ -1749,7 +1749,8 @@ SystemCallErrorNumber=EPERM</programlisting>
+@@ -1749,7 +1749,8 @@ SystemCallErrorNumber=EPERM</programlist
          of <option>inherit</option>, <option>null</option>, <option>tty</option>, <option>journal</option>,
          <option>syslog</option>, <option>kmsg</option>, <option>journal+console</option>,
          <option>syslog+console</option>, <option>kmsg+console</option>,
@@ -35,22 +33,20 @@ index 68291c145e7..b6a71226acf 100644
          <option>fd:<replaceable>name</replaceable></option>.</para>
  
          <para><option>inherit</option> duplicates the file descriptor of standard input for standard output.</para>
-@@ -1786,6 +1787,10 @@ SystemCallErrorNumber=EPERM</programlisting>
+@@ -1786,6 +1787,10 @@ SystemCallErrorNumber=EPERM</programlist
          specified path refers to an <constant>AF_UNIX</constant> socket in the file system, as in that case only a
          single stream connection is created for both input and output.</para>
  
 +        <para><option>append:<replaceable>path</replaceable></option> and <option>truncate:<replaceable>path
 +        </replaceable></option> are similar to <option>file:<replaceable>path</replaceable></option> above,
-+        but they open the file and truncate it or append to its end, instead of writing from the beginning.
++        but they open the file and truncate it or append to its end, instead of writing from the beginning.</para>
 +
          <para><option>socket</option> connects standard output to a socket acquired via socket activation. The
          semantics are similar to the same option of <varname>StandardInput=</varname>, see above.</para>
  
-diff --git a/src/core/dbus-execute.c b/src/core/dbus-execute.c
-index c44970c10c8..1083909c6e1 100644
 --- a/src/core/dbus-execute.c
 +++ b/src/core/dbus-execute.c
-@@ -1731,7 +1731,10 @@ int bus_exec_context_set_transient_property(
+@@ -1731,7 +1731,10 @@ int bus_exec_context_set_transient_prope
  
                  return 1;
  
@@ -62,13 +58,12 @@ index c44970c10c8..1083909c6e1 100644
                  const char *s;
  
                  r = sd_bus_message_read(message, "s", &s);
-@@ -1755,23 +1758,42 @@ int bus_exec_context_set_transient_property(
+@@ -1755,23 +1758,40 @@ int bus_exec_context_set_transient_prope
                                  c->std_input = EXEC_INPUT_FILE;
                                  unit_write_settingf(u, flags|UNIT_ESCAPE_SPECIFIERS, name, "StandardInput=file:%s", s);
  
 -                        } else if (streq(name, "StandardOutputFile")) {
 +                        } else if (STR_IN_SET(name, "StandardOutputFile", "StandardOutputFileToTruncate", "StandardOutputFileToAppend")) {
-+                                const char *setting;
                                  r = free_and_strdup(&c->stdio_file[STDOUT_FILENO], empty_to_null(s));
                                  if (r < 0)
                                          return r;
@@ -89,7 +84,6 @@ index c44970c10c8..1083909c6e1 100644
 +                                }
                          } else {
 -                                assert(streq(name, "StandardErrorFile"));
-+                                const char *setting;
 +                                assert(STR_IN_SET(name, "StandardErrorFile", "StandardErrorFileToTruncate", "StandardErrorFileToAppend"));
  
                                  r = free_and_strdup(&c->stdio_file[STDERR_FILENO], empty_to_null(s));
@@ -112,8 +106,6 @@ index c44970c10c8..1083909c6e1 100644
                          }
                  }
  
-diff --git a/src/core/execute.c b/src/core/execute.c
-index 8ac69d1a0fb..d91f06a45cc 100644
 --- a/src/core/execute.c
 +++ b/src/core/execute.c
 @@ -675,9 +675,12 @@ static int setup_output(
@@ -145,7 +137,7 @@ index 8ac69d1a0fb..d91f06a45cc 100644
                  if (fd < 0)
                          return fd;
  
-@@ -4036,8 +4045,16 @@ void exec_context_dump(const ExecContext *c, FILE* f, const char *prefix) {
+@@ -4036,8 +4045,16 @@ void exec_context_dump(const ExecContext
                  fprintf(f, "%sStandardInputFile: %s\n", prefix, c->stdio_file[STDIN_FILENO]);
          if (c->std_output == EXEC_OUTPUT_FILE)
                  fprintf(f, "%sStandardOutputFile: %s\n", prefix, c->stdio_file[STDOUT_FILENO]);
@@ -162,7 +154,7 @@ index 8ac69d1a0fb..d91f06a45cc 100644
  
          if (c->tty_path)
                  fprintf(f,
-@@ -4968,6 +4985,8 @@ static const char* const exec_output_table[_EXEC_OUTPUT_MAX] = {
+@@ -4968,6 +4985,8 @@ static const char* const exec_output_tab
          [EXEC_OUTPUT_SOCKET] = "socket",
          [EXEC_OUTPUT_NAMED_FD] = "fd",
          [EXEC_OUTPUT_FILE] = "file",
@@ -171,8 +163,6 @@ index 8ac69d1a0fb..d91f06a45cc 100644
  };
  
  DEFINE_STRING_TABLE_LOOKUP(exec_output, ExecOutput);
-diff --git a/src/core/execute.h b/src/core/execute.h
-index 77ffe823231..b087e01dad2 100644
 --- a/src/core/execute.h
 +++ b/src/core/execute.h
 @@ -56,6 +56,8 @@ typedef enum ExecOutput {
@@ -184,8 +174,6 @@ index 77ffe823231..b087e01dad2 100644
          _EXEC_OUTPUT_MAX,
          _EXEC_OUTPUT_INVALID = -1
  } ExecOutput;
-diff --git a/src/core/load-fragment.c b/src/core/load-fragment.c
-index 94c7d33117b..1eb7565b7e1 100644
 --- a/src/core/load-fragment.c
 +++ b/src/core/load-fragment.c
 @@ -1015,6 +1015,28 @@ int config_parse_exec_output(
@@ -217,11 +205,9 @@ index 94c7d33117b..1eb7565b7e1 100644
          } else {
                  eo = exec_output_from_string(rvalue);
                  if (eo < 0) {
-diff --git a/src/core/main.c b/src/core/main.c
-index 44dd8348beb..e7c4b1bcc4e 100644
 --- a/src/core/main.c
 +++ b/src/core/main.c
-@@ -604,8 +604,8 @@ static int config_parse_output_restricted(
+@@ -604,8 +604,8 @@ static int config_parse_output_restricte
                  return 0;
          }
  
@@ -232,18 +218,16 @@ index 44dd8348beb..e7c4b1bcc4e 100644
                  return 0;
          }
  
-diff --git a/src/test/test-execute.c b/src/test/test-execute.c
-index fa8efdddd2d..ac7c1823181 100644
 --- a/src/test/test-execute.c
 +++ b/src/test/test-execute.c
-@@ -625,6 +625,12 @@ static void test_exec_standardinput(Manager *m) {
+@@ -625,6 +625,12 @@ static void test_exec_standardinput(Mana
          test(m, "exec-standardinput-file.service", 0, CLD_EXITED);
  }
  
 +static void test_exec_standardoutput(Manager *m) {
 +        test(m, "exec-standardoutput-file.service", 0, CLD_EXITED);
-+        test(m, "exec-standardoutput-file-append.service", 0, CLD_EXITED);
-+        test(m, "exec-standardoutput-file-truncate.service", 0, CLD_EXITED);
++        test(m, "exec-standardoutput-append.service", 0, CLD_EXITED);
++        test(m, "exec-standardoutput-truncate.service", 0, CLD_EXITED);
 +}
 +
  static int run_tests(UnitFileScope scope, const test_function_t *tests) {
@@ -257,8 +241,6 @@ index fa8efdddd2d..ac7c1823181 100644
                  test_exec_supplementarygroups,
                  test_exec_systemcallerrornumber,
                  test_exec_systemcallfilter,
-diff --git a/test/meson.build b/test/meson.build
-index 826e684e590..986bb7f3be1 100644
 --- a/test/meson.build
 +++ b/test/meson.build
 @@ -115,6 +115,9 @@ test_data_files = '''
@@ -271,9 +253,6 @@ index 826e684e590..986bb7f3be1 100644
          test-execute/exec-supplementarygroups-multiple-groups-default-group-user.service
          test-execute/exec-supplementarygroups-multiple-groups-withgid.service
          test-execute/exec-supplementarygroups-multiple-groups-withuid.service
-diff --git a/test/test-execute/exec-standardoutput-append.service b/test/test-execute/exec-standardoutput-append.service
-new file mode 100644
-index 00000000000..6a390aa5717
 --- /dev/null
 +++ b/test/test-execute/exec-standardoutput-append.service
 @@ -0,0 +1,12 @@
@@ -289,9 +268,6 @@ index 00000000000..6a390aa5717
 +StandardInputText=hello
 +StandardOutput=append:/tmp/test-exec-standardoutput-output
 +Type=oneshot
-diff --git a/test/test-execute/exec-standardoutput-file.service b/test/test-execute/exec-standardoutput-file.service
-new file mode 100644
-index 00000000000..470dd51d31c
 --- /dev/null
 +++ b/test/test-execute/exec-standardoutput-file.service
 @@ -0,0 +1,12 @@
@@ -307,9 +283,6 @@ index 00000000000..470dd51d31c
 +StandardInputText=hello
 +StandardOutput=file:/tmp/test-exec-standardoutput-output
 +Type=oneshot
-diff --git a/test/test-execute/exec-standardoutput-truncate.service b/test/test-execute/exec-standardoutput-truncate.service
-new file mode 100644
-index 00000000000..209b549119f
 --- /dev/null
 +++ b/test/test-execute/exec-standardoutput-truncate.service
 @@ -0,0 +1,12 @@
@@ -325,72 +298,3 @@ index 00000000000..209b549119f
 +StandardInputText=hello
 +StandardOutput=truncate:/tmp/test-exec-standardoutput-output
 +Type=oneshot
-
-From daf139ee25d497e23d21c790007b12f4c3cef606 Mon Sep 17 00:00:00 2001
-From: Zsolt Dollenstein <zsol@fb.com>
-Date: Tue, 3 Jul 2018 12:40:50 -0700
-Subject: [PATCH 2/3] fix build warning and doc error
-
----
- man/systemd.exec.xml    | 2 +-
- src/core/dbus-execute.c | 2 --
- 2 files changed, 1 insertion(+), 3 deletions(-)
-
-diff --git a/man/systemd.exec.xml b/man/systemd.exec.xml
-index b6a71226acf..a165bb3786c 100644
---- a/man/systemd.exec.xml
-+++ b/man/systemd.exec.xml
-@@ -1789,7 +1789,7 @@ SystemCallErrorNumber=EPERM</programlisting>
- 
-         <para><option>append:<replaceable>path</replaceable></option> and <option>truncate:<replaceable>path
-         </replaceable></option> are similar to <option>file:<replaceable>path</replaceable></option> above,
--        but they open the file and truncate it or append to its end, instead of writing from the beginning.
-+        but they open the file and truncate it or append to its end, instead of writing from the beginning.</para>
- 
-         <para><option>socket</option> connects standard output to a socket acquired via socket activation. The
-         semantics are similar to the same option of <varname>StandardInput=</varname>, see above.</para>
-diff --git a/src/core/dbus-execute.c b/src/core/dbus-execute.c
-index 1083909c6e1..77429aae9f8 100644
---- a/src/core/dbus-execute.c
-+++ b/src/core/dbus-execute.c
-@@ -1759,7 +1759,6 @@ int bus_exec_context_set_transient_property(
-                                 unit_write_settingf(u, flags|UNIT_ESCAPE_SPECIFIERS, name, "StandardInput=file:%s", s);
- 
-                         } else if (STR_IN_SET(name, "StandardOutputFile", "StandardOutputFileToTruncate", "StandardOutputFileToAppend")) {
--                                const char *setting;
-                                 r = free_and_strdup(&c->stdio_file[STDOUT_FILENO], empty_to_null(s));
-                                 if (r < 0)
-                                         return r;
-@@ -1776,7 +1775,6 @@ int bus_exec_context_set_transient_property(
-                                         unit_write_settingf(u, flags|UNIT_ESCAPE_SPECIFIERS, name, "StandardOutput=append:%s", s);
-                                 }
-                         } else {
--                                const char *setting;
-                                 assert(STR_IN_SET(name, "StandardErrorFile", "StandardErrorFileToTruncate", "StandardErrorFileToAppend"));
- 
-                                 r = free_and_strdup(&c->stdio_file[STDERR_FILENO], empty_to_null(s));
-
-From b3c2f6612c204d813e5c24b55981f59e0af53b48 Mon Sep 17 00:00:00 2001
-From: Zsolt Dollenstein <zsol@fb.com>
-Date: Wed, 4 Jul 2018 00:19:26 -0700
-Subject: [PATCH 3/3] fix typo in test
-
----
- src/test/test-execute.c | 4 ++--
- 1 file changed, 2 insertions(+), 2 deletions(-)
-
-diff --git a/src/test/test-execute.c b/src/test/test-execute.c
-index ac7c1823181..c19a2cae4fb 100644
---- a/src/test/test-execute.c
-+++ b/src/test/test-execute.c
-@@ -627,8 +627,8 @@ static void test_exec_standardinput(Manager *m) {
- 
- static void test_exec_standardoutput(Manager *m) {
-         test(m, "exec-standardoutput-file.service", 0, CLD_EXITED);
--        test(m, "exec-standardoutput-file-append.service", 0, CLD_EXITED);
--        test(m, "exec-standardoutput-file-truncate.service", 0, CLD_EXITED);
-+        test(m, "exec-standardoutput-append.service", 0, CLD_EXITED);
-+        test(m, "exec-standardoutput-truncate.service", 0, CLD_EXITED);
- }
- 
- static int run_tests(UnitFileScope scope, const test_function_t *tests) {

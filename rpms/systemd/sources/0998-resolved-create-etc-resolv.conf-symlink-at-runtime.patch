@@ -13,15 +13,13 @@ don't touch it in that case either.
 
 https://bugzilla.redhat.com/show_bug.cgi?id=1313085
 ---
- src/resolve/resolved.c | 4 ++++
- tmpfiles.d/etc.conf.m4 | 3 ---
+ src/resolve/resolved.c |    4 ++++
+ tmpfiles.d/etc.conf.m4 |    3 ---
  2 files changed, 4 insertions(+), 3 deletions(-)
 
-diff --git a/src/resolve/resolved.c b/src/resolve/resolved.c
-index a4cda0b5ef..68bca80777 100644
 --- a/src/resolve/resolved.c
 +++ b/src/resolve/resolved.c
-@@ -71,6 +71,10 @@ int main(int argc, char *argv[]) {
+@@ -53,6 +53,10 @@ int main(int argc, char *argv[]) {
          /* Drop privileges, but only if we have been started as root. If we are not running as root we assume all
           * privileges are already dropped. */
          if (getuid() == 0) {
@@ -32,8 +30,6 @@ index a4cda0b5ef..68bca80777 100644
  
                  /* Drop privileges, but keep three caps. Note that we drop those too, later on (see below) */
                  r = drop_privileges(uid, gid,
-diff --git a/tmpfiles.d/etc.conf.m4 b/tmpfiles.d/etc.conf.m4
-index df8d42101c..928105ea8d 100644
 --- a/tmpfiles.d/etc.conf.m4
 +++ b/tmpfiles.d/etc.conf.m4
 @@ -13,9 +13,6 @@ L+ /etc/mtab - - - - ../proc/self/mounts

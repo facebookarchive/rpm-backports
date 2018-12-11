@@ -5,19 +5,17 @@ Subject: [PATCH] test: fix tests for supplementary groups
 
 Fixes #9881.
 ---
- ...xec-dynamicuser-fixeduser-one-supplementarygroup.service | 3 ++-
- test/test-execute/exec-dynamicuser-fixeduser.service        | 3 ++-
- .../exec-dynamicuser-supplementarygroups.service            | 4 +++-
- ...mentarygroups-multiple-groups-default-group-user.service | 6 +++++-
- ...exec-supplementarygroups-multiple-groups-withgid.service | 5 ++++-
- ...exec-supplementarygroups-multiple-groups-withuid.service | 4 +++-
- .../exec-supplementarygroups-single-group-user.service      | 3 ++-
- .../exec-supplementarygroups-single-group.service           | 3 ++-
- test/test-execute/exec-supplementarygroups.service          | 3 ++-
+ test/test-execute/exec-dynamicuser-fixeduser-one-supplementarygroup.service           |    3 ++-
+ test/test-execute/exec-dynamicuser-fixeduser.service                                  |    3 ++-
+ test/test-execute/exec-dynamicuser-supplementarygroups.service                        |    4 +++-
+ test/test-execute/exec-supplementarygroups-multiple-groups-default-group-user.service |    6 +++++-
+ test/test-execute/exec-supplementarygroups-multiple-groups-withgid.service            |    5 ++++-
+ test/test-execute/exec-supplementarygroups-multiple-groups-withuid.service            |    4 +++-
+ test/test-execute/exec-supplementarygroups-single-group-user.service                  |    3 ++-
+ test/test-execute/exec-supplementarygroups-single-group.service                       |    3 ++-
+ test/test-execute/exec-supplementarygroups.service                                    |    3 ++-
  9 files changed, 25 insertions(+), 9 deletions(-)
 
-diff --git a/test/test-execute/exec-dynamicuser-fixeduser-one-supplementarygroup.service b/test/test-execute/exec-dynamicuser-fixeduser-one-supplementarygroup.service
-index de1a6e73035..bd7881d2865 100644
 --- a/test/test-execute/exec-dynamicuser-fixeduser-one-supplementarygroup.service
 +++ b/test/test-execute/exec-dynamicuser-fixeduser-one-supplementarygroup.service
 @@ -2,7 +2,8 @@
@@ -30,8 +28,6 @@ index de1a6e73035..bd7881d2865 100644
  Type=oneshot
  User=1
  DynamicUser=yes
-diff --git a/test/test-execute/exec-dynamicuser-fixeduser.service b/test/test-execute/exec-dynamicuser-fixeduser.service
-index 1d84af02ed8..f28078f2422 100644
 --- a/test/test-execute/exec-dynamicuser-fixeduser.service
 +++ b/test/test-execute/exec-dynamicuser-fixeduser.service
 @@ -2,7 +2,8 @@
@@ -44,8 +40,6 @@ index 1d84af02ed8..f28078f2422 100644
  Type=oneshot
  User=1
  DynamicUser=yes
-diff --git a/test/test-execute/exec-dynamicuser-supplementarygroups.service b/test/test-execute/exec-dynamicuser-supplementarygroups.service
-index a47b7fab781..9ee6154f953 100644
 --- a/test/test-execute/exec-dynamicuser-supplementarygroups.service
 +++ b/test/test-execute/exec-dynamicuser-supplementarygroups.service
 @@ -2,7 +2,9 @@
@@ -59,8 +53,6 @@ index a47b7fab781..9ee6154f953 100644
  Type=oneshot
  DynamicUser=yes
  SupplementaryGroups=1 2 3
-diff --git a/test/test-execute/exec-supplementarygroups-multiple-groups-default-group-user.service b/test/test-execute/exec-supplementarygroups-multiple-groups-default-group-user.service
-index a49c9d26a11..1c565b41227 100644
 --- a/test/test-execute/exec-supplementarygroups-multiple-groups-default-group-user.service
 +++ b/test/test-execute/exec-supplementarygroups-multiple-groups-default-group-user.service
 @@ -2,6 +2,10 @@
@@ -75,8 +67,6 @@ index a49c9d26a11..1c565b41227 100644
 +ExecStart=/bin/sh -x -c 'test "$$(id -g)" = "0" && test "$$(id -u)" = "0"'
  Type=oneshot
  SupplementaryGroups=1 2 3
-diff --git a/test/test-execute/exec-supplementarygroups-multiple-groups-withgid.service b/test/test-execute/exec-supplementarygroups-multiple-groups-withgid.service
-index 5c62c1d6391..45bcf792221 100644
 --- a/test/test-execute/exec-supplementarygroups-multiple-groups-withgid.service
 +++ b/test/test-execute/exec-supplementarygroups-multiple-groups-withgid.service
 @@ -2,7 +2,10 @@
@@ -91,8 +81,6 @@ index 5c62c1d6391..45bcf792221 100644
  Type=oneshot
  Group=1
  SupplementaryGroups=1 2 3
-diff --git a/test/test-execute/exec-supplementarygroups-multiple-groups-withuid.service b/test/test-execute/exec-supplementarygroups-multiple-groups-withuid.service
-index 00523e383b3..62e56a2c23b 100644
 --- a/test/test-execute/exec-supplementarygroups-multiple-groups-withuid.service
 +++ b/test/test-execute/exec-supplementarygroups-multiple-groups-withuid.service
 @@ -2,7 +2,9 @@
@@ -106,8 +94,6 @@ index 00523e383b3..62e56a2c23b 100644
  Type=oneshot
  User=1
  SupplementaryGroups=1 2 3
-diff --git a/test/test-execute/exec-supplementarygroups-single-group-user.service b/test/test-execute/exec-supplementarygroups-single-group-user.service
-index ed6276d3036..97f9f9c786e 100644
 --- a/test/test-execute/exec-supplementarygroups-single-group-user.service
 +++ b/test/test-execute/exec-supplementarygroups-single-group-user.service
 @@ -2,7 +2,8 @@
@@ -120,8 +106,6 @@ index ed6276d3036..97f9f9c786e 100644
  Type=oneshot
  User=1
  Group=1
-diff --git a/test/test-execute/exec-supplementarygroups-single-group.service b/test/test-execute/exec-supplementarygroups-single-group.service
-index ee502b3d377..f9b721696bd 100644
 --- a/test/test-execute/exec-supplementarygroups-single-group.service
 +++ b/test/test-execute/exec-supplementarygroups-single-group.service
 @@ -2,7 +2,8 @@
@@ -134,8 +118,6 @@ index ee502b3d377..f9b721696bd 100644
  Type=oneshot
  Group=1
  SupplementaryGroups=1
-diff --git a/test/test-execute/exec-supplementarygroups.service b/test/test-execute/exec-supplementarygroups.service
-index 43a9a981f24..4dee6af7484 100644
 --- a/test/test-execute/exec-supplementarygroups.service
 +++ b/test/test-execute/exec-supplementarygroups.service
 @@ -2,6 +2,7 @@

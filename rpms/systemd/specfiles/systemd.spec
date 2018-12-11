@@ -22,7 +22,7 @@
 Name:           systemd
 Url:            http://www.freedesktop.org/wiki/Software/systemd
 Version:        239
-Release:        1.fb5
+Release:        1.fb6
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -64,7 +64,22 @@ Patch1009:      10203.patch
 Patch1010:      10363.patch
 Patch1011:      10368.patch
 Patch1012:      FB-fix-test-mock-homedir.patch
-Patch1013:      10507-10567.patch
+Patch1013:      10411.patch
+Patch1014:      10493.patch
+# PR#10507
+Patch1015:      0001-cgroup-add-new-helper-that-knows-which-controllers-a.patch
+Patch1016:      0001-cgroup-v2-Don-t-require-CPU-controller-for-CPU-accou.patch
+Patch1017:      0002-cgtop-Still-try-to-get-CPU-statistics-if-controller-.patch
+Patch1018:      0003-cgroup-v2-DefaultCPUAccounting-yes-if-CPU-controller.patch
+# PR#10567
+Patch1019:      0001-cgroup-util-add-mask-definitions-for-sets-of-control.patch
+Patch1020:      0001-cgroup-Move-attribute-application-into-unit_create_c.patch
+Patch1021:      0002-cgroup-Rework-unit_realize_cgroup_now-to-explicitly-.patch
+Patch1022:      0003-cgroup-Traverse-leaves-to-realised-cgroup-to-release.patch
+Patch1023:      0004-cgroup-Add-DisableControllers-directive-to-disable-c.patch
+# PR#10876
+Patch1024:      0001-core-skip-cgroup_subtree_mask_valid-update-if-UNIT_S.patch
+Patch1025:      10757.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -713,6 +728,12 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Mon Dec 10 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb6
+- Backport PR#10411 and PR#10493 (systemd-analyze timespan command)
+- Rebase our PR#10507 and PR#10567 backports onto the version merged upstream
+- Backport PR#10757 (cgroup2 BPF devices fixes)
+- Backport PR#10876 (cgroup_subtree_mask propagation fix)
+
 * Fri Nov  2 2018 Davide Cavalca <dcavalca@fb.com> - 239-1.fb5
 - Backport PR#10507 (don't require CPU controller for CPU accounting)
 - Backport PR#10567 (DisableControllers= directive)
