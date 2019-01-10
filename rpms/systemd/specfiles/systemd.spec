@@ -80,6 +80,21 @@ Patch1023:      0004-cgroup-Add-DisableControllers-directive-to-disable-c.patch
 # PR#10876
 Patch1024:      0001-core-skip-cgroup_subtree_mask_valid-update-if-UNIT_S.patch
 Patch1025:      10757.patch
+# CVE-2018-15686
+Patch1026:      0001-core-when-deserializing-state-always-use-read_line-L.patch
+# CVE-2018-15688
+Patch1027:      0002-dhcp6-make-sure-we-have-enough-space-for-the-DHCP6-o.patch
+# CVE-2018-15687
+Patch1028:      0003-chown-recursive-let-s-rework-the-recursive-logic-to-.patch
+# CVE-2018-16864
+Patch1029:      0004-journald-do-not-store-the-iovec-entry-for-process-co.patch
+# CVE-2018-16866
+Patch1030:      0005-journal-fix-syslog_parse_identifier.patch
+Patch1031:      0006-journal-do-not-remove-multiple-spaces-after-identifi.patch
+# CVE-2018-16865
+Patch1032:      0007-journald-set-a-limit-on-the-number-of-fields-1k.patch
+Patch1033:      0008-basic-log-add-concept-of-synthethic-errnos.patch
+Patch1034:      0009-journal-remote-set-a-limit-on-the-number-of-fields-i.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
