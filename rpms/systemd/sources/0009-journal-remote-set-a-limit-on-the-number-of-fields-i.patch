@@ -1,0 +1,95 @@
+From 4616ad8467cccc619bf7244f5e7e42068fa22c96 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Zbigniew=20J=C4=99drzejewski-Szmek?= <zbyszek@in.waw.pl>
+Date: Fri, 7 Dec 2018 10:48:10 +0100
+Subject: [PATCH 9/9] journal-remote: set a limit on the number of fields in a
+ message
+
+Existing use of E2BIG is replaced with ENOBUFS (entry too long), and E2BIG is
+reused for the new error condition (too many fields).
+
+This matches the change done for systemd-journald, hence forming the second
+part of the fix for CVE-2018-16865
+(https://bugzilla.redhat.com/show_bug.cgi?id=1653861).
+---
+ src/basic/journal-importer.c             | 11 +++++++----
+ src/journal-remote/journal-remote-main.c | 19 ++++++++++---------
+ src/journal-remote/journal-remote.c      |  3 +++
+ 3 files changed, 20 insertions(+), 13 deletions(-)
+
+diff --git a/src/basic/journal-importer.c b/src/basic/journal-importer.c
+index ca203bbbf..2f28c5b48 100644
+--- a/src/basic/journal-importer.c
++++ b/src/basic/journal-importer.c
+@@ -23,6 +23,9 @@ enum {
+ };
+ 
+ static int iovw_put(struct iovec_wrapper *iovw, void* data, size_t len) {
++        if (iovw->count >= ENTRY_FIELD_COUNT_MAX)
++                return -E2BIG;
++
+         if (!GREEDY_REALLOC(iovw->iovec, iovw->size_bytes, iovw->count + 1))
+                 return log_oom();
+ 
+@@ -96,10 +99,10 @@ static int get_line(JournalImporter *imp, char **line, size_t *size) {
+                 }
+ 
+                 imp->scanned = imp->filled;
+-                if (imp->scanned >= DATA_SIZE_MAX) {
+-                        log_error("Entry is bigger than %u bytes.", DATA_SIZE_MAX);
+-                        return -E2BIG;
+-                }
++                if (imp->scanned >= DATA_SIZE_MAX)
++                        return log_error_errno(SYNTHETIC_ERRNO(ENOBUFS),
++                                               "Entry is bigger than %u bytes.",
++                                               DATA_SIZE_MAX);
+ 
+                 if (imp->passive_fd)
+                         /* we have to wait for some data to come to us */
+diff --git a/src/journal-remote/journal-remote-main.c b/src/journal-remote/journal-remote-main.c
+index 8fda9d149..ed7c7d26e 100644
+--- a/src/journal-remote/journal-remote-main.c
++++ b/src/journal-remote/journal-remote-main.c
+@@ -210,16 +210,17 @@ static int process_http_upload(
+                                    journal_remote_server_global->seal);
+                 if (r == -EAGAIN)
+                         break;
+-                else if (r < 0) {
+-                        log_warning("Failed to process data for connection %p", connection);
+-                        if (r == -E2BIG)
+-                                return mhd_respondf(connection,
+-                                                    r, MHD_HTTP_PAYLOAD_TOO_LARGE,
+-                                                    "Entry is too large, maximum is " STRINGIFY(DATA_SIZE_MAX) " bytes.");
++                if (r < 0) {
++                        if (r == -ENOBUFS)
++                                log_warning_errno(r, "Entry is above the maximum of %u, aborting connection %p.",
++                                                  DATA_SIZE_MAX, connection);
++                        else if (r == -E2BIG)
++                                log_warning_errno(r, "Entry with more fields than the maximum of %u, aborting connection %p.",
++                                                  ENTRY_FIELD_COUNT_MAX, connection);
+                         else
+-                                return mhd_respondf(connection,
+-                                                    r, MHD_HTTP_UNPROCESSABLE_ENTITY,
+-                                                    "Processing failed: %m.");
++                                log_warning_errno(r, "Failed to process data, aborting connection %p: %m",
++                                                  connection);
++                        return MHD_NO;
+                 }
+         }
+ 
+diff --git a/src/journal-remote/journal-remote.c b/src/journal-remote/journal-remote.c
+index beb75a1cb..644681ea8 100644
+--- a/src/journal-remote/journal-remote.c
++++ b/src/journal-remote/journal-remote.c
+@@ -408,6 +408,9 @@ int journal_remote_handle_raw_source(
+                 log_debug("%zu active sources remaining", s->active);
+                 return 0;
+         } else if (r == -E2BIG) {
++                log_notice("Entry with too many fields, skipped");
++                return 1;
++        } else if (r == -ENOBUFS) {
+                 log_notice_errno(E2BIG, "Entry too big, skipped");
+                 return 1;
+         } else if (r == -EAGAIN) {
+-- 
+2.20.1.97.g81188d93c3-goog
+
