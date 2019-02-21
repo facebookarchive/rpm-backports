@@ -95,6 +95,7 @@ Patch1031:      0006-journal-do-not-remove-multiple-spaces-after-identifi.patch
 Patch1032:      0007-journald-set-a-limit-on-the-number-of-fields-1k.patch
 Patch1033:      0008-basic-log-add-concept-of-synthethic-errnos.patch
 Patch1034:      0009-journal-remote-set-a-limit-on-the-number-of-fields-i.patch
+Patch1035:      0001-cgtop-Fix-processing-of-controllers-other-than-CPU.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
