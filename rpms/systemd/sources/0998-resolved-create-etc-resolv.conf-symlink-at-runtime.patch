@@ -1,4 +1,4 @@
-From b727694500d24d19ac0d7c51c1eb67c281f2f301 Mon Sep 17 00:00:00 2001
+From 86aa208e639b119007332718aa4f453af2a061d0 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Zbigniew=20J=C4=99drzejewski-Szmek?= <zbyszek@in.waw.pl>
 Date: Fri, 11 Mar 2016 17:06:17 -0500
 Subject: [PATCH] resolved: create /etc/resolv.conf symlink at runtime
@@ -13,14 +13,16 @@ don't touch it in that case either.
 
 https://bugzilla.redhat.com/show_bug.cgi?id=1313085
 ---
- src/resolve/resolved.c |    4 ++++
- tmpfiles.d/etc.conf.m4 |    3 ---
+ src/resolve/resolved.c | 4 ++++
+ tmpfiles.d/etc.conf.m4 | 3 ---
  2 files changed, 4 insertions(+), 3 deletions(-)
 
+diff --git a/src/resolve/resolved.c b/src/resolve/resolved.c
+index f4efddf8e5..3386e3bf67 100644
 --- a/src/resolve/resolved.c
 +++ b/src/resolve/resolved.c
-@@ -53,6 +53,10 @@ int main(int argc, char *argv[]) {
-         /* Drop privileges, but only if we have been started as root. If we are not running as root we assume all
+@@ -45,6 +45,10 @@ static int run(int argc, char *argv[]) {
+         /* Drop privileges, but only if we have been started as root. If we are not running as root we assume most
           * privileges are already dropped. */
          if (getuid() == 0) {
 +                r = symlink("../run/systemd/resolve/resolv.conf", "/etc/resolv.conf");
@@ -30,6 +32,8 @@ https://bugzilla.redhat.com/show_bug.cgi?id=1313085
  
                  /* Drop privileges, but keep three caps. Note that we drop those too, later on (see below) */
                  r = drop_privileges(uid, gid,
+diff --git a/tmpfiles.d/etc.conf.m4 b/tmpfiles.d/etc.conf.m4
+index df8d42101c..928105ea8d 100644
 --- a/tmpfiles.d/etc.conf.m4
 +++ b/tmpfiles.d/etc.conf.m4
 @@ -13,9 +13,6 @@ L+ /etc/mtab - - - - ../proc/self/mounts
@@ -42,3 +46,6 @@ https://bugzilla.redhat.com/show_bug.cgi?id=1313085
  C /etc/nsswitch.conf - - - -
  m4_ifdef(`HAVE_PAM',
  C /etc/pam.d - - - -
+-- 
+2.19.2
+

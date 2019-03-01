@@ -105,5 +105,7 @@ fi
 # This script will automatically apply binfmt rules if files have been
 # installed or updated in /usr/lib/binfmt.d.
 if test -d /run/systemd/system; then
-  /usr/lib/systemd/systemd-binfmt
+  # systemd-binfmt might fail if binfmt_misc kernel module is not loaded
+  # during install
+  /usr/lib/systemd/systemd-binfmt || :
 fi
