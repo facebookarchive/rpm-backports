@@ -1,0 +1,86 @@
+From 3152c46b3715ce938d2acef32b19cca8a2e1e915 Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Fri, 22 Mar 2019 15:22:45 +0100
+Subject: [PATCH] nspawn: don't free "fds" twice
+
+Previously both run() and run_container() would free 'fds'. Let's fix
+that, and let run() free it but make run_container() already remove all
+fds from it, because that's what we actually want to do.
+
+Fixes: #12073
+---
+ src/nspawn/nspawn.c |  2 +-
+ src/shared/fdset.c  | 28 ++++++++++++++--------------
+ src/shared/fdset.h  |  2 ++
+ 3 files changed, 17 insertions(+), 15 deletions(-)
+
+diff --git a/src/nspawn/nspawn.c b/src/nspawn/nspawn.c
+index f3842f70c65..36e88b2f3a1 100644
+--- a/src/nspawn/nspawn.c
++++ b/src/nspawn/nspawn.c
+@@ -4212,7 +4212,7 @@ static int run_container(int master,
+ 
+         barrier_set_role(&barrier, BARRIER_PARENT);
+ 
+-        fds = fdset_free(fds);
++        fdset_close(fds);
+ 
+         kmsg_socket_pair[1] = safe_close(kmsg_socket_pair[1]);
+         rtnl_socket_pair[1] = safe_close(rtnl_socket_pair[1]);
+diff --git a/src/shared/fdset.c b/src/shared/fdset.c
+index 5d277328c72..ae65286c783 100644
+--- a/src/shared/fdset.c
++++ b/src/shared/fdset.c
+@@ -48,25 +48,25 @@ int fdset_new_array(FDSet **ret, const int *fds, size_t n_fds) {
+         return 0;
+ }
+ 
+-FDSet* fdset_free(FDSet *s) {
++void fdset_close(FDSet *s) {
+         void *p;
+ 
+         while ((p = set_steal_first(MAKE_SET(s)))) {
+-                /* Valgrind's fd might have ended up in this set here,
+-                 * due to fdset_new_fill(). We'll ignore all failures
+-                 * here, so that the EBADFD that valgrind will return
+-                 * us on close() doesn't influence us */
+-
+-                /* When reloading duplicates of the private bus
+-                 * connection fds and suchlike are closed here, which
+-                 * has no effect at all, since they are only
+-                 * duplicates. So don't be surprised about these log
+-                 * messages. */
+-
+-                log_debug("Closing left-over fd %i", PTR_TO_FD(p));
+-                close_nointr(PTR_TO_FD(p));
++                /* Valgrind's fd might have ended up in this set here, due to fdset_new_fill(). We'll ignore
++                 * all failures here, so that the EBADFD that valgrind will return us on close() doesn't
++                 * influence us */
++
++                /* When reloading duplicates of the private bus connection fds and suchlike are closed here,
++                 * which has no effect at all, since they are only duplicates. So don't be surprised about
++                 * these log messages. */
++
++                log_debug("Closing set fd %i", PTR_TO_FD(p));
++                (void) close_nointr(PTR_TO_FD(p));
+         }
++}
+ 
++FDSet* fdset_free(FDSet *s) {
++        fdset_close(s);
+         set_free(MAKE_SET(s));
+         return NULL;
+ }
+diff --git a/src/shared/fdset.h b/src/shared/fdset.h
+index d31062b5c62..bdf1377038c 100644
+--- a/src/shared/fdset.h
++++ b/src/shared/fdset.h
+@@ -33,6 +33,8 @@ int fdset_iterate(FDSet *s, Iterator *i);
+ 
+ int fdset_steal_first(FDSet *fds);
+ 
++void fdset_close(FDSet *fds);
++
+ #define FDSET_FOREACH(fd, fds, i) \
+         for ((i) = ITERATOR_FIRST, (fd) = fdset_iterate((fds), &(i)); (fd) >= 0; (fd) = fdset_iterate((fds), &(i)))
+ 

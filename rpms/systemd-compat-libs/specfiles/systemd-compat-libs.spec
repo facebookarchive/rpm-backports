@@ -11,7 +11,7 @@
 Name:           systemd-compat-libs
 Url:            https://github.com/facebookincubator/systemd-compat-libs
 Version:        241
-Release:        1.fb1
+Release:        1.fb2
 # For a breakdown of the licensing, see README
 License:        LGPLv2+
 Summary:        Compatibility libraries for systemd
@@ -90,6 +90,9 @@ rm -rf %{buildroot}/%{_sbindir}/
 %{_libdir}/pkgconfig/libsystemd-id128.pc
 
 %changelog
+* Fri Mar 22 2019 Davide Cavalca <dcavalca@fb.com> - 241-1.fb2
+- Bump version to match systemd packages
+
 * Wed Feb 27 2019 Davide Cavalca <dcavalca@fb.com> - 241-1.fb1
 - New upstream release
 - Bump meson requirement to match systemd

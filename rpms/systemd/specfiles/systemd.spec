@@ -27,7 +27,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        241
-Release:        1.fb1
+Release:        1.fb2
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -36,7 +36,7 @@ Summary:        System and Service Manager
 
 # download tarballs with "spectool -g systemd.spec"
 %if %{defined commit}
-Source0:        https://github.com/systemd/systemd%{?stable:-stable}/archive/%{?commit}.tar.gz#/%{name}-%{commitshort}.tar.gz
+Source0:        https://github.com/systemd/systemd%{?stable:-stable}/archive/%{?commit}.tar.gz#/%{name}-%{shortcommit}.tar.gz
 %else
 Source0:        https://github.com/systemd/systemd/archive/v%{github_version}.tar.gz#/%{name}-%{github_version}.tar.gz
 %endif
@@ -70,6 +70,10 @@ Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.p
 Patch1001:      11831.patch
 # PR#11836 test: do not assume test-chown-rec is running as root
 Patch1002:      11836.patch
+# PR#11754 sd-bus path limit fixes (CVE-2019-6454)
+Patch1003:      11754.patch
+# PR#12078 nspawn: don't free "fds" twice
+Patch1004:      12078.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -720,6 +724,10 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Fri Mar 22 2019 Davide Cavalca <dcavalca@fb.com> - 241-1.fb2
+- Backport PR#11754 (sd-bus fixes for CVE-2019-6454)
+- Backport PR#12078 (nspawn fix)
+
 * Wed Feb 27 2019 Davide Cavalca <dcavalca@fb.com> - 241-1.fb1
 - Facebook rebuild
 - Rebase fio udev patch (this will likely be dropped in the next release)
