@@ -26,8 +26,8 @@
 
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
-Version:        241
-Release:        1.fb2
+Version:        242
+Release:        2.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -36,9 +36,9 @@ Summary:        System and Service Manager
 
 # download tarballs with "spectool -g systemd.spec"
 %if %{defined commit}
-Source0:        https://github.com/systemd/systemd%{?stable:-stable}/archive/%{?commit}.tar.gz#/%{name}-%{shortcommit}.tar.gz
+Source0:        https://github.com/systemd/systemd%{?stable:-stable}/archive/%{commit}/%{name}-%{shortcommit}.tar.gz
 %else
-Source0:        https://github.com/systemd/systemd/archive/v%{github_version}.tar.gz#/%{name}-%{github_version}.tar.gz
+Source0:        https://github.com/systemd/systemd/archive/v%{github_version}/%{name}-%{github_version}.tar.gz
 %endif
 # This file must be available before %%prep.
 # It is generated during systemd build and can be found in build/src/core/.
@@ -66,14 +66,8 @@ Patch0002:      0002-Revert-units-set-NoNewPrivileges-for-all-long-runnin.patch
 Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
 
 Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
-# PR#11831 fs-util: add missing linux/falloc.h include
-Patch1001:      11831.patch
-# PR#11836 test: do not assume test-chown-rec is running as root
-Patch1002:      11836.patch
-# PR#11754 sd-bus path limit fixes (CVE-2019-6454)
-Patch1003:      11754.patch
-# PR#12078 nspawn: don't free "fds" twice
-Patch1004:      12078.patch
+# PR#12336: support DisableControllers= for transient units
+Patch1001:      12336.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -113,6 +107,7 @@ BuildRequires:  pkgconfig
 BuildRequires:  gperf
 BuildRequires:  gawk
 BuildRequires:  tree
+BuildRequires:  hostname
 BuildRequires:  python34-devel
 BuildRequires:  python34-lxml
 BuildRequires:  python36
@@ -343,6 +338,7 @@ CONFIGURE_OPTS=(
         -Dsplit-usr=false
         -Dsplit-bin=true
         -Db_lto=false
+        -Db_ndebug=false
         -Dversion-tag=v%{version}-%{release}
         -Ddocdir=%{_pkgdocdir}
 )
@@ -499,7 +495,7 @@ EOF
 %check
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
-%meson_test
+%ninja_test -C %{_vpath_builddir}
 
 #############################################################################################
 
@@ -538,8 +534,9 @@ if [ $1 -eq 1 ] && [ -w %{_localstatedir} ]; then
 fi
 
 # Make sure new journal files will be owned by the "systemd-journal" group
-chgrp systemd-journal /run/log/journal/ /run/log/journal/`cat /etc/machine-id 2>/dev/null` /var/log/journal/ /var/log/journal/`cat /etc/machine-id 2>/dev/null` &>/dev/null || :
-chmod g+s /run/log/journal/ /run/log/journal/`cat /etc/machine-id 2>/dev/null` /var/log/journal/ /var/log/journal/`cat /etc/machine-id 2>/dev/null` &>/dev/null || :
+machine_id=$(cat /etc/machine-id 2>/dev/null)
+chgrp systemd-journal /{run,var}/log/journal/{,${machine_id}} &>/dev/null || :
+chmod g+s /{run,var}/log/journal/{,${machine_id}} &>/dev/null || :
 
 # Apply ACL to the journal directory
 setfacl -Rnm g:wheel:rx,d:g:wheel:rx,g:adm:rx,d:g:adm:rx /var/log/journal/ &>/dev/null || :
@@ -561,14 +558,10 @@ if [ $1 -eq 0 ] ; then
                 serial-getty@.service \
                 console-getty.service \
                 debug-shell.service \
-                systemd-readahead-replay.service \
-                systemd-readahead-collect.service \
                 systemd-networkd.service \
                 systemd-networkd-wait-online.service \
                 systemd-resolved.service \
                 >/dev/null || :
-
-        rm -f /etc/systemd/system/default.target &>/dev/null || :
 fi
 
 %post libs
@@ -724,9 +717,40 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Thu Apr 25 2019 Davide Cavalca <dcavalca@fb.com> - 242-2.fb1
+- Facebook rebuild
+- Backport PR#12336 (support DisableControllers= for transient units)
+
+* Tue Apr 16 2019 Adam Williamson <awilliam@redhat.com> - 242-2
+- Rebuild with Meson fix for #1699099
+
+* Thu Apr 11 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 242-1
+- Update to latest release
+- Make scriptlet failure non-fatal
+
+* Tue Apr  9 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 242~rc4-1
+- Update to latest prerelease
+
+* Thu Apr  4 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 242~rc3-1
+- Update to latest prerelease
+
+* Wed Apr  3 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 242~rc2-1
+- Update to the latest prerelease.
+- The bug reported on latest update that systemd-resolved and systemd-networkd are
+  re-enabled after upgrade is fixed.
+
+* Fri Mar 29 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 241-4.gitcbf14c9
+- Backport various patches from the v241..v242 range:
+  kernel-install will not create the boot loader entry automatically (#1648907),
+  various bash completion improvements (#1183769),
+  memory leaks and such (#1685286).
+
 * Fri Mar 22 2019 Davide Cavalca <dcavalca@fb.com> - 241-1.fb2
 - Backport PR#11754 (sd-bus fixes for CVE-2019-6454)
 - Backport PR#12078 (nspawn fix)
+
+* Thu Mar 14 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 241-3.gitc1f8ff8
+- Declare hyperv and framebuffer devices master-of-seat again (#1683197)
 
 * Wed Feb 27 2019 Davide Cavalca <dcavalca@fb.com> - 241-1.fb1
 - Facebook rebuild
@@ -735,6 +759,10 @@ fi
 - Ignore errors for Python bytecompiling due to run-unit-tests.py
 - Fix the run-unit-tests.py shebang to use python36
 - Backport PR#11831 (missing include) and PR#11836 (test-chown-rec fix)
+
+* Wed Feb 20 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 241-2.gita09c170
+- Prevent buffer overread in systemd-udevd
+- Properly validate dbus paths received over dbus (#1678394, CVE-2019-6454)
 
 * Sat Feb  9 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 241~rc2-2
 - Turn LTO back on

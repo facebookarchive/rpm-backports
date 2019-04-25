@@ -8,16 +8,31 @@
 %global __global_ldflags -Wl,-z,relro %{_hardened_ldflags}
 %global __meson_wrap_mode default
 
+#global commit ad47606e6ac9f4ef3451369a4c3b1ba2b60ef16d
+#global systemd_commit f02b5472c6f0c41e5dc8dc2c84590866baf937ff
+%{?commit:%global shortcommit %(c=%{commit}; echo ${c:0:7})}
+%{?commit:%global systemd_shortcommit %(c=%{systemd_commit}; echo ${c:0:7})}
+
 Name:           systemd-compat-libs
 Url:            https://github.com/facebookincubator/systemd-compat-libs
-Version:        241
-Release:        1.fb2
+Version:        242
+Release:        2.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+
 Summary:        Compatibility libraries for systemd
 
-Source0:        https://github.com/facebookincubator/systemd-compat-libs/archive/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
-Source1:        https://github.com/systemd/systemd/archive/v%{version}.tar.gz#/systemd-%{version}.tar.gz
+%global github_version %(c=%{version}; echo ${c}|tr '~' '-')
+
+%if %{defined commit}
+Source0:        https://github.com/facebookincubator/systemd-compat-libs/archive/%{?commit}/%{name}-%{shortcommit}.tar.gz
+%else
+Source0:        https://github.com/facebookincubator/systemd-compat-libs/archive/v%{github_version}/%{name}-%{github_version}.tar.gz
+%endif
+%if %{defined systemd_commit}
+Source1:        https://github.com/systemd/systemd/archive/%{?systemd_commit}/systemd-%{systemd_shortcommit}.tar.gz
+%else
+Source1:        https://github.com/systemd/systemd/archive/v%{github_version}/systemd-%{github_version}.tar.gz
+%endif
 
 BuildRequires:  meson >= 0.47
 BuildRequires:  git
@@ -30,6 +45,10 @@ BuildRequires:  intltool
 BuildRequires:  libxslt
 BuildRequires:  docbook-style-xsl
 BuildRequires:  python34
+%if %{defined systemd_commit}
+BuildRequires:  coreutils
+BuildRequires:  gawk
+%endif
 Obsoletes:      system-compat-libs < %{version}-%{release}
 
 %description
@@ -50,11 +69,20 @@ Development headers and auxiliary files for developing applications linking
 to systemd-compat-libs.
 
 %prep
-%setup -q
-%autopatch -p1
+%autosetup -n %{?commit:%{name}%{?stable:-stable}-%{commit}}%{!?commit:%{name}%{?stable:-stable}-%{github_version}} -p1 -Sgit
 mkdir -p subprojects/packagecache
 cp -p %SOURCE1 subprojects/packagecache/
-cp -p wrap-patches/systemd-%{version}-wrap-patch.tar.gz subprojects/packagecache/
+
+%if %{defined systemd_commit}
+sed -i meson.build -e "s/version : '[0-9]*'/version : '%{github_version}'/"
+cat > subprojects/systemd.wrap <<EOF
+[wrap-file]
+directory = systemd-%{systemd_commit}
+source_url = https://github.com/systemd/systemd/archive/%{?systemd_commit}.tar.gz
+source_filename = systemd-%{systemd_shortcommit}.tar.gz
+source_hash = $(sha256sum %SOURCE1 | awk '{print $1}')
+EOF
+%endif
 
 %build
 export LANG=en_US.UTF-8
@@ -66,7 +94,6 @@ export LC_ALL=en_US.UTF-8
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 %meson_install
-rm -rf %{buildroot}/%{_sbindir}/
 
 %post
 /sbin/ldconfig
@@ -90,6 +117,9 @@ rm -rf %{buildroot}/%{_sbindir}/
 %{_libdir}/pkgconfig/libsystemd-id128.pc
 
 %changelog
+* Thu Apr 25 2019 Davide Cavalca <dcavalca@fb.com> - 242-2.fb1
+- New upstream release
+
 * Fri Mar 22 2019 Davide Cavalca <dcavalca@fb.com> - 241-1.fb2
 - Bump version to match systemd packages
 

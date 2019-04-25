@@ -62,7 +62,7 @@ fi
 # specified users automatically. The priority is set such that it
 # will run before the tmpfiles file trigger.
 if test -d /run/systemd/system; then
-  %{_bindir}/systemd-sysusers
+  %{_bindir}/systemd-sysusers || :
 fi
 
 %transfiletriggerin -P 100500 -- /usr/lib/tmpfiles.d
@@ -70,35 +70,35 @@ fi
 # tmpfiles automatically. The priority is set such that it will run
 # after the sysusers file trigger, but before any other triggers.
 if test -d /run/systemd/system; then
-  %{_bindir}/systemd-tmpfiles --create
+  %{_bindir}/systemd-tmpfiles --create || :
 fi
 
 %transfiletriggerin udev -- /usr/lib/udev/hwdb.d
 # This script will automatically invoke hwdb update if files have been
 # installed or updated in /usr/lib/udev/hwdb.d.
 if test -d /run/systemd/system; then
-  %{_bindir}/systemd-hwdb update
+  %{_bindir}/systemd-hwdb update || :
 fi
 
 %transfiletriggerin -- /usr/lib/systemd/catalog
 # This script will automatically invoke journal catalog update if files
 # have been installed or updated in /usr/lib/systemd/catalog.
 if test -d /run/systemd/system; then
-  %{_bindir}/journalctl --update-catalog
+  %{_bindir}/journalctl --update-catalog || :
 fi
 
 %transfiletriggerin udev -- /usr/lib/udev/rules.d
 # This script will automatically update udev with new rules if files
 # have been installed or updated in /usr/lib/udev/rules.d.
-if test -d /run/systemd/system; then
-  %{_bindir}/udevadm control --reload
+if test -e /run/udev/control; then
+  %{_bindir}/udevadm control --reload || :
 fi
 
 %transfiletriggerin -- /usr/lib/sysctl.d
 # This script will automatically apply sysctl rules if files have been
 # installed or updated in /usr/lib/sysctl.d.
 if test -d /run/systemd/system; then
-  /usr/lib/systemd/systemd-sysctl
+  /usr/lib/systemd/systemd-sysctl || :
 fi
 
 %transfiletriggerin -- /usr/lib/binfmt.d
