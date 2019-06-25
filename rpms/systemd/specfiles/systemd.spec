@@ -27,7 +27,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        242
-Release:        2.fb1
+Release:        2.fb2
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -68,6 +68,10 @@ Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
 Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
 # PR#12336: support DisableControllers= for transient units
 Patch1001:      12336.patch
+Patch1002:      1002-core-add-ExecStartXYZEx-with-dbus-support-for-execut.patch
+# PR#12729: nspawn: don't hard fail when setting capabilities
+Patch1003:      12729.patch
+Patch1004:      1004-bpf-firewall-optimization-for-IPAddressXYZ-any-and-u.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -717,6 +721,11 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Thu Jun 20 2019 Anita Zhang <anitazha@fb.com> - 242-2.fb2
+- Backport PR#11778 (ExecStartXYZEx= dbus support)
+- Backport PR#12729 (nspawn: don't hard fail when setting capabilities)
+- Backport PR#12745 (IPAddressXYZ="any" for users with CAP_NET_ADMIN)
+
 * Thu Apr 25 2019 Davide Cavalca <dcavalca@fb.com> - 242-2.fb1
 - Facebook rebuild
 - Backport PR#12336 (support DisableControllers= for transient units)
@@ -1249,7 +1258,7 @@ fi
 - Fix test failures in mock (#7950934, PR#3821)
 - drop fsck on root patch now that we have the new dracut (see PR#3822)
 - Rework LTO disable patch to be conditional (#11565880, PR#3823)
-- update compat-libs and rebase onto public branch 
+- update compat-libs and rebase onto public branch
   (https://github.com/davide125/systemd/tree/compat-libs)
 - add back python support now that we have python34-lxml
 - add back xkbcommon support as it's available in rolling os updates

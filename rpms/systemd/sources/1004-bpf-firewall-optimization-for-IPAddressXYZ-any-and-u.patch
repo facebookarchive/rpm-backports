@@ -1,0 +1,260 @@
+From 1879ee889cb01e16449be752d29dca09bbdd4c7f Mon Sep 17 00:00:00 2001
+From: Anita Zhang <the.anitazha@gmail.com>
+Date: Mon, 20 May 2019 14:43:53 -0700
+Subject: [PATCH 3/3] bpf-firewall: optimization for IPAddressXYZ="any" (and
+ unprivileged users)
+
+This is a workaround to make IPAddressDeny=any/IPAddressAllow=any work
+for non-root users that have CAP_NET_ADMIN. "any" was chosen since
+all or nothing network access is one of the most common use cases for
+isolation.
+
+Allocating BPF LPM TRIE maps require CAP_SYS_ADMIN while BPF_PROG_TYPE_CGROUP_SKB
+only needs CAP_NET_ADMIN. In the case of IPAddressXYZ="any" we can just
+consistently return false/true to avoid allocating the map and limit the user
+to having CAP_NET_ADMIN.
+---
+ src/core/bpf-firewall.c      | 94 +++++++++++++++++++++++-------------
+ src/core/ip-address-access.c | 18 +++++++
+ src/core/ip-address-access.h |  4 ++
+ 3 files changed, 83 insertions(+), 33 deletions(-)
+
+diff --git a/src/core/bpf-firewall.c b/src/core/bpf-firewall.c
+index 2ecce30..4f1655b 100644
+--- a/src/core/bpf-firewall.c
++++ b/src/core/bpf-firewall.c
+@@ -124,10 +124,30 @@ static int add_lookup_instructions(
+         return 0;
+ }
+ 
++static int add_instructions_for_ip_any(
++                BPFProgram *p,
++                int verdict) {
++        int r;
++
++        assert(p);
++
++        struct bpf_insn insn[] = {
++                BPF_ALU32_IMM(BPF_OR, BPF_REG_8, verdict),
++        };
++
++        r = bpf_program_add_instructions(p, insn, 1);
++        if (r < 0)
++                return r;
++
++        return 0;
++}
++
+ static int bpf_firewall_compile_bpf(
+                 Unit *u,
+                 bool is_ingress,
+-                BPFProgram **ret) {
++                BPFProgram **ret,
++                bool ip_allow_any,
++                bool ip_deny_any) {
+ 
+         struct bpf_insn pre_insn[] = {
+                 /*
+@@ -186,7 +206,9 @@ static int bpf_firewall_compile_bpf(
+                 u->ipv4_allow_map_fd >= 0 ||
+                 u->ipv6_allow_map_fd >= 0 ||
+                 u->ipv4_deny_map_fd >= 0 ||
+-                u->ipv6_deny_map_fd >= 0;
++                u->ipv6_deny_map_fd >= 0 ||
++                ip_allow_any ||
++                ip_deny_any;
+ 
+         if (accounting_map_fd < 0 && !access_enabled) {
+                 *ret = NULL;
+@@ -233,6 +255,18 @@ static int bpf_firewall_compile_bpf(
+                         if (r < 0)
+                                 return r;
+                 }
++
++                if (ip_allow_any) {
++                        r = add_instructions_for_ip_any(p, ACCESS_ALLOWED);
++                        if (r < 0)
++                                return r;
++                }
++
++                if (ip_deny_any) {
++                        r = add_instructions_for_ip_any(p, ACCESS_DENIED);
++                        if (r < 0)
++                                return r;
++                }
+         }
+ 
+         r = bpf_program_add_instructions(p, post_insn, ELEMENTSOF(post_insn));
+@@ -374,15 +408,18 @@ static int bpf_firewall_prepare_access_maps(
+                 Unit *u,
+                 int verdict,
+                 int *ret_ipv4_map_fd,
+-                int *ret_ipv6_map_fd) {
++                int *ret_ipv6_map_fd,
++                bool *ret_has_any) {
+ 
+         _cleanup_close_ int ipv4_map_fd = -1, ipv6_map_fd = -1;
+         size_t n_ipv4 = 0, n_ipv6 = 0;
++        IPAddressAccessItem *list;
+         Unit *p;
+         int r;
+ 
+         assert(ret_ipv4_map_fd);
+         assert(ret_ipv6_map_fd);
++        assert(ret_has_any);
+ 
+         for (p = u; p; p = UNIT_DEREF(p->slice)) {
+                 CGroupContext *cc;
+@@ -391,7 +428,16 @@ static int bpf_firewall_prepare_access_maps(
+                 if (!cc)
+                         continue;
+ 
+-                bpf_firewall_count_access_items(verdict == ACCESS_ALLOWED ? cc->ip_address_allow : cc->ip_address_deny, &n_ipv4, &n_ipv6);
++                list = verdict == ACCESS_ALLOWED ? cc->ip_address_allow : cc->ip_address_deny;
++
++                bpf_firewall_count_access_items(list, &n_ipv4, &n_ipv6);
++
++                /* Skip making the LPM trie map in cases where we are using "any" in order to hack around
++                 * needing CAP_SYS_ADMIN for allocating LPM trie map. */
++                if (ip_address_access_item_is_any(list)) {
++                        *ret_has_any = true;
++                        return 0;
++                }
+         }
+ 
+         if (n_ipv4 > 0) {
+@@ -433,6 +479,7 @@ static int bpf_firewall_prepare_access_maps(
+         *ret_ipv6_map_fd = ipv6_map_fd;
+ 
+         ipv4_map_fd = ipv6_map_fd = -1;
++        *ret_has_any = false;
+         return 0;
+ }
+ 
+@@ -474,6 +521,7 @@ static int bpf_firewall_prepare_accounting_maps(Unit *u, bool enabled, int *fd_i
+ int bpf_firewall_compile(Unit *u) {
+         CGroupContext *cc;
+         int r, supported;
++        bool ip_allow_any = false, ip_deny_any = false;
+ 
+         assert(u);
+ 
+@@ -518,11 +566,11 @@ int bpf_firewall_compile(Unit *u) {
+                  * means that all configure IP access rules *will* take effect on processes, even though we never
+                  * compile them for inner nodes. */
+ 
+-                r = bpf_firewall_prepare_access_maps(u, ACCESS_ALLOWED, &u->ipv4_allow_map_fd, &u->ipv6_allow_map_fd);
++                r = bpf_firewall_prepare_access_maps(u, ACCESS_ALLOWED, &u->ipv4_allow_map_fd, &u->ipv6_allow_map_fd, &ip_allow_any);
+                 if (r < 0)
+                         return log_unit_error_errno(u, r, "Preparation of eBPF allow maps failed: %m");
+ 
+-                r = bpf_firewall_prepare_access_maps(u, ACCESS_DENIED, &u->ipv4_deny_map_fd, &u->ipv6_deny_map_fd);
++                r = bpf_firewall_prepare_access_maps(u, ACCESS_DENIED, &u->ipv4_deny_map_fd, &u->ipv6_deny_map_fd, &ip_deny_any);
+                 if (r < 0)
+                         return log_unit_error_errno(u, r, "Preparation of eBPF deny maps failed: %m");
+         }
+@@ -531,11 +579,11 @@ int bpf_firewall_compile(Unit *u) {
+         if (r < 0)
+                 return log_unit_error_errno(u, r, "Preparation of eBPF accounting maps failed: %m");
+ 
+-        r = bpf_firewall_compile_bpf(u, true, &u->ip_bpf_ingress);
++        r = bpf_firewall_compile_bpf(u, true, &u->ip_bpf_ingress, ip_allow_any, ip_deny_any);
+         if (r < 0)
+                 return log_unit_error_errno(u, r, "Compilation for ingress BPF program failed: %m");
+ 
+-        r = bpf_firewall_compile_bpf(u, false, &u->ip_bpf_egress);
++        r = bpf_firewall_compile_bpf(u, false, &u->ip_bpf_egress, ip_allow_any, ip_deny_any);
+         if (r < 0)
+                 return log_unit_error_errno(u, r, "Compilation for egress BPF program failed: %m");
+ 
+@@ -654,25 +702,17 @@ int bpf_firewall_supported(void) {
+         _cleanup_(bpf_program_unrefp) BPFProgram *program = NULL;
+         static int supported = -1;
+         union bpf_attr attr;
+-        int fd, r;
++        int r;
+ 
+-        /* Checks whether BPF firewalling is supported. For this, we check five things:
++        /* Checks whether BPF firewalling is supported. For this, we check the following things:
+          *
+-         * a) whether we are privileged
+-         * b) whether the unified hierarchy is being used
+-         * c) the BPF implementation in the kernel supports BPF LPM TRIE maps, which we require
+-         * d) the BPF implementation in the kernel supports BPF_PROG_TYPE_CGROUP_SKB programs, which we require
+-         * e) the BPF implementation in the kernel supports the BPF_PROG_DETACH call, which we require
++         * - whether the unified hierarchy is being used
++         * - the BPF implementation in the kernel supports BPF_PROG_TYPE_CGROUP_SKB programs, which we require
++         * - the BPF implementation in the kernel supports the BPF_PROG_DETACH call, which we require
+          */
+-
+         if (supported >= 0)
+                 return supported;
+ 
+-        if (geteuid() != 0) {
+-                log_debug("Not enough privileges, BPF firewalling is not supported.");
+-                return supported = BPF_FIREWALL_UNSUPPORTED;
+-        }
+-
+         r = cg_unified_controller(SYSTEMD_CGROUP_CONTROLLER);
+         if (r < 0)
+                 return log_error_errno(r, "Can't determine whether the unified hierarchy is used: %m");
+@@ -681,18 +721,6 @@ int bpf_firewall_supported(void) {
+                 return supported = BPF_FIREWALL_UNSUPPORTED;
+         }
+ 
+-        fd = bpf_map_new(BPF_MAP_TYPE_LPM_TRIE,
+-                         offsetof(struct bpf_lpm_trie_key, data) + sizeof(uint64_t),
+-                         sizeof(uint64_t),
+-                         1,
+-                         BPF_F_NO_PREALLOC);
+-        if (fd < 0) {
+-                log_debug_errno(fd, "Can't allocate BPF LPM TRIE map, BPF firewalling is not supported: %m");
+-                return supported = BPF_FIREWALL_UNSUPPORTED;
+-        }
+-
+-        safe_close(fd);
+-
+         r = bpf_program_new(BPF_PROG_TYPE_CGROUP_SKB, &program);
+         if (r < 0) {
+                 log_debug_errno(r, "Can't allocate CGROUP SKB BPF program, BPF firewalling is not supported: %m");
+diff --git a/src/core/ip-address-access.c b/src/core/ip-address-access.c
+index 1d431bb..1078223 100644
+--- a/src/core/ip-address-access.c
++++ b/src/core/ip-address-access.c
+@@ -203,3 +203,21 @@ IPAddressAccessItem* ip_address_access_reduce(IPAddressAccessItem *first) {
+ 
+         return first;
+ }
++
++bool ip_address_access_item_is_any(IPAddressAccessItem *first) {
++        /* Check for exactly two entries */
++        if (!first || !first->items_next || first->items_next->items_next)
++                return false;
++
++        /* Check both entries cover the full range */
++        if (first->prefixlen != 0 || first->items_next->prefixlen != 0)
++                return false;
++
++        /* Check that one of them is the IPv4 and the other IPv6 */
++        if (!((first->family == AF_INET && first->items_next->family == AF_INET6) ||
++                                (first->family == AF_INET6 && first->items_next->family == AF_INET)))
++                return false;
++
++        /* No need to check the actual addresses, they don't matter if the prefix is zero */
++        return true;
++}
+diff --git a/src/core/ip-address-access.h b/src/core/ip-address-access.h
+index 77078e1..8d3ab73 100644
+--- a/src/core/ip-address-access.h
++++ b/src/core/ip-address-access.h
+@@ -19,3 +19,7 @@ CONFIG_PARSER_PROTOTYPE(config_parse_ip_address_access);
+ IPAddressAccessItem* ip_address_access_free_all(IPAddressAccessItem *first);
+ 
+ IPAddressAccessItem* ip_address_access_reduce(IPAddressAccessItem *first);
++
++/* Returns true if a list consists of only the two items necessary for "any"
++ * (0.0.0.0/0 and ::/0). */
++bool ip_address_access_item_is_any(IPAddressAccessItem *first);
+-- 
+2.17.1
+

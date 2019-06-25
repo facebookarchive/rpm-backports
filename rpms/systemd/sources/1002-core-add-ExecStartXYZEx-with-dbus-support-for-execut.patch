@@ -1,0 +1,947 @@
+From b76dfd4de7e198b20a83677847b96164c296cb8b Mon Sep 17 00:00:00 2001
+From: Anita Zhang <the.anitazha@gmail.com>
+Date: Wed, 20 Feb 2019 14:53:58 -0800
+Subject: [PATCH 1/3] core: add ExecStartXYZEx= with dbus support for
+ executable prefixes
+
+Closes #11654
+---
+ src/core/dbus-execute.c    | 113 +++++++++++++++++--
+ src/core/dbus-execute.h    |   4 +
+ src/core/dbus-service.c    |   4 +
+ src/core/execute.h         |  10 +-
+ src/core/service.c         |   8 ++
+ src/core/service.h         |   3 +
+ src/shared/bus-unit-util.c |  70 +++++++++---
+ src/shared/exec-util.c     |  74 ++++++++++++
+ src/shared/exec-util.h     |  15 +++
+ src/systemctl/systemctl.c  | 225 ++++++++++++++++++++++---------------
+ src/test/test-exec-util.c  |  46 ++++++++
+ 11 files changed, 447 insertions(+), 125 deletions(-)
+
+diff --git a/src/core/dbus-execute.c b/src/core/dbus-execute.c
+index 5532d1a..c5f329d 100644
+--- a/src/core/dbus-execute.c
++++ b/src/core/dbus-execute.c
+@@ -827,6 +827,50 @@ static int append_exec_command(sd_bus_message *reply, ExecCommand *c) {
+         return sd_bus_message_close_container(reply);
+ }
+ 
++static int append_exec_ex_command(sd_bus_message *reply, ExecCommand *c) {
++        _cleanup_strv_free_ char **ex_opts = NULL;
++        int r;
++
++        assert(reply);
++        assert(c);
++
++        if (!c->path)
++                return 0;
++
++        r = sd_bus_message_open_container(reply, 'r', "sasasttttuii");
++        if (r < 0)
++                return r;
++
++        r = sd_bus_message_append(reply, "s", c->path);
++        if (r < 0)
++                return r;
++
++        r = sd_bus_message_append_strv(reply, c->argv);
++        if (r < 0)
++                return r;
++
++        r = exec_command_flags_to_strv(c->flags, &ex_opts);
++        if (r < 0)
++                return r;
++
++        r = sd_bus_message_append_strv(reply, ex_opts);
++        if (r < 0)
++                return r;
++
++        r = sd_bus_message_append(reply, "ttttuii",
++                                  c->exec_status.start_timestamp.realtime,
++                                  c->exec_status.start_timestamp.monotonic,
++                                  c->exec_status.exit_timestamp.realtime,
++                                  c->exec_status.exit_timestamp.monotonic,
++                                  (uint32_t) c->exec_status.pid,
++                                  (int32_t) c->exec_status.code,
++                                  (int32_t) c->exec_status.status);
++        if (r < 0)
++                return r;
++
++        return sd_bus_message_close_container(reply);
++}
++
+ int bus_property_get_exec_command(
+                 sd_bus *bus,
+                 const char *path,
+@@ -881,6 +925,47 @@ int bus_property_get_exec_command_list(
+         return sd_bus_message_close_container(reply);
+ }
+ 
++int bus_property_get_exec_ex_command_list(
++                sd_bus *bus,
++                const char *path,
++                const char *interface,
++                const char *property,
++                sd_bus_message *reply,
++                void *userdata,
++                sd_bus_error *ret_error) {
++
++        ExecCommand *c, *exec_command = *(ExecCommand**) userdata;
++        int r;
++
++        assert(bus);
++        assert(reply);
++
++        r = sd_bus_message_open_container(reply, 'a', "(sasasttttuii)");
++        if (r < 0)
++                return r;
++
++        LIST_FOREACH(command, c, exec_command) {
++                r = append_exec_ex_command(reply, c);
++                if (r < 0)
++                        return r;
++        }
++
++        return sd_bus_message_close_container(reply);
++}
++
++static char *exec_command_flags_to_exec_chars(ExecCommandFlags flags) {
++        char *res = NULL;
++
++        asprintf(&res, "%s%s%s%s%s",
++                FLAGS_SET(flags, EXEC_COMMAND_IGNORE_FAILURE)   ? "-" : "",
++                FLAGS_SET(flags, EXEC_COMMAND_NO_ENV_EXPAND)    ? ":" : "",
++                FLAGS_SET(flags, EXEC_COMMAND_FULLY_PRIVILEGED) ? "+" : "",
++                FLAGS_SET(flags, EXEC_COMMAND_NO_SETUID)        ? "!" : "",
++                FLAGS_SET(flags, EXEC_COMMAND_AMBIENT_MAGIC)    ? "!!" : "");
++
++        return res;
++}
++
+ int bus_set_transient_exec_command(
+                 Unit *u,
+                 const char *name,
+@@ -888,15 +973,16 @@ int bus_set_transient_exec_command(
+                 sd_bus_message *message,
+                 UnitWriteFlags flags,
+                 sd_bus_error *error) {
++        bool is_ex_prop = endswith(name, "Ex");
+         unsigned n = 0;
+         int r;
+ 
+-        r = sd_bus_message_enter_container(message, 'a', "(sasb)");
++        r = sd_bus_message_enter_container(message, 'a', is_ex_prop ? "(sasas)" : "(sasb)");
+         if (r < 0)
+                 return r;
+ 
+-        while ((r = sd_bus_message_enter_container(message, 'r', "sasb")) > 0) {
+-                _cleanup_strv_free_ char **argv = NULL;
++        while ((r = sd_bus_message_enter_container(message, 'r', is_ex_prop ? "sasas" : "sasb")) > 0) {
++                _cleanup_strv_free_ char **argv = NULL, **ex_opts = NULL;
+                 const char *path;
+                 int b;
+ 
+@@ -911,7 +997,7 @@ int bus_set_transient_exec_command(
+                 if (r < 0)
+                         return r;
+ 
+-                r = sd_bus_message_read(message, "b", &b);
++                r = is_ex_prop ? sd_bus_message_read_strv(message, &ex_opts) : sd_bus_message_read(message, "b", &b);
+                 if (r < 0)
+                         return r;
+ 
+@@ -934,7 +1020,12 @@ int bus_set_transient_exec_command(
+ 
+                         c->argv = TAKE_PTR(argv);
+ 
+-                        c->flags = b ? EXEC_COMMAND_IGNORE_FAILURE : 0;
++                        if (is_ex_prop) {
++                                r = exec_command_flags_from_strv(ex_opts, &c->flags);
++                                if (r < 0)
++                                        return r;
++                        } else
++                                c->flags = b ? EXEC_COMMAND_IGNORE_FAILURE : 0;
+ 
+                         path_simplify(c->path, false);
+                         exec_command_append_list(exec_command, c);
+@@ -967,7 +1058,7 @@ int bus_set_transient_exec_command(
+                 fputs("ExecStart=\n", f);
+ 
+                 LIST_FOREACH(command, c, *exec_command) {
+-                        _cleanup_free_ char *a = NULL, *t = NULL;
++                        _cleanup_free_ char *a = NULL, *t = NULL, *exec_chars = NULL;
+                         const char *p;
+ 
+                         p = unit_escape_setting(c->path, UNIT_ESCAPE_C|UNIT_ESCAPE_SPECIFIERS, &t);
+@@ -978,11 +1069,11 @@ int bus_set_transient_exec_command(
+                         if (!a)
+                                 return -ENOMEM;
+ 
+-                        fprintf(f, "%s=%s@%s %s\n",
+-                                name,
+-                                c->flags & EXEC_COMMAND_IGNORE_FAILURE ? "-" : "",
+-                                p,
+-                                a);
++                        exec_chars = exec_command_flags_to_exec_chars(c->flags);
++                        if (!exec_chars)
++                                return -ENOMEM;
++
++                        fprintf(f, "%s=%s@%s %s\n", name, exec_chars, p, a);
+                 }
+ 
+                 r = fflush_and_check(f);
+diff --git a/src/core/dbus-execute.h b/src/core/dbus-execute.h
+index 8405170..cbb2f97 100644
+--- a/src/core/dbus-execute.h
++++ b/src/core/dbus-execute.h
+@@ -19,11 +19,15 @@
+ #define BUS_EXEC_COMMAND_LIST_VTABLE(name, offset, flags)                    \
+         SD_BUS_PROPERTY(name, "a(sasbttttuii)", bus_property_get_exec_command_list, offset, flags)
+ 
++#define BUS_EXEC_EX_COMMAND_LIST_VTABLE(name, offset, flags)                    \
++        SD_BUS_PROPERTY(name, "a(sasasttttuii)", bus_property_get_exec_ex_command_list, offset, flags)
++
+ extern const sd_bus_vtable bus_exec_vtable[];
+ 
+ int bus_property_get_exec_output(sd_bus *bus, const char *path, const char *interface, const char *property, sd_bus_message *reply, void *userdata, sd_bus_error *ret_error);
+ int bus_property_get_exec_command(sd_bus *bus, const char *path, const char *interface, const char *property, sd_bus_message *reply, void *userdata, sd_bus_error *ret_error);
+ int bus_property_get_exec_command_list(sd_bus *bus, const char *path, const char *interface, const char *property, sd_bus_message *reply, void *userdata, sd_bus_error *ret_error);
++int bus_property_get_exec_ex_command_list(sd_bus *bus, const char *path, const char *interface, const char *property, sd_bus_message *reply, void *userdata, sd_bus_error *ret_error);
+ 
+ int bus_exec_context_set_transient_property(Unit *u, ExecContext *c, const char *name, sd_bus_message *message, UnitWriteFlags flags, sd_bus_error *error);
+ int bus_set_transient_exec_command(Unit *u, const char *name, ExecCommand **exec_command, sd_bus_message *message, UnitWriteFlags flags, sd_bus_error *error);
+diff --git a/src/core/dbus-service.c b/src/core/dbus-service.c
+index 48c0fb7..165b3ff 100644
+--- a/src/core/dbus-service.c
++++ b/src/core/dbus-service.c
+@@ -130,8 +130,11 @@ const sd_bus_vtable bus_service_vtable[] = {
+ 
+         BUS_EXEC_STATUS_VTABLE("ExecMain", offsetof(Service, main_exec_status), SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+         BUS_EXEC_COMMAND_LIST_VTABLE("ExecStartPre", offsetof(Service, exec_command[SERVICE_EXEC_START_PRE]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
++        BUS_EXEC_EX_COMMAND_LIST_VTABLE("ExecStartPreEx", offsetof(Service, exec_command[SERVICE_EXEC_START_PRE]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+         BUS_EXEC_COMMAND_LIST_VTABLE("ExecStart", offsetof(Service, exec_command[SERVICE_EXEC_START]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
++        BUS_EXEC_EX_COMMAND_LIST_VTABLE("ExecStartEx", offsetof(Service, exec_command[SERVICE_EXEC_START]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+         BUS_EXEC_COMMAND_LIST_VTABLE("ExecStartPost", offsetof(Service, exec_command[SERVICE_EXEC_START_POST]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
++        BUS_EXEC_EX_COMMAND_LIST_VTABLE("ExecStartPostEx", offsetof(Service, exec_command[SERVICE_EXEC_START_POST]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+         BUS_EXEC_COMMAND_LIST_VTABLE("ExecReload", offsetof(Service, exec_command[SERVICE_EXEC_RELOAD]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+         BUS_EXEC_COMMAND_LIST_VTABLE("ExecStop", offsetof(Service, exec_command[SERVICE_EXEC_STOP]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+         BUS_EXEC_COMMAND_LIST_VTABLE("ExecStopPost", offsetof(Service, exec_command[SERVICE_EXEC_STOP_POST]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+@@ -380,6 +383,7 @@ static int bus_service_set_transient_property(
+                 return bus_set_transient_exit_status(u, name, &s->success_status, message, flags, error);
+ 
+         ci = service_exec_command_from_string(name);
++        ci = (ci >= 0) ? ci : service_exec_ex_command_from_string(name);
+         if (ci >= 0)
+                 return bus_set_transient_exec_command(u, name, &s->exec_command[ci], message, flags, error);
+ 
+diff --git a/src/core/execute.h b/src/core/execute.h
+index 23bf3b5..f0f46df 100644
+--- a/src/core/execute.h
++++ b/src/core/execute.h
+@@ -14,6 +14,8 @@ typedef struct Manager Manager;
+ #include <sys/capability.h>
+ 
+ #include "cgroup-util.h"
++#include "cpu-set-util.h"
++#include "exec-util.h"
+ #include "fdset.h"
+ #include "list.h"
+ #include "missing_resource.h"
+@@ -87,14 +89,6 @@ struct ExecStatus {
+         int status;   /* as in sigingo_t::si_status */
+ };
+ 
+-typedef enum ExecCommandFlags {
+-        EXEC_COMMAND_IGNORE_FAILURE   = 1 << 0,
+-        EXEC_COMMAND_FULLY_PRIVILEGED = 1 << 1,
+-        EXEC_COMMAND_NO_SETUID        = 1 << 2,
+-        EXEC_COMMAND_AMBIENT_MAGIC    = 1 << 3,
+-        EXEC_COMMAND_NO_ENV_EXPAND    = 1 << 4,
+-} ExecCommandFlags;
+-
+ /* Stores information about commands we execute. Covers both configuration settings as well as runtime data. */
+ struct ExecCommand {
+         char *path;
+diff --git a/src/core/service.c b/src/core/service.c
+index 0289990..4933ecd 100644
+--- a/src/core/service.c
++++ b/src/core/service.c
+@@ -4097,6 +4097,14 @@ static const char* const service_exec_command_table[_SERVICE_EXEC_COMMAND_MAX] =
+ 
+ DEFINE_STRING_TABLE_LOOKUP(service_exec_command, ServiceExecCommand);
+ 
++static const char* const service_exec_ex_command_table[_SERVICE_EXEC_COMMAND_MAX] = {
++        [SERVICE_EXEC_START_PRE] = "ExecStartPreEx",
++        [SERVICE_EXEC_START] = "ExecStartEx",
++        [SERVICE_EXEC_START_POST] = "ExecStartPostEx",
++};
++
++DEFINE_STRING_TABLE_LOOKUP(service_exec_ex_command, ServiceExecCommand);
++
+ static const char* const notify_state_table[_NOTIFY_STATE_MAX] = {
+         [NOTIFY_UNKNOWN] = "unknown",
+         [NOTIFY_READY] = "ready",
+diff --git a/src/core/service.h b/src/core/service.h
+index 57eefbb..d58a788 100644
+--- a/src/core/service.h
++++ b/src/core/service.h
+@@ -200,6 +200,9 @@ ServiceType service_type_from_string(const char *s) _pure_;
+ const char* service_exec_command_to_string(ServiceExecCommand i) _const_;
+ ServiceExecCommand service_exec_command_from_string(const char *s) _pure_;
+ 
++const char* service_exec_ex_command_to_string(ServiceExecCommand i) _const_;
++ServiceExecCommand service_exec_ex_command_from_string(const char *s) _pure_;
++
+ const char* notify_state_to_string(NotifyState i) _const_;
+ NotifyState notify_state_from_string(const char *s) _pure_;
+ 
+diff --git a/src/shared/bus-unit-util.c b/src/shared/bus-unit-util.c
+index c1bc011..8c5488e 100644
+--- a/src/shared/bus-unit-util.c
++++ b/src/shared/bus-unit-util.c
+@@ -9,6 +9,7 @@
+ #include "condition.h"
+ #include "cpu-set-util.h"
+ #include "escape.h"
++#include "exec-util.h"
+ #include "hexdecoct.h"
+ #include "hostname-util.h"
+ #include "in-addr-util.h"
+@@ -244,19 +245,21 @@ static int bus_append_parse_size(sd_bus_message *m, const char *field, const cha
+ }
+ 
+ static int bus_append_exec_command(sd_bus_message *m, const char *field, const char *eq) {
+-        bool ignore_failure = false, explicit_path = false, done = false;
+-        _cleanup_strv_free_ char **l = NULL;
+-        _cleanup_free_ char *path = NULL;
++        bool explicit_path = false, done = false;
++        _cleanup_strv_free_ char **l = NULL, **ex_opts = NULL;
++        _cleanup_free_ char *path = NULL, *upgraded_name = NULL;
++        ExecCommandFlags flags = 0;
++        bool is_ex_prop = endswith(field, "Ex");
+         int r;
+ 
+         do {
+                 switch (*eq) {
+ 
+                 case '-':
+-                        if (ignore_failure)
++                        if (FLAGS_SET(flags, EXEC_COMMAND_IGNORE_FAILURE))
+                                 done = true;
+                         else {
+-                                ignore_failure = true;
++                                flags |= EXEC_COMMAND_IGNORE_FAILURE;
+                                 eq++;
+                         }
+                         break;
+@@ -270,11 +273,36 @@ static int bus_append_exec_command(sd_bus_message *m, const char *field, const c
+                         }
+                         break;
+ 
++                case ':':
++                        if (FLAGS_SET(flags, EXEC_COMMAND_NO_ENV_EXPAND))
++                                done = true;
++                        else {
++                                flags |= EXEC_COMMAND_NO_ENV_EXPAND;
++                                eq++;
++                        }
++                        break;
++
+                 case '+':
++                        if (flags & (EXEC_COMMAND_FULLY_PRIVILEGED|EXEC_COMMAND_NO_SETUID|EXEC_COMMAND_AMBIENT_MAGIC))
++                                done = true;
++                        else {
++                                flags |= EXEC_COMMAND_FULLY_PRIVILEGED;
++                                eq++;
++                        }
++                        break;
++
+                 case '!':
+-                        /* The bus API doesn't support +, ! and !! currently, unfortunately. :-( */
+-                        return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP),
+-                                               "Sorry, but +, ! and !! are currently not supported for transient services.");
++                        if (flags & (EXEC_COMMAND_FULLY_PRIVILEGED|EXEC_COMMAND_AMBIENT_MAGIC))
++                                done = true;
++                        else if (FLAGS_SET(flags, EXEC_COMMAND_NO_SETUID)) {
++                                flags &= ~EXEC_COMMAND_NO_SETUID;
++                                flags |= EXEC_COMMAND_AMBIENT_MAGIC;
++                                eq++;
++                        } else {
++                                flags |= EXEC_COMMAND_NO_SETUID;
++                                eq++;
++                        }
++                        break;
+ 
+                 default:
+                         done = true;
+@@ -282,6 +310,20 @@ static int bus_append_exec_command(sd_bus_message *m, const char *field, const c
+                 }
+         } while (!done);
+ 
++        if (!is_ex_prop && (flags & (EXEC_COMMAND_NO_ENV_EXPAND|EXEC_COMMAND_FULLY_PRIVILEGED|EXEC_COMMAND_NO_SETUID|EXEC_COMMAND_AMBIENT_MAGIC))) {
++                /* Upgrade the ExecXYZ= property to ExecXYZEx= for convenience */
++                is_ex_prop = true;
++                upgraded_name = strappend(field, "Ex");
++                if (!upgraded_name)
++                        return log_oom();
++        }
++
++        if (is_ex_prop) {
++                r = exec_command_flags_to_strv(flags, &ex_opts);
++                if (r < 0)
++                        return log_error_errno(r, "Failed to convert ExecCommandFlags to strv: %m");
++        }
++
+         if (explicit_path) {
+                 r = extract_first_word(&eq, &path, NULL, EXTRACT_QUOTES|EXTRACT_CUNESCAPE);
+                 if (r < 0)
+@@ -296,21 +338,21 @@ static int bus_append_exec_command(sd_bus_message *m, const char *field, const c
+         if (r < 0)
+                 return bus_log_create_error(r);
+ 
+-        r = sd_bus_message_append_basic(m, SD_BUS_TYPE_STRING, field);
++        r = sd_bus_message_append_basic(m, SD_BUS_TYPE_STRING, upgraded_name ?: field);
+         if (r < 0)
+                 return bus_log_create_error(r);
+ 
+-        r = sd_bus_message_open_container(m, 'v', "a(sasb)");
++        r = sd_bus_message_open_container(m, 'v', is_ex_prop ? "a(sasas)" : "a(sasb)");
+         if (r < 0)
+                 return bus_log_create_error(r);
+ 
+-        r = sd_bus_message_open_container(m, 'a', "(sasb)");
++        r = sd_bus_message_open_container(m, 'a', is_ex_prop ? "(sasas)" : "(sasb)");
+         if (r < 0)
+                 return bus_log_create_error(r);
+ 
+         if (!strv_isempty(l)) {
+ 
+-                r = sd_bus_message_open_container(m, 'r', "sasb");
++                r = sd_bus_message_open_container(m, 'r', is_ex_prop ? "sasas" : "sasb");
+                 if (r < 0)
+                         return bus_log_create_error(r);
+ 
+@@ -322,7 +364,7 @@ static int bus_append_exec_command(sd_bus_message *m, const char *field, const c
+                 if (r < 0)
+                         return bus_log_create_error(r);
+ 
+-                r = sd_bus_message_append(m, "b", ignore_failure);
++                r = is_ex_prop ? sd_bus_message_append_strv(m, ex_opts) : sd_bus_message_append(m, "b", FLAGS_SET(flags, EXEC_COMMAND_IGNORE_FAILURE));
+                 if (r < 0)
+                         return bus_log_create_error(r);
+ 
+@@ -1345,8 +1387,8 @@ static int bus_append_service_property(sd_bus_message *m, const char *field, con
+ 
+         if (STR_IN_SET(field,
+                        "ExecStartPre", "ExecStart", "ExecStartPost",
++                       "ExecStartPreEx", "ExecStartEx", "ExecStartPostEx",
+                        "ExecReload", "ExecStop", "ExecStopPost"))
+-
+                 return bus_append_exec_command(m, field, eq);
+ 
+         if (STR_IN_SET(field, "RestartPreventExitStatus", "RestartForceExitStatus", "SuccessExitStatus")) {
+diff --git a/src/shared/exec-util.c b/src/shared/exec-util.c
+index 2867f08..5231b8f 100644
+--- a/src/shared/exec-util.c
++++ b/src/shared/exec-util.c
+@@ -22,6 +22,7 @@
+ #include "set.h"
+ #include "signal-util.h"
+ #include "stat-util.h"
++#include "string-table.h"
+ #include "string-util.h"
+ #include "strv.h"
+ #include "terminal-util.h"
+@@ -365,8 +366,81 @@ static int gather_environment_consume(int fd, void *arg) {
+         return r;
+ }
+ 
++int exec_command_flags_from_strv(char **ex_opts, ExecCommandFlags *flags) {
++        ExecCommandFlags ex_flag, ret_flags = 0;
++        char **opt;
++
++        assert(flags);
++
++        STRV_FOREACH(opt, ex_opts) {
++                ex_flag = exec_command_flags_from_string(*opt);
++                if (ex_flag >= 0)
++                        ret_flags |= ex_flag;
++                else
++                        return -EINVAL;
++        }
++
++        *flags = ret_flags;
++
++        return 0;
++}
++
++int exec_command_flags_to_strv(ExecCommandFlags flags, char ***ex_opts) {
++        _cleanup_strv_free_ char **ret_opts = NULL;
++        ExecCommandFlags it = flags;
++        const char *str;
++        int i, r;
++
++        assert(ex_opts);
++
++        for (i = 0; it != 0; it &= ~(1 << i), i++) {
++                if (FLAGS_SET(flags, (1 << i))) {
++                        str = exec_command_flags_to_string(1 << i);
++                        if (!str)
++                                return -EINVAL;
++
++                        r = strv_extend(&ret_opts, str);
++                        if (r < 0)
++                                return r;
++                }
++        }
++
++        *ex_opts = TAKE_PTR(ret_opts);
++
++        return 0;
++}
++
+ const gather_stdout_callback_t gather_environment[] = {
+         gather_environment_generate,
+         gather_environment_collect,
+         gather_environment_consume,
+ };
++
++static const char* const exec_command_strings[] = {
++        "ignore-failure", /* EXEC_COMMAND_IGNORE_FAILURE */
++        "privileged",     /* EXEC_COMMAND_FULLY_PRIVILEGED */
++        "no-setuid",      /* EXEC_COMMAND_NO_SETUID */
++        "ambient",        /* EXEC_COMMAND_AMBIENT_MAGIC */
++        "no-env-expand",  /* EXEC_COMMAND_NO_ENV_EXPAND */
++};
++
++const char* exec_command_flags_to_string(ExecCommandFlags i) {
++        size_t idx;
++
++        for (idx = 0; idx < ELEMENTSOF(exec_command_strings); idx++)
++                if (i == (1 << idx))
++                        return exec_command_strings[idx];
++
++        return NULL;
++}
++
++ExecCommandFlags exec_command_flags_from_string(const char *s) {
++        ssize_t idx;
++
++        idx = string_table_lookup(exec_command_strings, ELEMENTSOF(exec_command_strings), s);
++
++        if (idx < 0)
++                return _EXEC_COMMAND_FLAGS_INVALID;
++        else
++                return 1 << idx;
++}
+diff --git a/src/shared/exec-util.h b/src/shared/exec-util.h
+index 5b75a40..9fe9012 100644
+--- a/src/shared/exec-util.h
++++ b/src/shared/exec-util.h
+@@ -20,6 +20,15 @@ typedef enum {
+         EXEC_DIR_IGNORE_ERRORS = 1 << 1, /* Ignore non-zero exit status of scripts */
+ } ExecDirFlags;
+ 
++typedef enum ExecCommandFlags {
++        EXEC_COMMAND_IGNORE_FAILURE   = 1 << 0,
++        EXEC_COMMAND_FULLY_PRIVILEGED = 1 << 1,
++        EXEC_COMMAND_NO_SETUID        = 1 << 2,
++        EXEC_COMMAND_AMBIENT_MAGIC    = 1 << 3,
++        EXEC_COMMAND_NO_ENV_EXPAND    = 1 << 4,
++        _EXEC_COMMAND_FLAGS_INVALID   = -1,
++} ExecCommandFlags;
++
+ int execute_directories(
+                 const char* const* directories,
+                 usec_t timeout,
+@@ -29,4 +38,10 @@ int execute_directories(
+                 char *envp[],
+                 ExecDirFlags flags);
+ 
++int exec_command_flags_from_strv(char **ex_opts, ExecCommandFlags *flags);
++int exec_command_flags_to_strv(ExecCommandFlags flags, char ***ex_opts);
++
+ extern const gather_stdout_callback_t gather_environment[_STDOUT_CONSUME_MAX];
++
++const char* exec_command_flags_to_string(ExecCommandFlags i);
++ExecCommandFlags exec_command_flags_from_string(const char *s);
+diff --git a/src/systemctl/systemctl.c b/src/systemctl/systemctl.c
+index 92bbcfd..359be67 100644
+--- a/src/systemctl/systemctl.c
++++ b/src/systemctl/systemctl.c
+@@ -35,6 +35,7 @@
+ #include "efivars.h"
+ #include "env-util.h"
+ #include "escape.h"
++#include "exec-util.h"
+ #include "exit-status.h"
+ #include "fd-util.h"
+ #include "format-util.h"
+@@ -3954,6 +3955,8 @@ typedef struct ExecStatusInfo {
+         int code;
+         int status;
+ 
++        ExecCommandFlags flags;
++
+         LIST_FIELDS(struct ExecStatusInfo, exec);
+ } ExecStatusInfo;
+ 
+@@ -3966,7 +3969,8 @@ static void exec_status_info_free(ExecStatusInfo *i) {
+         free(i);
+ }
+ 
+-static int exec_status_info_deserialize(sd_bus_message *m, ExecStatusInfo *i) {
++static int exec_status_info_deserialize(sd_bus_message *m, ExecStatusInfo *i, bool is_ex_prop) {
++        _cleanup_strv_free_ char **ex_opts = NULL;
+         uint64_t start_timestamp, exit_timestamp, start_timestamp_monotonic, exit_timestamp_monotonic;
+         const char *path;
+         uint32_t pid;
+@@ -3976,7 +3980,7 @@ static int exec_status_info_deserialize(sd_bus_message *m, ExecStatusInfo *i) {
+         assert(m);
+         assert(i);
+ 
+-        r = sd_bus_message_enter_container(m, SD_BUS_TYPE_STRUCT, "sasbttttuii");
++        r = sd_bus_message_enter_container(m, SD_BUS_TYPE_STRUCT, is_ex_prop ? "sasasttttuii" : "sasbttttuii");
+         if (r < 0)
+                 return bus_log_parse_error(r);
+         else if (r == 0)
+@@ -3994,9 +3998,12 @@ static int exec_status_info_deserialize(sd_bus_message *m, ExecStatusInfo *i) {
+         if (r < 0)
+                 return bus_log_parse_error(r);
+ 
++        r = is_ex_prop ? sd_bus_message_read_strv(m, &ex_opts) : sd_bus_message_read(m, "b", &ignore);
++        if (r < 0)
++                return bus_log_parse_error(r);
++
+         r = sd_bus_message_read(m,
+-                                "bttttuii",
+-                                &ignore,
++                                "ttttuii",
+                                 &start_timestamp, &start_timestamp_monotonic,
+                                 &exit_timestamp, &exit_timestamp_monotonic,
+                                 &pid,
+@@ -4004,7 +4011,15 @@ static int exec_status_info_deserialize(sd_bus_message *m, ExecStatusInfo *i) {
+         if (r < 0)
+                 return bus_log_parse_error(r);
+ 
+-        i->ignore = ignore;
++        if (is_ex_prop) {
++                r = exec_command_flags_from_strv(ex_opts, &i->flags);
++                if (r < 0)
++                        return log_error_errno(r, "Failed to convert strv to ExecCommandFlags: %m");
++
++                i->ignore = FLAGS_SET(i->flags, EXEC_COMMAND_IGNORE_FAILURE);
++        } else
++                i->ignore = ignore;
++
+         i->start_timestamp = (usec_t) start_timestamp;
+         i->exit_timestamp = (usec_t) exit_timestamp;
+         i->pid = (pid_t) pid;
+@@ -4736,9 +4751,10 @@ static int map_exec(sd_bus *bus, const char *member, sd_bus_message *m, sd_bus_e
+         _cleanup_free_ ExecStatusInfo *info = NULL;
+         ExecStatusInfo *last;
+         UnitStatusInfo *i = userdata;
++        bool is_ex_prop = endswith(member, "Ex");
+         int r;
+ 
+-        r = sd_bus_message_enter_container(m, SD_BUS_TYPE_ARRAY, "(sasbttttuii)");
++        r = sd_bus_message_enter_container(m, SD_BUS_TYPE_ARRAY, is_ex_prop ? "(sasasttttuii)" : "(sasbttttuii)");
+         if (r < 0)
+                 return r;
+ 
+@@ -4748,7 +4764,7 @@ static int map_exec(sd_bus *bus, const char *member, sd_bus_message *m, sd_bus_e
+ 
+         LIST_FIND_TAIL(exec, i->exec, last);
+ 
+-        while ((r = exec_status_info_deserialize(m, info)) > 0) {
++        while ((r = exec_status_info_deserialize(m, info, is_ex_prop)) > 0) {
+ 
+                 info->name = strdup(member);
+                 if (!info->name)
+@@ -5079,29 +5095,51 @@ static int print_property(const char *name, const char *expected_value, sd_bus_m
+ 
+                 } else if (contents[0] == SD_BUS_TYPE_STRUCT_BEGIN && startswith(name, "Exec")) {
+                         ExecStatusInfo info = {};
++                        bool is_ex_prop = endswith(name, "Ex");
+ 
+-                        r = sd_bus_message_enter_container(m, SD_BUS_TYPE_ARRAY, "(sasbttttuii)");
++                        r = sd_bus_message_enter_container(m, SD_BUS_TYPE_ARRAY, is_ex_prop ? "(sasasttttuii)" : "(sasbttttuii)");
+                         if (r < 0)
+                                 return bus_log_parse_error(r);
+ 
+-                        while ((r = exec_status_info_deserialize(m, &info)) > 0) {
++                        while ((r = exec_status_info_deserialize(m, &info, is_ex_prop)) > 0) {
+                                 char timestamp1[FORMAT_TIMESTAMP_MAX], timestamp2[FORMAT_TIMESTAMP_MAX];
+-                                _cleanup_free_ char *tt;
++                                _cleanup_strv_free_ char **optv = NULL;
++                                _cleanup_free_ char *tt, *o = NULL;
+ 
+                                 tt = strv_join(info.argv, " ");
+ 
+-                                 bus_print_property_valuef(name, expected_value, value,
+-                                                           "{ path=%s ; argv[]=%s ; ignore_errors=%s ; start_time=[%s] ; stop_time=[%s] ; pid="PID_FMT" ; code=%s ; status=%i%s%s }",
+-                                                           strna(info.path),
+-                                                           strna(tt),
+-                                                           yes_no(info.ignore),
+-                                                           strna(format_timestamp(timestamp1, sizeof(timestamp1), info.start_timestamp)),
+-                                                           strna(format_timestamp(timestamp2, sizeof(timestamp2), info.exit_timestamp)),
+-                                                           info.pid,
+-                                                           sigchld_code_to_string(info.code),
+-                                                           info.status,
+-                                                           info.code == CLD_EXITED ? "" : "/",
+-                                                           strempty(info.code == CLD_EXITED ? NULL : signal_to_string(info.status)));
++                                if (is_ex_prop) {
++                                        r = exec_command_flags_to_strv(info.flags, &optv);
++                                        if (r < 0)
++                                                return log_error_errno(r, "Failed to convert ExecCommandFlags to strv: %m");
++
++                                        o = strv_join(optv, " ");
++
++                                        bus_print_property_valuef(name, expected_value, value,
++                                                                  "{ path=%s ; argv[]=%s ; flags=%s ; start_time=[%s] ; stop_time=[%s] ; pid="PID_FMT" ; code=%s ; status=%i%s%s }",
++                                                                  strna(info.path),
++                                                                  strna(tt),
++                                                                  strna(o),
++                                                                  strna(format_timestamp(timestamp1, sizeof(timestamp1), info.start_timestamp)),
++                                                                  strna(format_timestamp(timestamp2, sizeof(timestamp2), info.exit_timestamp)),
++                                                                  info.pid,
++                                                                  sigchld_code_to_string(info.code),
++                                                                  info.status,
++                                                                  info.code == CLD_EXITED ? "" : "/",
++                                                                  strempty(info.code == CLD_EXITED ? NULL : signal_to_string(info.status)));
++                                } else
++                                        bus_print_property_valuef(name, expected_value, value,
++                                                                  "{ path=%s ; argv[]=%s ; ignore_errors=%s ; start_time=[%s] ; stop_time=[%s] ; pid="PID_FMT" ; code=%s ; status=%i%s%s }",
++                                                                  strna(info.path),
++                                                                  strna(tt),
++                                                                  yes_no(info.ignore),
++                                                                  strna(format_timestamp(timestamp1, sizeof(timestamp1), info.start_timestamp)),
++                                                                  strna(format_timestamp(timestamp2, sizeof(timestamp2), info.exit_timestamp)),
++                                                                  info.pid,
++                                                                  sigchld_code_to_string(info.code),
++                                                                  info.status,
++                                                                  info.code == CLD_EXITED ? "" : "/",
++                                                                  strempty(info.code == CLD_EXITED ? NULL : signal_to_string(info.status)));
+ 
+                                 free(info.path);
+                                 strv_free(info.argv);
+@@ -5425,78 +5463,81 @@ static int show_one(
+                 bool *ellipsized) {
+ 
+         static const struct bus_properties_map property_map[] = {
+-                { "LoadState",                      "s",              NULL,           offsetof(UnitStatusInfo, load_state)                        },
+-                { "ActiveState",                    "s",              NULL,           offsetof(UnitStatusInfo, active_state)                      },
+-                { "Documentation",                  "as",             NULL,           offsetof(UnitStatusInfo, documentation)                     },
++                { "LoadState",                      "s",               NULL,           offsetof(UnitStatusInfo, load_state)                        },
++                { "ActiveState",                    "s",               NULL,           offsetof(UnitStatusInfo, active_state)                      },
++                { "Documentation",                  "as",              NULL,           offsetof(UnitStatusInfo, documentation)                     },
+                 {}
+         }, status_map[] = {
+-                { "Id",                             "s",              NULL,           offsetof(UnitStatusInfo, id)                                },
+-                { "LoadState",                      "s",              NULL,           offsetof(UnitStatusInfo, load_state)                        },
+-                { "ActiveState",                    "s",              NULL,           offsetof(UnitStatusInfo, active_state)                      },
+-                { "SubState",                       "s",              NULL,           offsetof(UnitStatusInfo, sub_state)                         },
+-                { "UnitFileState",                  "s",              NULL,           offsetof(UnitStatusInfo, unit_file_state)                   },
+-                { "UnitFilePreset",                 "s",              NULL,           offsetof(UnitStatusInfo, unit_file_preset)                  },
+-                { "Description",                    "s",              NULL,           offsetof(UnitStatusInfo, description)                       },
+-                { "Following",                      "s",              NULL,           offsetof(UnitStatusInfo, following)                         },
+-                { "Documentation",                  "as",             NULL,           offsetof(UnitStatusInfo, documentation)                     },
+-                { "FragmentPath",                   "s",              NULL,           offsetof(UnitStatusInfo, fragment_path)                     },
+-                { "SourcePath",                     "s",              NULL,           offsetof(UnitStatusInfo, source_path)                       },
+-                { "ControlGroup",                   "s",              NULL,           offsetof(UnitStatusInfo, control_group)                     },
+-                { "DropInPaths",                    "as",             NULL,           offsetof(UnitStatusInfo, dropin_paths)                      },
+-                { "LoadError",                      "(ss)",           map_load_error, offsetof(UnitStatusInfo, load_error)                        },
+-                { "Result",                         "s",              NULL,           offsetof(UnitStatusInfo, result)                            },
+-                { "InactiveExitTimestamp",          "t",              NULL,           offsetof(UnitStatusInfo, inactive_exit_timestamp)           },
+-                { "InactiveExitTimestampMonotonic", "t",              NULL,           offsetof(UnitStatusInfo, inactive_exit_timestamp_monotonic) },
+-                { "ActiveEnterTimestamp",           "t",              NULL,           offsetof(UnitStatusInfo, active_enter_timestamp)            },
+-                { "ActiveExitTimestamp",            "t",              NULL,           offsetof(UnitStatusInfo, active_exit_timestamp)             },
+-                { "InactiveEnterTimestamp",         "t",              NULL,           offsetof(UnitStatusInfo, inactive_enter_timestamp)          },
+-                { "NeedDaemonReload",               "b",              NULL,           offsetof(UnitStatusInfo, need_daemon_reload)                },
+-                { "Transient",                      "b",              NULL,           offsetof(UnitStatusInfo, transient)                         },
+-                { "ExecMainPID",                    "u",              NULL,           offsetof(UnitStatusInfo, main_pid)                          },
+-                { "MainPID",                        "u",              map_main_pid,   0                                                           },
+-                { "ControlPID",                     "u",              NULL,           offsetof(UnitStatusInfo, control_pid)                       },
+-                { "StatusText",                     "s",              NULL,           offsetof(UnitStatusInfo, status_text)                       },
+-                { "PIDFile",                        "s",              NULL,           offsetof(UnitStatusInfo, pid_file)                          },
+-                { "StatusErrno",                    "i",              NULL,           offsetof(UnitStatusInfo, status_errno)                      },
+-                { "ExecMainStartTimestamp",         "t",              NULL,           offsetof(UnitStatusInfo, start_timestamp)                   },
+-                { "ExecMainExitTimestamp",          "t",              NULL,           offsetof(UnitStatusInfo, exit_timestamp)                    },
+-                { "ExecMainCode",                   "i",              NULL,           offsetof(UnitStatusInfo, exit_code)                         },
+-                { "ExecMainStatus",                 "i",              NULL,           offsetof(UnitStatusInfo, exit_status)                       },
+-                { "ConditionTimestamp",             "t",              NULL,           offsetof(UnitStatusInfo, condition_timestamp)               },
+-                { "ConditionResult",                "b",              NULL,           offsetof(UnitStatusInfo, condition_result)                  },
+-                { "Conditions",                     "a(sbbsi)",       map_conditions, 0                                                           },
+-                { "AssertTimestamp",                "t",              NULL,           offsetof(UnitStatusInfo, assert_timestamp)                  },
+-                { "AssertResult",                   "b",              NULL,           offsetof(UnitStatusInfo, assert_result)                     },
+-                { "Asserts",                        "a(sbbsi)",       map_asserts,    0                                                           },
+-                { "NextElapseUSecRealtime",         "t",              NULL,           offsetof(UnitStatusInfo, next_elapse_real)                  },
+-                { "NextElapseUSecMonotonic",        "t",              NULL,           offsetof(UnitStatusInfo, next_elapse_monotonic)             },
+-                { "NAccepted",                      "u",              NULL,           offsetof(UnitStatusInfo, n_accepted)                        },
+-                { "NConnections",                   "u",              NULL,           offsetof(UnitStatusInfo, n_connections)                     },
+-                { "NRefused",                       "u",              NULL,           offsetof(UnitStatusInfo, n_refused)                         },
+-                { "Accept",                         "b",              NULL,           offsetof(UnitStatusInfo, accept)                            },
+-                { "Listen",                         "a(ss)",          map_listen,     offsetof(UnitStatusInfo, listen)                            },
+-                { "SysFSPath",                      "s",              NULL,           offsetof(UnitStatusInfo, sysfs_path)                        },
+-                { "Where",                          "s",              NULL,           offsetof(UnitStatusInfo, where)                             },
+-                { "What",                           "s",              NULL,           offsetof(UnitStatusInfo, what)                              },
+-                { "MemoryCurrent",                  "t",              NULL,           offsetof(UnitStatusInfo, memory_current)                    },
+-                { "MemoryMin",                      "t",              NULL,           offsetof(UnitStatusInfo, memory_min)                        },
+-                { "MemoryLow",                      "t",              NULL,           offsetof(UnitStatusInfo, memory_low)                        },
+-                { "MemoryHigh",                     "t",              NULL,           offsetof(UnitStatusInfo, memory_high)                       },
+-                { "MemoryMax",                      "t",              NULL,           offsetof(UnitStatusInfo, memory_max)                        },
+-                { "MemorySwapMax",                  "t",              NULL,           offsetof(UnitStatusInfo, memory_swap_max)                   },
+-                { "MemoryLimit",                    "t",              NULL,           offsetof(UnitStatusInfo, memory_limit)                      },
+-                { "CPUUsageNSec",                   "t",              NULL,           offsetof(UnitStatusInfo, cpu_usage_nsec)                    },
+-                { "TasksCurrent",                   "t",              NULL,           offsetof(UnitStatusInfo, tasks_current)                     },
+-                { "TasksMax",                       "t",              NULL,           offsetof(UnitStatusInfo, tasks_max)                         },
+-                { "IPIngressBytes",                 "t",              NULL,           offsetof(UnitStatusInfo, ip_ingress_bytes)                  },
+-                { "IPEgressBytes",                  "t",              NULL,           offsetof(UnitStatusInfo, ip_egress_bytes)                   },
+-                { "ExecStartPre",                   "a(sasbttttuii)", map_exec,       0                                                           },
+-                { "ExecStart",                      "a(sasbttttuii)", map_exec,       0                                                           },
+-                { "ExecStartPost",                  "a(sasbttttuii)", map_exec,       0                                                           },
+-                { "ExecReload",                     "a(sasbttttuii)", map_exec,       0                                                           },
+-                { "ExecStopPre",                    "a(sasbttttuii)", map_exec,       0                                                           },
+-                { "ExecStop",                       "a(sasbttttuii)", map_exec,       0                                                           },
+-                { "ExecStopPost",                   "a(sasbttttuii)", map_exec,       0                                                           },
++                { "Id",                             "s",               NULL,           offsetof(UnitStatusInfo, id)                                },
++                { "LoadState",                      "s",               NULL,           offsetof(UnitStatusInfo, load_state)                        },
++                { "ActiveState",                    "s",               NULL,           offsetof(UnitStatusInfo, active_state)                      },
++                { "SubState",                       "s",               NULL,           offsetof(UnitStatusInfo, sub_state)                         },
++                { "UnitFileState",                  "s",               NULL,           offsetof(UnitStatusInfo, unit_file_state)                   },
++                { "UnitFilePreset",                 "s",               NULL,           offsetof(UnitStatusInfo, unit_file_preset)                  },
++                { "Description",                    "s",               NULL,           offsetof(UnitStatusInfo, description)                       },
++                { "Following",                      "s",               NULL,           offsetof(UnitStatusInfo, following)                         },
++                { "Documentation",                  "as",              NULL,           offsetof(UnitStatusInfo, documentation)                     },
++                { "FragmentPath",                   "s",               NULL,           offsetof(UnitStatusInfo, fragment_path)                     },
++                { "SourcePath",                     "s",               NULL,           offsetof(UnitStatusInfo, source_path)                       },
++                { "ControlGroup",                   "s",               NULL,           offsetof(UnitStatusInfo, control_group)                     },
++                { "DropInPaths",                    "as",              NULL,           offsetof(UnitStatusInfo, dropin_paths)                      },
++                { "LoadError",                      "(ss)",            map_load_error, offsetof(UnitStatusInfo, load_error)                        },
++                { "Result",                         "s",               NULL,           offsetof(UnitStatusInfo, result)                            },
++                { "InactiveExitTimestamp",          "t",               NULL,           offsetof(UnitStatusInfo, inactive_exit_timestamp)           },
++                { "InactiveExitTimestampMonotonic", "t",               NULL,           offsetof(UnitStatusInfo, inactive_exit_timestamp_monotonic) },
++                { "ActiveEnterTimestamp",           "t",               NULL,           offsetof(UnitStatusInfo, active_enter_timestamp)            },
++                { "ActiveExitTimestamp",            "t",               NULL,           offsetof(UnitStatusInfo, active_exit_timestamp)             },
++                { "InactiveEnterTimestamp",         "t",               NULL,           offsetof(UnitStatusInfo, inactive_enter_timestamp)          },
++                { "NeedDaemonReload",               "b",               NULL,           offsetof(UnitStatusInfo, need_daemon_reload)                },
++                { "Transient",                      "b",               NULL,           offsetof(UnitStatusInfo, transient)                         },
++                { "ExecMainPID",                    "u",               NULL,           offsetof(UnitStatusInfo, main_pid)                          },
++                { "MainPID",                        "u",               map_main_pid,   0                                                           },
++                { "ControlPID",                     "u",               NULL,           offsetof(UnitStatusInfo, control_pid)                       },
++                { "StatusText",                     "s",               NULL,           offsetof(UnitStatusInfo, status_text)                       },
++                { "PIDFile",                        "s",               NULL,           offsetof(UnitStatusInfo, pid_file)                          },
++                { "StatusErrno",                    "i",               NULL,           offsetof(UnitStatusInfo, status_errno)                      },
++                { "ExecMainStartTimestamp",         "t",               NULL,           offsetof(UnitStatusInfo, start_timestamp)                   },
++                { "ExecMainExitTimestamp",          "t",               NULL,           offsetof(UnitStatusInfo, exit_timestamp)                    },
++                { "ExecMainCode",                   "i",               NULL,           offsetof(UnitStatusInfo, exit_code)                         },
++                { "ExecMainStatus",                 "i",               NULL,           offsetof(UnitStatusInfo, exit_status)                       },
++                { "ConditionTimestamp",             "t",               NULL,           offsetof(UnitStatusInfo, condition_timestamp)               },
++                { "ConditionResult",                "b",               NULL,           offsetof(UnitStatusInfo, condition_result)                  },
++                { "Conditions",                     "a(sbbsi)",        map_conditions, 0                                                           },
++                { "AssertTimestamp",                "t",               NULL,           offsetof(UnitStatusInfo, assert_timestamp)                  },
++                { "AssertResult",                   "b",               NULL,           offsetof(UnitStatusInfo, assert_result)                     },
++                { "Asserts",                        "a(sbbsi)",        map_asserts,    0                                                           },
++                { "NextElapseUSecRealtime",         "t",               NULL,           offsetof(UnitStatusInfo, next_elapse_real)                  },
++                { "NextElapseUSecMonotonic",        "t",               NULL,           offsetof(UnitStatusInfo, next_elapse_monotonic)             },
++                { "NAccepted",                      "u",               NULL,           offsetof(UnitStatusInfo, n_accepted)                        },
++                { "NConnections",                   "u",               NULL,           offsetof(UnitStatusInfo, n_connections)                     },
++                { "NRefused",                       "u",               NULL,           offsetof(UnitStatusInfo, n_refused)                         },
++                { "Accept",                         "b",               NULL,           offsetof(UnitStatusInfo, accept)                            },
++                { "Listen",                         "a(ss)",           map_listen,     offsetof(UnitStatusInfo, listen)                            },
++                { "SysFSPath",                      "s",               NULL,           offsetof(UnitStatusInfo, sysfs_path)                        },
++                { "Where",                          "s",               NULL,           offsetof(UnitStatusInfo, where)                             },
++                { "What",                           "s",               NULL,           offsetof(UnitStatusInfo, what)                              },
++                { "MemoryCurrent",                  "t",               NULL,           offsetof(UnitStatusInfo, memory_current)                    },
++                { "MemoryMin",                      "t",               NULL,           offsetof(UnitStatusInfo, memory_min)                        },
++                { "MemoryLow",                      "t",               NULL,           offsetof(UnitStatusInfo, memory_low)                        },
++                { "MemoryHigh",                     "t",               NULL,           offsetof(UnitStatusInfo, memory_high)                       },
++                { "MemoryMax",                      "t",               NULL,           offsetof(UnitStatusInfo, memory_max)                        },
++                { "MemorySwapMax",                  "t",               NULL,           offsetof(UnitStatusInfo, memory_swap_max)                   },
++                { "MemoryLimit",                    "t",               NULL,           offsetof(UnitStatusInfo, memory_limit)                      },
++                { "CPUUsageNSec",                   "t",               NULL,           offsetof(UnitStatusInfo, cpu_usage_nsec)                    },
++                { "TasksCurrent",                   "t",               NULL,           offsetof(UnitStatusInfo, tasks_current)                     },
++                { "TasksMax",                       "t",               NULL,           offsetof(UnitStatusInfo, tasks_max)                         },
++                { "IPIngressBytes",                 "t",               NULL,           offsetof(UnitStatusInfo, ip_ingress_bytes)                  },
++                { "IPEgressBytes",                  "t",               NULL,           offsetof(UnitStatusInfo, ip_egress_bytes)                   },
++                { "ExecStartPre",                   "a(sasbttttuii)",  map_exec,       0                                                           },
++                { "ExecStartPreEx",                 "a(sasasttttuii)", map_exec,       0                                                           },
++                { "ExecStart",                      "a(sasbttttuii)",  map_exec,       0                                                           },
++                { "ExecStartEx",                    "a(sasasttttuii)", map_exec,       0                                                           },
++                { "ExecStartPost",                  "a(sasbttttuii)",  map_exec,       0                                                           },
++                { "ExecStartPostEx",                "a(sasasttttuii)", map_exec,       0                                                           },
++                { "ExecReload",                     "a(sasbttttuii)",  map_exec,       0                                                           },
++                { "ExecStopPre",                    "a(sasbttttuii)",  map_exec,       0                                                           },
++                { "ExecStop",                       "a(sasbttttuii)",  map_exec,       0                                                           },
++                { "ExecStopPost",                   "a(sasbttttuii)",  map_exec,       0                                                           },
+                 {}
+         };
+ 
+diff --git a/src/test/test-exec-util.c b/src/test/test-exec-util.c
+index 25ca7a2..de8af17 100644
+--- a/src/test/test-exec-util.c
++++ b/src/test/test-exec-util.c
+@@ -399,6 +399,50 @@ static void test_error_catching(void) {
+         assert_se(r == 42);
+ }
+ 
++static void test_exec_command_flags_from_strv(void) {
++        ExecCommandFlags flags = 0;
++        char **valid_strv = STRV_MAKE("no-env-expand", "no-setuid", "ignore-failure");
++        char **invalid_strv = STRV_MAKE("no-env-expand", "no-setuid", "nonexistent-option", "ignore-failure");
++        int r;
++
++        r = exec_command_flags_from_strv(valid_strv, &flags);
++
++        assert_se(r == 0);
++        assert_se(FLAGS_SET(flags, EXEC_COMMAND_NO_ENV_EXPAND));
++        assert_se(FLAGS_SET(flags, EXEC_COMMAND_NO_SETUID));
++        assert_se(FLAGS_SET(flags, EXEC_COMMAND_IGNORE_FAILURE));
++        assert_se(!FLAGS_SET(flags, EXEC_COMMAND_AMBIENT_MAGIC));
++        assert_se(!FLAGS_SET(flags, EXEC_COMMAND_FULLY_PRIVILEGED));
++
++        r = exec_command_flags_from_strv(invalid_strv, &flags);
++
++        assert_se(r == -EINVAL);
++}
++
++static void test_exec_command_flags_to_strv(void) {
++        _cleanup_strv_free_ char **opts = NULL, **empty_opts = NULL, **invalid_opts = NULL;
++        ExecCommandFlags flags = 0;
++        int r;
++
++        flags |= (EXEC_COMMAND_AMBIENT_MAGIC|EXEC_COMMAND_NO_ENV_EXPAND|EXEC_COMMAND_IGNORE_FAILURE);
++
++        r = exec_command_flags_to_strv(flags, &opts);
++
++        assert_se(r == 0);
++        assert_se(strv_equal(opts, STRV_MAKE("ignore-failure", "ambient", "no-env-expand")));
++
++        r = exec_command_flags_to_strv(0, &empty_opts);
++
++        assert_se(r == 0);
++        assert_se(strv_equal(empty_opts, STRV_MAKE_EMPTY));
++
++        flags = _EXEC_COMMAND_FLAGS_INVALID;
++
++        r = exec_command_flags_to_strv(flags, &invalid_opts);
++
++        assert_se(r == -EINVAL);
++}
++
+ int main(int argc, char *argv[]) {
+         test_setup_logging(LOG_DEBUG);
+ 
+@@ -408,6 +452,8 @@ int main(int argc, char *argv[]) {
+         test_stdout_gathering();
+         test_environment_gathering();
+         test_error_catching();
++        test_exec_command_flags_from_strv();
++        test_exec_command_flags_to_strv();
+ 
+         return 0;
+ }
+-- 
+2.17.1
+

@@ -16,7 +16,7 @@
 Name:           systemd-compat-libs
 Url:            https://github.com/facebookincubator/systemd-compat-libs
 Version:        242
-Release:        2.fb1
+Release:        2.fb2
 # For a breakdown of the licensing, see README
 License:        LGPLv2+
 Summary:        Compatibility libraries for systemd
@@ -52,11 +52,11 @@ BuildRequires:  gawk
 Obsoletes:      system-compat-libs < %{version}-%{release}
 
 %description
-This is a standalone build of the compatibility libraries for systemd, 
-which map library calls for systemd < 209 onto the new libsystemd.so 
-provided by later versions. These libraries used to be shipped with 
-systemd, but were removed upstream in v230. This project allows one 
-to easily backport recent versions of systemd on distributions that 
+This is a standalone build of the compatibility libraries for systemd,
+which map library calls for systemd < 209 onto the new libsystemd.so
+provided by later versions. These libraries used to be shipped with
+systemd, but were removed upstream in v230. This project allows one
+to easily backport recent versions of systemd on distributions that
 originally shipped with versions < 230, such as CentOS 7.
 
 %package devel
@@ -117,6 +117,9 @@ export LC_ALL=en_US.UTF-8
 %{_libdir}/pkgconfig/libsystemd-id128.pc
 
 %changelog
+* Thu Jun 20 2019 Anita Zhang <anitazha@fb.com> - 242-2.fb2
+- Bump version to match systemd packages
+
 * Thu Apr 25 2019 Davide Cavalca <dcavalca@fb.com> - 242-2.fb1
 - New upstream release
 
