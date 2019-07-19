@@ -27,7 +27,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        242
-Release:        2.fb2
+Release:        2.fb3
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -72,6 +72,10 @@ Patch1002:      1002-core-add-ExecStartXYZEx-with-dbus-support-for-execut.patch
 # PR#12729: nspawn: don't hard fail when setting capabilities
 Patch1003:      12729.patch
 Patch1004:      1004-bpf-firewall-optimization-for-IPAddressXYZ-any-and-u.patch
+# PR#12346: socket-util: make sure accept_flush() doesn't hang on EOPNOTSUPP
+Patch1005:      12346.patch
+# PR#12979: add SystemCallErrorNumber=EPERM to systemd-portabled.service
+Patch1006:	12979.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -721,6 +725,10 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Thu Jul 18 2019 Anita Zhang <anitazha@fb.com> - 242-2.fb3
+- Backport PR#12346 (make sure accept_flush() doesn't hang on EOPNOTSUPP)
+- Backport PR#12979 (add SystemCallErrorNumber=EPERM to systemd-portabled.service)
+
 * Thu Jun 20 2019 Anita Zhang <anitazha@fb.com> - 242-2.fb2
 - Backport PR#11778 (ExecStartXYZEx= dbus support)
 - Backport PR#12729 (nspawn: don't hard fail when setting capabilities)
