@@ -1,13 +1,13 @@
 Name:           libbpf
-Version:        0.0.3
-Release:        1.fb1%{?dist}
+Version:        0.0.4
+Release:        1.fb2%{?dist}
 Summary:        Libbpf library
 Group:          Development/System
 Packager:       Julia Kartseva <hex@fb.com>
 
 License:        GPL-2.1 OR BSD-2-Clause
 URL:            https://github.com/libbpf/libbpf
-Source:         libbpf-%{version}.tar.gz
+Source:         libbpf-%{version}-%{release}.tar.gz
 BuildRequires:  elfutils-libelf-devel elfutils-devel
 
 %description
@@ -44,10 +44,17 @@ rm -rf "%{buildroot}"
 %attr(0644,-,-) %{_includedir}/bpf/bpf.h
 %attr(0644,-,-) %{_includedir}/bpf/btf.h
 %attr(0644,-,-) %{_includedir}/bpf/libbpf.h
+%attr(0644,_,_) %{_includedir}/bpf/libbpf_util.h
+%attr(0644,_,_) %{_includedir}/bpf/xsk.h
 %attr(0644,-,-) %{_libdir}/libbpf.a
 %attr(0644,-,-) %{_libdir}/pkgconfig/libbpf.pc
 
 %changelog
+* Thu Aug 1 2019 Julia Kartseva <hex@fb.com> - 0.0.4-1.fb2
+- Get new tarball with 0.0.4 libbpf ABI:
+  https://github.com/libbpf/libbpf/commit/2c9394f
+- Install libbpf_util.h and xsk.h headers in devel
+- Include Release in Source definition
 * Mon Apr 15 2019 Julia Kartseva <hex@fb.com> - 0.0.3-1.fb1
 - Get new tarball with 0.0.3 libbpf ABI:
   libbpf/commit/8bbb21c227d64efe3ad96cfd427984e51f6ee549
