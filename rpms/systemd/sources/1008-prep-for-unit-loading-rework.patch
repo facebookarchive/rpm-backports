@@ -1,0 +1,3503 @@
+From 5f430d42fda7b0fd241f9e17ca8a60e739c19d04 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Zbigniew=20J=C4=99drzejewski-Szmek?= <zbyszek@in.waw.pl>
+Date: Wed, 7 Aug 2019 19:08:43 -0700
+Subject: [PATCH] PR #13096: Preparatory work for the unit loading rework
+
+---
+ man/systemd.unit.xml                          |  58 +++----
+ src/basic/cap-list.c                          |   2 +-
+ src/basic/env-util.c                          |   2 +-
+ src/basic/extract-word.c                      |   2 +-
+ src/basic/extract-word.h                      |   2 +-
+ src/basic/hash-funcs.c                        |   3 +
+ src/basic/hash-funcs.h                        |   1 +
+ src/basic/hashmap.c                           |  30 +++-
+ src/basic/hashmap.h                           |   2 +
+ src/basic/path-util.c                         | 104 +++++++------
+ src/basic/path-util.h                         |  29 ++--
+ src/basic/proc-cmdline.c                      |   2 +-
+ src/basic/set.h                               |  20 +--
+ src/basic/strv.c                              |  60 ++++++++
+ src/basic/strv.h                              |   5 +
+ src/basic/unit-name.c                         |  21 +--
+ src/basic/unit-name.h                         |  16 +-
+ src/core/bpf-firewall.c                       |   2 +
+ src/core/cgroup.c                             |   2 +-
+ src/core/dbus-job.c                           |   1 +
+ src/core/dbus-unit.c                          |   1 +
+ src/core/device.c                             |   4 +-
+ src/core/dynamic-user.c                       |   1 +
+ src/core/load-dropin.h                        |  11 +-
+ src/core/load-fragment.c                      |  46 +++---
+ src/core/manager.c                            |   1 +
+ src/core/transaction.c                        |   3 +-
+ src/core/unit.c                               |  29 ++--
+ src/core/unit.h                               |   8 +-
+ .../environment-d-generator.c                 |   1 +
+ src/journal-remote/journal-remote-main.c      |   2 +-
+ src/locale/keymap-util.c                      |   6 +-
+ src/portable/portable.c                       |   1 +
+ src/resolve/resolvconf-compat.c               |   2 +-
+ src/resolve/resolved-conf.c                   |   4 +-
+ src/resolve/resolved-dns-trust-anchor.c       |   4 +-
+ src/shared/bus-unit-util.c                    |  28 ++--
+ src/shared/condition.c                        |   2 +-
+ src/shared/conf-parser.c                      |   2 +-
+ src/shared/cpu-set-util.c                     |   2 +-
+ src/shared/dropin.c                           |  38 ++---
+ src/shared/dropin.h                           |  16 +-
+ src/shared/install.c                          |  21 +--
+ src/shared/install.h                          |  30 ----
+ src/shared/meson.build                        |   2 +
+ src/shared/mount-util.c                       |   2 +-
+ src/shared/path-lookup.h                      |   2 +-
+ src/shared/securebits-util.c                  |   2 +-
+ src/shared/unit-file.c                        |  23 +++
+ src/shared/unit-file.h                        |  37 +++++
+ src/systemctl/systemctl.c                     |  48 +++---
+ src/sysusers/sysusers.c                       |  39 +----
+ src/sysv-generator/sysv-generator.c           |   4 +-
+ src/test/meson.build                          |   6 +-
+ src/test/test-engine.c                        |   2 +
+ src/test/test-env-file.c                      | 143 ++++++++++++++++++
+ src/test/test-extract-word.c                  |  54 +++----
+ src/test/test-fs-util.c                       |   4 +-
+ src/test/test-hashmap-plain.c                 |  88 ++++++++++-
+ src/test/test-hashmap.c                       |  64 +-------
+ ...{test-unit-file.c => test-load-fragment.c} | 130 ----------------
+ src/test/test-path-util.c                     |  56 +++++++
+ src/test/test-string-util.c                   |   2 +-
+ src/test/test-strv.c                          |  99 ++++++++++--
+ src/test/test-unit-name.c                     |  10 +-
+ src/tmpfiles/tmpfiles.c                       |   4 +-
+ 66 files changed, 854 insertions(+), 594 deletions(-)
+ create mode 100644 src/shared/unit-file.c
+ create mode 100644 src/shared/unit-file.h
+ create mode 100644 src/test/test-env-file.c
+ rename src/test/{test-unit-file.c => test-load-fragment.c} (88%)
+
+diff --git a/man/systemd.unit.xml b/man/systemd.unit.xml
+index 81a0225..e5dda57 100644
+--- a/man/systemd.unit.xml
++++ b/man/systemd.unit.xml
+@@ -123,34 +123,40 @@
+     do not need the prefix. Applications may use this to include
+     additional information in the unit files.</para>
+ 
+-    <para>Units can be aliased (have an alternative name), by creating a symlink from the new name
+-    to the existing name in one of the unit search paths. For example,
+-    <filename>systemd-networkd.service</filename> has the alias
+-    <filename>dbus-org.freedesktop.network1.service</filename>, created during installation as the
+-    symlink <filename>/usr/lib/systemd/system/dbus-org.freedesktop.network1.service</filename>. In
+-    addition, unit files may specify aliases through the <varname>Alias=</varname> directive in the
+-    [Install] section; those aliases are only effective when the unit is enabled. When the unit is
+-    enabled, symlinks will be created for those names, and removed when the unit is disabled. For
+-    example, <filename>reboot.target</filename> specifies
+-    <varname>Alias=ctrl-alt-del.target</varname>, so when enabled it will be invoked whenever
+-    CTRL+ALT+DEL is pressed. Alias names may be used in commands like <command>enable</command>,
+-    <command>disable</command>, <command>start</command>, <command>stop</command>,
+-    <command>status</command>, …, and in unit dependency directives <varname>Wants=</varname>,
+-    <varname>Requires=</varname>, <varname>Before=</varname>, <varname>After=</varname>, …, with the
+-    limitation that aliases specified through <varname>Alias=</varname> are only effective when the
+-    unit is enabled. Aliases cannot be used with the <command>preset</command> command.</para>
++    <para>Units can be aliased (have an alternative name), by creating a symlink from the new name to the
++    existing name in one of the unit search paths. For example, <filename>systemd-networkd.service</filename>
++    has the alias <filename>dbus-org.freedesktop.network1.service</filename>, created during installation as
++    a symlink, so when <command>systemd</command> is asked through D-Bus to load
++    <filename>dbus-org.freedesktop.network1.service</filename>, it'll load
++    <filename>systemd-networkd.service</filename>. Alias names may be used in commands like
++    <command>enable</command>, <command>disable</command>, <command>start</command>, <command>stop</command>,
++    <command>status</command>, and similar, and in all unit dependency directives, including
++    <varname>Wants=</varname>, <varname>Requires=</varname>, <varname>Before=</varname>,
++    <varname>After=</varname>. Aliases cannot be used with the <command>preset</command> command.</para>
++
++    <para>Unit files may specify aliases through the <varname>Alias=</varname> directive in the [Install]
++    section. When the unit is enabled, symlinks will be created for those names, and removed when the unit is
++    disabled. For example, <filename>reboot.target</filename> specifies
++    <varname>Alias=ctrl-alt-del.target</varname>, so when enabled, the symlink
++    <filename>/etc/systemd/systemd/ctrl-alt-del.service</filename> pointing to the
++    <filename>reboot.target</filename> file will be created, and when
++    <keycombo><keycap>Ctrl</keycap><keycap>Alt</keycap><keycap>Del</keycap></keycombo> is invoked,
++    <command>systemd</command> will look for the <filename>ctrl-alt-del.service</filename> and execute
++    <filename>reboot.service</filename>. <command>systemd</command> does not look at the [Install] section at
++    all during normal operation, so any directives in that section only have an effect through the symlinks
++    created during enablement.</para>
+ 
+     <para>Along with a unit file <filename>foo.service</filename>, the directory
+-    <filename>foo.service.wants/</filename> may exist. All unit files symlinked from such a
+-    directory are implicitly added as dependencies of type <varname>Wants=</varname> to the unit.
+-    This is useful to hook units into the start-up of other units, without having to modify their
+-    unit files. For details about the semantics of <varname>Wants=</varname>, see below. The
+-    preferred way to create symlinks in the <filename>.wants/</filename> directory of a unit file is
+-    with the <command>enable</command> command of the
+-    <citerefentry><refentrytitle>systemctl</refentrytitle><manvolnum>1</manvolnum></citerefentry>
+-    tool which reads information from the [Install] section of unit files (see below). A similar
+-    functionality exists for <varname>Requires=</varname> type dependencies as well, the directory
+-    suffix is <filename>.requires/</filename> in this case.</para>
++    <filename>foo.service.wants/</filename> may exist. All unit files symlinked from such a directory are
++    implicitly added as dependencies of type <varname>Wants=</varname> to the unit. Similar functionality
++    exists for <varname>Requires=</varname> type dependencies as well, the directory suffix is
++    <filename>.requires/</filename> in this case. This functionality is useful to hook units into the
++    start-up of other units, without having to modify their unit files. For details about the semantics of
++    <varname>Wants=</varname>, see below. The preferred way to create symlinks in the
++    <filename>.wants/</filename> or <filename>.requires/</filename> directory of a unit file is by embedding
++    the dependency in [Install] section of the target unit, and creating the symlink in the file system with
++    the with the <command>enable</command> or <command>preset</command> commands of
++    <citerefentry><refentrytitle>systemctl</refentrytitle><manvolnum>1</manvolnum></citerefentry>.</para>
+ 
+     <para>Along with a unit file <filename>foo.service</filename>, a "drop-in" directory
+     <filename>foo.service.d/</filename> may exist. All files with the suffix <literal>.conf</literal> from this
+diff --git a/src/basic/cap-list.c b/src/basic/cap-list.c
+index 29a17d9..57d0379 100644
+--- a/src/basic/cap-list.c
++++ b/src/basic/cap-list.c
+@@ -100,7 +100,7 @@ int capability_set_from_string(const char *s, uint64_t *set) {
+                 _cleanup_free_ char *word = NULL;
+                 int r;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r == -ENOMEM)
+                         return r;
+                 if (r <= 0)
+diff --git a/src/basic/env-util.c b/src/basic/env-util.c
+index fd449dc..d18e8e9 100644
+--- a/src/basic/env-util.c
++++ b/src/basic/env-util.c
+@@ -688,7 +688,7 @@ char **replace_env_argv(char **argv, char **env) {
+                         if (e) {
+                                 int r;
+ 
+-                                r = strv_split_extract(&m, e, WHITESPACE, EXTRACT_RELAX|EXTRACT_QUOTES);
++                                r = strv_split_extract(&m, e, WHITESPACE, EXTRACT_RELAX|EXTRACT_UNQUOTE);
+                                 if (r < 0) {
+                                         ret[k] = NULL;
+                                         strv_free(ret);
+diff --git a/src/basic/extract-word.c b/src/basic/extract-word.c
+index a861b56..34cfb36 100644
+--- a/src/basic/extract-word.c
++++ b/src/basic/extract-word.c
+@@ -135,7 +135,7 @@ int extract_first_word(const char **p, char **ret, const char *separators, Extra
+                         for (;; (*p)++, c = **p) {
+                                 if (c == 0)
+                                         goto finish_force_terminate;
+-                                else if (IN_SET(c, '\'', '"') && (flags & EXTRACT_QUOTES)) {
++                                else if (IN_SET(c, '\'', '"') && (flags & EXTRACT_UNQUOTE)) {
+                                         quote = c;
+                                         break;
+                                 } else if (c == '\\' && !(flags & EXTRACT_RETAIN_ESCAPE)) {
+diff --git a/src/basic/extract-word.h b/src/basic/extract-word.h
+index 705ebbe..e2d4338 100644
+--- a/src/basic/extract-word.h
++++ b/src/basic/extract-word.h
+@@ -7,7 +7,7 @@ typedef enum ExtractFlags {
+         EXTRACT_RELAX                    = 1 << 0,
+         EXTRACT_CUNESCAPE                = 1 << 1,
+         EXTRACT_CUNESCAPE_RELAX          = 1 << 2,
+-        EXTRACT_QUOTES                   = 1 << 3,
++        EXTRACT_UNQUOTE                  = 1 << 3,
+         EXTRACT_DONT_COALESCE_SEPARATORS = 1 << 4,
+         EXTRACT_RETAIN_ESCAPE            = 1 << 5,
+ } ExtractFlags;
+diff --git a/src/basic/hash-funcs.c b/src/basic/hash-funcs.c
+index 1be43d4..11cd371 100644
+--- a/src/basic/hash-funcs.c
++++ b/src/basic/hash-funcs.c
+@@ -10,6 +10,9 @@ void string_hash_func(const char *p, struct siphash *state) {
+ }
+ 
+ DEFINE_HASH_OPS(string_hash_ops, char, string_hash_func, string_compare_func);
++DEFINE_HASH_OPS_FULL(string_hash_ops_free_free,
++                     char, string_hash_func, string_compare_func, free,
++                     char, free);
+ 
+ void path_hash_func(const char *q, struct siphash *state) {
+         size_t n;
+diff --git a/src/basic/hash-funcs.h b/src/basic/hash-funcs.h
+index 3d2ae4b..0d2d428 100644
+--- a/src/basic/hash-funcs.h
++++ b/src/basic/hash-funcs.h
+@@ -76,6 +76,7 @@ struct hash_ops {
+ void string_hash_func(const char *p, struct siphash *state);
+ #define string_compare_func strcmp
+ extern const struct hash_ops string_hash_ops;
++extern const struct hash_ops string_hash_ops_free_free;
+ 
+ void path_hash_func(const char *p, struct siphash *state);
+ int path_compare_func(const char *a, const char *b) _pure_;
+diff --git a/src/basic/hashmap.c b/src/basic/hashmap.c
+index c7bd732..7df0148 100644
+--- a/src/basic/hashmap.c
++++ b/src/basic/hashmap.c
+@@ -728,8 +728,8 @@ bool internal_hashmap_iterate(HashmapBase *h, Iterator *i, void **value, const v
+         return true;
+ }
+ 
+-bool set_iterate(Set *s, Iterator *i, void **value) {
+-        return internal_hashmap_iterate(HASHMAP_BASE(s), i, value, NULL);
++bool set_iterate(const Set *s, Iterator *i, void **value) {
++        return internal_hashmap_iterate(HASHMAP_BASE((Set*) s), i, value, NULL);
+ }
+ 
+ #define HASHMAP_FOREACH_IDX(idx, h, i) \
+@@ -1763,6 +1763,32 @@ int set_consume(Set *s, void *value) {
+         return r;
+ }
+ 
++int hashmap_put_strdup(Hashmap **h, const char *k, const char *v) {
++        int r;
++
++        r = hashmap_ensure_allocated(h, &string_hash_ops_free_free);
++        if (r < 0)
++                return r;
++
++        _cleanup_free_ char *kdup = NULL, *vdup = NULL;
++        kdup = strdup(k);
++        vdup = strdup(v);
++        if (!kdup || !vdup)
++                return -ENOMEM;
++
++        r = hashmap_put(*h, kdup, vdup);
++        if (r < 0) {
++                if (r == -EEXIST && streq(v, hashmap_get(*h, kdup)))
++                        return 0;
++                return r;
++        }
++
++        assert(r > 0); /* 0 would mean vdup is already in the hashmap, which cannot be */
++        kdup = vdup = NULL;
++
++        return 0;
++}
++
+ int set_put_strdup(Set *s, const char *p) {
+         char *c;
+ 
+diff --git a/src/basic/hashmap.h b/src/basic/hashmap.h
+index 41c8adb..1f2fa1c 100644
+--- a/src/basic/hashmap.h
++++ b/src/basic/hashmap.h
+@@ -147,6 +147,8 @@ static inline int ordered_hashmap_put(OrderedHashmap *h, const void *key, void *
+         return hashmap_put(PLAIN_HASHMAP(h), key, value);
+ }
+ 
++int hashmap_put_strdup(Hashmap **h, const char *k, const char *v);
++
+ int hashmap_update(Hashmap *h, const void *key, void *value);
+ static inline int ordered_hashmap_update(OrderedHashmap *h, const void *key, void *value) {
+         return hashmap_update(PLAIN_HASHMAP(h), key, value);
+diff --git a/src/basic/path-util.c b/src/basic/path-util.c
+index 55cb140..7a3db6e 100644
+--- a/src/basic/path-util.c
++++ b/src/basic/path-util.c
+@@ -210,6 +210,18 @@ int path_make_relative(const char *from_dir, const char *to_path, char **_r) {
+         return 0;
+ }
+ 
++char* path_startswith_strv(const char *p, char **set) {
++        char **s, *t;
++
++        STRV_FOREACH(s, set) {
++                t = path_startswith(p, *s);
++                if (t)
++                        return t;
++        }
++
++        return NULL;
++}
++
+ int path_strv_make_absolute_cwd(char **l) {
+         char **s;
+         int r;
+@@ -385,6 +397,52 @@ char *path_simplify(char *path, bool kill_dots) {
+         return path;
+ }
+ 
++int path_simplify_and_warn(
++                char *path,
++                unsigned flag,
++                const char *unit,
++                const char *filename,
++                unsigned line,
++                const char *lvalue) {
++
++        bool fatal = flag & PATH_CHECK_FATAL;
++
++        assert(!FLAGS_SET(flag, PATH_CHECK_ABSOLUTE | PATH_CHECK_RELATIVE));
++
++        if (!utf8_is_valid(path))
++                return log_syntax_invalid_utf8(unit, LOG_ERR, filename, line, path);
++
++        if (flag & (PATH_CHECK_ABSOLUTE | PATH_CHECK_RELATIVE)) {
++                bool absolute;
++
++                absolute = path_is_absolute(path);
++
++                if (!absolute && (flag & PATH_CHECK_ABSOLUTE))
++                        return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
++                                          "%s= path is not absolute%s: %s",
++                                          lvalue, fatal ? "" : ", ignoring", path);
++
++                if (absolute && (flag & PATH_CHECK_RELATIVE))
++                        return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
++                                          "%s= path is absolute%s: %s",
++                                          lvalue, fatal ? "" : ", ignoring", path);
++        }
++
++        path_simplify(path, true);
++
++        if (!path_is_valid(path))
++                return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
++                                  "%s= path has invalid length (%zu bytes)%s.",
++                                  lvalue, strlen(path), fatal ? "" : ", ignoring");
++
++        if (!path_is_normalized(path))
++                return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
++                                  "%s= path is not normalized%s: %s",
++                                  lvalue, fatal ? "" : ", ignoring", path);
++
++        return 0;
++}
++
+ char* path_startswith(const char *path, const char *prefix) {
+         assert(path);
+         assert(prefix);
+@@ -1095,49 +1153,3 @@ bool empty_or_root(const char *root) {
+ 
+         return root[strspn(root, "/")] == 0;
+ }
+-
+-int path_simplify_and_warn(
+-                char *path,
+-                unsigned flag,
+-                const char *unit,
+-                const char *filename,
+-                unsigned line,
+-                const char *lvalue) {
+-
+-        bool fatal = flag & PATH_CHECK_FATAL;
+-
+-        assert(!FLAGS_SET(flag, PATH_CHECK_ABSOLUTE | PATH_CHECK_RELATIVE));
+-
+-        if (!utf8_is_valid(path))
+-                return log_syntax_invalid_utf8(unit, LOG_ERR, filename, line, path);
+-
+-        if (flag & (PATH_CHECK_ABSOLUTE | PATH_CHECK_RELATIVE)) {
+-                bool absolute;
+-
+-                absolute = path_is_absolute(path);
+-
+-                if (!absolute && (flag & PATH_CHECK_ABSOLUTE))
+-                        return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
+-                                          "%s= path is not absolute%s: %s",
+-                                          lvalue, fatal ? "" : ", ignoring", path);
+-
+-                if (absolute && (flag & PATH_CHECK_RELATIVE))
+-                        return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
+-                                          "%s= path is absolute%s: %s",
+-                                          lvalue, fatal ? "" : ", ignoring", path);
+-        }
+-
+-        path_simplify(path, true);
+-
+-        if (!path_is_valid(path))
+-                return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
+-                                  "%s= path has invalid length (%zu bytes)%s.",
+-                                  lvalue, strlen(path), fatal ? "" : ", ignoring");
+-
+-        if (!path_is_normalized(path))
+-                return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
+-                                  "%s= path is not normalized%s: %s",
+-                                  lvalue, fatal ? "" : ", ignoring", path);
+-
+-        return 0;
+-}
+diff --git a/src/basic/path-util.h b/src/basic/path-util.h
+index 86c5a57..58e468e 100644
+--- a/src/basic/path-util.h
++++ b/src/basic/path-util.h
+@@ -54,6 +54,14 @@ char* path_join_internal(const char *first, ...);
+ 
+ char* path_simplify(char *path, bool kill_dots);
+ 
++enum {
++        PATH_CHECK_FATAL    = 1 << 0,  /* If not set, then error message is appended with 'ignoring'. */
++        PATH_CHECK_ABSOLUTE = 1 << 1,
++        PATH_CHECK_RELATIVE = 1 << 2,
++};
++
++int path_simplify_and_warn(char *path, unsigned flag, const char *unit, const char *filename, unsigned line, const char *lvalue);
++
+ static inline bool path_equal_ptr(const char *a, const char *b) {
+         return !!a == !!b && (!a || path_equal(a, b));
+ }
+@@ -71,17 +79,8 @@ static inline bool path_equal_ptr(const char *a, const char *b) {
+                 _found;                                         \
+         })
+ 
+-#define PATH_STARTSWITH_SET(p, ...)                             \
+-        ({                                                      \
+-                const char *_p = (p);                           \
+-                char *_found = NULL, **_i;                      \
+-                STRV_FOREACH(_i, STRV_MAKE(__VA_ARGS__)) {      \
+-                        _found = path_startswith(_p, *_i);      \
+-                        if (_found)                             \
+-                                break;                          \
+-                }                                               \
+-                _found;                                         \
+-        })
++char* path_startswith_strv(const char *p, char **set);
++#define PATH_STARTSWITH_SET(p, ...) path_startswith_strv(p, STRV_MAKE(__VA_ARGS__))
+ 
+ int path_strv_make_absolute_cwd(char **l);
+ char** path_strv_resolve(char **l, const char *root);
+@@ -180,11 +179,3 @@ bool empty_or_root(const char *root);
+ static inline const char *empty_to_root(const char *path) {
+         return isempty(path) ? "/" : path;
+ }
+-
+-enum {
+-        PATH_CHECK_FATAL    = 1 << 0,  /* If not set, then error message is appended with 'ignoring'. */
+-        PATH_CHECK_ABSOLUTE = 1 << 1,
+-        PATH_CHECK_RELATIVE = 1 << 2,
+-};
+-
+-int path_simplify_and_warn(char *path, unsigned flag, const char *unit, const char *filename, unsigned line, const char *lvalue);
+diff --git a/src/basic/proc-cmdline.c b/src/basic/proc-cmdline.c
+index 1670001..da54b84 100644
+--- a/src/basic/proc-cmdline.c
++++ b/src/basic/proc-cmdline.c
+@@ -47,7 +47,7 @@ static int proc_cmdline_extract_first(const char **p, char **ret_word, ProcCmdli
+                 _cleanup_free_ char *word = NULL;
+                 const char *c;
+ 
+-                r = extract_first_word(&q, &word, NULL, EXTRACT_QUOTES|EXTRACT_RELAX);
++                r = extract_first_word(&q, &word, NULL, EXTRACT_UNQUOTE|EXTRACT_RELAX);
+                 if (r < 0)
+                         return r;
+                 if (r == 0)
+diff --git a/src/basic/set.h b/src/basic/set.h
+index 2a80632..2bb26c6 100644
+--- a/src/basic/set.h
++++ b/src/basic/set.h
+@@ -28,13 +28,13 @@ int internal_set_ensure_allocated(Set **s, const struct hash_ops *hash_ops HASHM
+ int set_put(Set *s, const void *key);
+ /* no set_update */
+ /* no set_replace */
+-static inline void *set_get(Set *s, void *key) {
+-        return internal_hashmap_get(HASHMAP_BASE(s), key);
++static inline void *set_get(const Set *s, void *key) {
++        return internal_hashmap_get(HASHMAP_BASE((Set *) s), key);
+ }
+ /* no set_get2 */
+ 
+-static inline bool set_contains(Set *s, const void *key) {
+-        return internal_hashmap_contains(HASHMAP_BASE(s), key);
++static inline bool set_contains(const Set *s, const void *key) {
++        return internal_hashmap_contains(HASHMAP_BASE((Set *) s), key);
+ }
+ 
+ static inline void *set_remove(Set *s, const void *key) {
+@@ -59,19 +59,19 @@ static inline int set_move_one(Set *s, Set *other, const void *key) {
+         return internal_hashmap_move_one(HASHMAP_BASE(s), HASHMAP_BASE(other), key);
+ }
+ 
+-static inline unsigned set_size(Set *s) {
+-        return internal_hashmap_size(HASHMAP_BASE(s));
++static inline unsigned set_size(const Set *s) {
++        return internal_hashmap_size(HASHMAP_BASE((Set *) s));
+ }
+ 
+-static inline bool set_isempty(Set *s) {
++static inline bool set_isempty(const Set *s) {
+         return set_size(s) == 0;
+ }
+ 
+-static inline unsigned set_buckets(Set *s) {
+-        return internal_hashmap_buckets(HASHMAP_BASE(s));
++static inline unsigned set_buckets(const Set *s) {
++        return internal_hashmap_buckets(HASHMAP_BASE((Set *) s));
+ }
+ 
+-bool set_iterate(Set *s, Iterator *i, void **value);
++bool set_iterate(const Set *s, Iterator *i, void **value);
+ 
+ static inline void set_clear(Set *s) {
+         internal_hashmap_clear(HASHMAP_BASE(s), NULL, NULL);
+diff --git a/src/basic/strv.c b/src/basic/strv.c
+index 21c1061..755f7ea 100644
+--- a/src/basic/strv.c
++++ b/src/basic/strv.c
+@@ -888,3 +888,63 @@ int fputstrv(FILE *f, char **l, const char *separator, bool *space) {
+ 
+         return 0;
+ }
++
++static int string_strv_hashmap_put_internal(Hashmap *h, const char *key, const char *value) {
++        char **l;
++        int r;
++
++        l = hashmap_get(h, key);
++        if (l) {
++                /* A list for this key already exists, let's append to it if it is not listed yet */
++                if (strv_contains(l, value))
++                        return 0;
++
++                r = strv_extend(&l, value);
++                if (r < 0)
++                        return r;
++
++                assert_se(hashmap_update(h, key, l) >= 0);
++        } else {
++                /* No list for this key exists yet, create one */
++                _cleanup_strv_free_ char **l2 = NULL;
++                _cleanup_free_ char *t = NULL;
++
++                t = strdup(key);
++                if (!t)
++                        return -ENOMEM;
++
++                r = strv_extend(&l2, value);
++                if (r < 0)
++                        return r;
++
++                r = hashmap_put(h, t, l2);
++                if (r < 0)
++                        return r;
++                TAKE_PTR(t);
++                TAKE_PTR(l2);
++        }
++
++        return 1;
++}
++
++int string_strv_hashmap_put(Hashmap **h, const char *key, const char *value) {
++        int r;
++
++        r = hashmap_ensure_allocated(h, &string_strv_hash_ops);
++        if (r < 0)
++                return r;
++
++        return string_strv_hashmap_put_internal(*h, key, value);
++}
++
++int string_strv_ordered_hashmap_put(OrderedHashmap **h, const char *key, const char *value) {
++        int r;
++
++        r = ordered_hashmap_ensure_allocated(h, &string_strv_hash_ops);
++        if (r < 0)
++                return r;
++
++        return string_strv_hashmap_put_internal(PLAIN_HASHMAP(*h), key, value);
++}
++
++DEFINE_HASH_OPS_FULL(string_strv_hash_ops, char, string_hash_func, string_compare_func, free, char*, strv_free);
+diff --git a/src/basic/strv.h b/src/basic/strv.h
+index aa5f95a..e80964a 100644
+--- a/src/basic/strv.h
++++ b/src/basic/strv.h
+@@ -9,6 +9,7 @@
+ 
+ #include "alloc-util.h"
+ #include "extract-word.h"
++#include "hashmap.h"
+ #include "macro.h"
+ #include "string-util.h"
+ 
+@@ -188,3 +189,7 @@ int fputstrv(FILE *f, char **l, const char *separator, bool *space);
+                 (b) = NULL;                     \
+                 0;                              \
+         })
++
++extern const struct hash_ops string_strv_hash_ops;
++int string_strv_hashmap_put(Hashmap **h, const char *key, const char *value);
++int string_strv_ordered_hashmap_put(OrderedHashmap **h, const char *key, const char *value);
+diff --git a/src/basic/unit-name.c b/src/basic/unit-name.c
+index 1b81fe2..280eff4 100644
+--- a/src/basic/unit-name.c
++++ b/src/basic/unit-name.c
+@@ -140,12 +140,10 @@ int unit_name_to_prefix(const char *n, char **ret) {
+         return 0;
+ }
+ 
+-int unit_name_to_instance(const char *n, char **instance) {
++int unit_name_to_instance(const char *n, char **ret) {
+         const char *p, *d;
+-        char *i;
+ 
+         assert(n);
+-        assert(instance);
+ 
+         if (!unit_name_is_valid(n, UNIT_NAME_ANY))
+                 return -EINVAL;
+@@ -153,8 +151,9 @@ int unit_name_to_instance(const char *n, char **instance) {
+         /* Everything past the first @ and before the last . is the instance */
+         p = strchr(n, '@');
+         if (!p) {
+-                *instance = NULL;
+-                return 0;
++                if (ret)
++                        *ret = NULL;
++                return UNIT_NAME_PLAIN;
+         }
+ 
+         p++;
+@@ -163,12 +162,14 @@ int unit_name_to_instance(const char *n, char **instance) {
+         if (!d)
+                 return -EINVAL;
+ 
+-        i = strndup(p, d-p);
+-        if (!i)
+-                return -ENOMEM;
++        if (ret) {
++                char *i = strndup(p, d-p);
++                if (!i)
++                        return -ENOMEM;
+ 
+-        *instance = i;
+-        return 1;
++                *ret = i;
++        }
++        return d > p ? UNIT_NAME_INSTANCE : UNIT_NAME_TEMPLATE;
+ }
+ 
+ int unit_name_to_prefix_and_instance(const char *n, char **ret) {
+diff --git a/src/basic/unit-name.h b/src/basic/unit-name.h
+index 0629db3..2e060ff 100644
+--- a/src/basic/unit-name.h
++++ b/src/basic/unit-name.h
+@@ -10,9 +10,9 @@
+ 
+ typedef enum UnitNameFlags {
+         UNIT_NAME_PLAIN    = 1 << 0, /* Allow foo.service */
+-        UNIT_NAME_INSTANCE = 1 << 1, /* Allow foo@bar.service */
+-        UNIT_NAME_TEMPLATE = 1 << 2, /* Allow foo@.service */
+-        UNIT_NAME_ANY = UNIT_NAME_PLAIN|UNIT_NAME_INSTANCE|UNIT_NAME_TEMPLATE,
++        UNIT_NAME_TEMPLATE = 1 << 1, /* Allow foo@.service */
++        UNIT_NAME_INSTANCE = 1 << 2, /* Allow foo@bar.service */
++        UNIT_NAME_ANY = UNIT_NAME_PLAIN|UNIT_NAME_TEMPLATE|UNIT_NAME_INSTANCE,
+ } UnitNameFlags;
+ 
+ bool unit_name_is_valid(const char *n, UnitNameFlags flags) _pure_;
+@@ -20,13 +20,11 @@ bool unit_prefix_is_valid(const char *p) _pure_;
+ bool unit_instance_is_valid(const char *i) _pure_;
+ bool unit_suffix_is_valid(const char *s) _pure_;
+ 
+-static inline int unit_prefix_and_instance_is_valid(const char *p) {
+-        /* For prefix+instance and instance the same rules apply */
+-        return unit_instance_is_valid(p);
++int unit_name_to_prefix(const char *n, char **ret);
++int unit_name_to_instance(const char *n, char **ret);
++static inline int unit_name_classify(const char *n) {
++        return unit_name_to_instance(n, NULL);
+ }
+-
+-int unit_name_to_prefix(const char *n, char **prefix);
+-int unit_name_to_instance(const char *n, char **instance);
+ int unit_name_to_prefix_and_instance(const char *n, char **ret);
+ 
+ UnitType unit_name_to_type(const char *n) _pure_;
+diff --git a/src/core/bpf-firewall.c b/src/core/bpf-firewall.c
+index 4f1655b..1bd1408 100644
+--- a/src/core/bpf-firewall.c
++++ b/src/core/bpf-firewall.c
+@@ -23,6 +23,8 @@
+ #include "memory-util.h"
+ #include "missing_syscall.h"
+ #include "unit.h"
++#include "strv.h"
++#include "virt.h"
+ 
+ enum {
+         MAP_KEY_PACKETS,
+diff --git a/src/core/cgroup.c b/src/core/cgroup.c
+index 269e880..5e9c8ea 100644
+--- a/src/core/cgroup.c
++++ b/src/core/cgroup.c
+@@ -269,7 +269,7 @@ void cgroup_context_dump(CGroupContext *c, FILE* f, const char *prefix) {
+                 prefix, c->memory_limit,
+                 prefix, c->tasks_max,
+                 prefix, cgroup_device_policy_to_string(c->device_policy),
+-                prefix, strnull(disable_controllers_str),
++                prefix, strempty(disable_controllers_str),
+                 prefix, yes_no(c->delegate));
+ 
+         if (c->delegate) {
+diff --git a/src/core/dbus-job.c b/src/core/dbus-job.c
+index d11e58b..a7d3422 100644
+--- a/src/core/dbus-job.c
++++ b/src/core/dbus-job.c
+@@ -10,6 +10,7 @@
+ #include "log.h"
+ #include "selinux-access.h"
+ #include "string-util.h"
++#include "strv.h"
+ 
+ static BUS_DEFINE_PROPERTY_GET_ENUM(property_get_type, job_type, JobType);
+ static BUS_DEFINE_PROPERTY_GET_ENUM(property_get_state, job_state, JobState);
+diff --git a/src/core/dbus-unit.c b/src/core/dbus-unit.c
+index 6f1a74d..a99cd76 100644
+--- a/src/core/dbus-unit.c
++++ b/src/core/dbus-unit.c
+@@ -12,6 +12,7 @@
+ #include "dbus-util.h"
+ #include "dbus.h"
+ #include "fd-util.h"
++#include "install.h"
+ #include "locale-util.h"
+ #include "log.h"
+ #include "path-util.h"
+diff --git a/src/core/device.c b/src/core/device.c
+index 9f7caa4..73cff82 100644
+--- a/src/core/device.c
++++ b/src/core/device.c
+@@ -374,7 +374,7 @@ static int device_add_udev_wants(Unit *u, sd_device *dev) {
+         for (;;) {
+                 _cleanup_free_ char *word = NULL, *k = NULL;
+ 
+-                r = extract_first_word(&wants, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&wants, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r == 0)
+                         break;
+                 if (r == -ENOMEM)
+@@ -626,7 +626,7 @@ static int device_process_new(Manager *m, sd_device *dev) {
+         for (;;) {
+                 _cleanup_free_ char *word = NULL;
+ 
+-                r = extract_first_word(&alias, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&alias, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r == 0)
+                         break;
+                 if (r == -ENOMEM)
+diff --git a/src/core/dynamic-user.c b/src/core/dynamic-user.c
+index c380bee..b2de53d 100644
+--- a/src/core/dynamic-user.c
++++ b/src/core/dynamic-user.c
+@@ -20,6 +20,7 @@
+ #include "socket-util.h"
+ #include "stdio-util.h"
+ #include "string-util.h"
++#include "strv.h"
+ #include "user-util.h"
+ 
+ /* Takes a value generated randomly or by hashing and turns it into a UID in the right range */
+diff --git a/src/core/load-dropin.h b/src/core/load-dropin.h
+index bb10a76..ea15554 100644
+--- a/src/core/load-dropin.h
++++ b/src/core/load-dropin.h
+@@ -9,11 +9,12 @@
+ static inline int unit_find_dropin_paths(Unit *u, char ***paths) {
+         assert(u);
+ 
+-        return unit_file_find_dropin_conf_paths(NULL,
+-                                                u->manager->lookup_paths.search_path,
+-                                                u->manager->unit_path_cache,
+-                                                u->names,
+-                                                paths);
++        return unit_file_find_dropin_paths(NULL,
++                                           u->manager->lookup_paths.search_path,
++                                           u->manager->unit_path_cache,
++                                           ".d", ".conf",
++                                           u->names,
++                                           paths);
+ }
+ 
+ int unit_load_dropin(Unit *u);
+diff --git a/src/core/load-fragment.c b/src/core/load-fragment.c
+index 9b7c8cb..e96b6ed 100644
+--- a/src/core/load-fragment.c
++++ b/src/core/load-fragment.c
+@@ -290,7 +290,7 @@ int config_parse_unit_path_strv_printf(
+         for (p = rvalue;;) {
+                 _cleanup_free_ char *word = NULL, *k = NULL;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r == 0)
+                         return 0;
+                 if (r == -ENOMEM)
+@@ -594,7 +594,7 @@ int config_parse_exec(
+ 
+                 semicolon = false;
+ 
+-                r = extract_first_word_and_warn(&p, &firstword, NULL, EXTRACT_QUOTES|EXTRACT_CUNESCAPE, unit, filename, line, rvalue);
++                r = extract_first_word_and_warn(&p, &firstword, NULL, EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE, unit, filename, line, rvalue);
+                 if (r <= 0)
+                         return 0;
+ 
+@@ -740,7 +740,7 @@ int config_parse_exec(
+                                 continue;
+                         }
+ 
+-                        r = extract_first_word_and_warn(&p, &word, NULL, EXTRACT_QUOTES|EXTRACT_CUNESCAPE, unit, filename, line, rvalue);
++                        r = extract_first_word_and_warn(&p, &word, NULL, EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE, unit, filename, line, rvalue);
+                         if (r == 0)
+                                 break;
+                         if (r < 0)
+@@ -2166,7 +2166,7 @@ int config_parse_environ(
+         for (p = rvalue;; ) {
+                 _cleanup_free_ char *word = NULL, *k = NULL;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_CUNESCAPE|EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_CUNESCAPE|EXTRACT_UNQUOTE);
+                 if (r == 0)
+                         return 0;
+                 if (r == -ENOMEM)
+@@ -2234,7 +2234,7 @@ int config_parse_pass_environ(
+         for (;;) {
+                 _cleanup_free_ char *word = NULL, *k = NULL;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r == 0)
+                         break;
+                 if (r == -ENOMEM)
+@@ -2310,7 +2310,7 @@ int config_parse_unset_environ(
+         for (;;) {
+                 _cleanup_free_ char *word = NULL, *k = NULL;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_CUNESCAPE|EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_CUNESCAPE|EXTRACT_UNQUOTE);
+                 if (r == 0)
+                         break;
+                 if (r == -ENOMEM)
+@@ -2385,7 +2385,7 @@ int config_parse_log_extra_fields(
+                 struct iovec *t;
+                 const char *eq;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_CUNESCAPE|EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_CUNESCAPE|EXTRACT_UNQUOTE);
+                 if (r == 0)
+                         return 0;
+                 if (r == -ENOMEM)
+@@ -2609,7 +2609,7 @@ int config_parse_unit_requires_mounts_for(
+         for (;;) {
+                 _cleanup_free_ char *word = NULL, *resolved = NULL;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r == 0)
+                         return 0;
+                 if (r == -ENOMEM)
+@@ -2804,7 +2804,7 @@ int config_parse_syscall_archs(
+                 _cleanup_free_ char *word = NULL;
+                 uint32_t a;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r == 0)
+                         return 0;
+                 if (r == -ENOMEM)
+@@ -2908,7 +2908,7 @@ int config_parse_address_families(
+                 _cleanup_free_ char *word = NULL;
+                 int af;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r == 0)
+                         return 0;
+                 if (r == -ENOMEM)
+@@ -3213,7 +3213,7 @@ int config_parse_delegate(
+                         _cleanup_free_ char *word = NULL;
+                         CGroupController cc;
+ 
+-                        r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                        r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                         if (r == 0)
+                                 break;
+                         if (r == -ENOMEM)
+@@ -3270,7 +3270,7 @@ int config_parse_device_allow(
+                 return 0;
+         }
+ 
+-        r = extract_first_word(&p, &path, NULL, EXTRACT_QUOTES);
++        r = extract_first_word(&p, &path, NULL, EXTRACT_UNQUOTE);
+         if (r == -ENOMEM)
+                 return log_oom();
+         if (r < 0) {
+@@ -3341,7 +3341,7 @@ int config_parse_io_device_weight(
+                 return 0;
+         }
+ 
+-        r = extract_first_word(&p, &path, NULL, EXTRACT_QUOTES);
++        r = extract_first_word(&p, &path, NULL, EXTRACT_UNQUOTE);
+         if (r == -ENOMEM)
+                 return log_oom();
+         if (r < 0) {
+@@ -3415,7 +3415,7 @@ int config_parse_io_device_latency(
+                 return 0;
+         }
+ 
+-        r = extract_first_word(&p, &path, NULL, EXTRACT_QUOTES);
++        r = extract_first_word(&p, &path, NULL, EXTRACT_UNQUOTE);
+         if (r == -ENOMEM)
+                 return log_oom();
+         if (r < 0) {
+@@ -3489,7 +3489,7 @@ int config_parse_io_limit(
+                 return 0;
+         }
+ 
+-        r = extract_first_word(&p, &path, NULL, EXTRACT_QUOTES);
++        r = extract_first_word(&p, &path, NULL, EXTRACT_UNQUOTE);
+         if (r == -ENOMEM)
+                 return log_oom();
+         if (r < 0) {
+@@ -3580,7 +3580,7 @@ int config_parse_blockio_device_weight(
+                 return 0;
+         }
+ 
+-        r = extract_first_word(&p, &path, NULL, EXTRACT_QUOTES);
++        r = extract_first_word(&p, &path, NULL, EXTRACT_UNQUOTE);
+         if (r == -ENOMEM)
+                 return log_oom();
+         if (r < 0) {
+@@ -3658,7 +3658,7 @@ int config_parse_blockio_bandwidth(
+                 return 0;
+         }
+ 
+-        r = extract_first_word(&p, &path, NULL, EXTRACT_QUOTES);
++        r = extract_first_word(&p, &path, NULL, EXTRACT_UNQUOTE);
+         if (r == -ENOMEM)
+                 return log_oom();
+         if (r < 0) {
+@@ -3778,7 +3778,7 @@ int config_parse_exec_directories(
+         for (p = rvalue;;) {
+                 _cleanup_free_ char *word = NULL, *k = NULL;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r == -ENOMEM)
+                         return log_oom();
+                 if (r < 0) {
+@@ -3914,7 +3914,7 @@ int config_parse_namespace_path_strv(
+                 const char *w;
+                 bool ignore_enoent = false, shall_prefix = false;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r == 0)
+                         break;
+                 if (r == -ENOMEM)
+@@ -3992,7 +3992,7 @@ int config_parse_temporary_filesystems(
+                 _cleanup_free_ char *word = NULL, *path = NULL, *resolved = NULL;
+                 const char *w;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r == 0)
+                         return 0;
+                 if (r == -ENOMEM)
+@@ -4068,7 +4068,7 @@ int config_parse_bind_paths(
+                 char *s = NULL, *d = NULL;
+                 bool rbind = true, ignore_enoent = false;
+ 
+-                r = extract_first_word(&p, &source, ":" WHITESPACE, EXTRACT_QUOTES|EXTRACT_DONT_COALESCE_SEPARATORS);
++                r = extract_first_word(&p, &source, ":" WHITESPACE, EXTRACT_UNQUOTE|EXTRACT_DONT_COALESCE_SEPARATORS);
+                 if (r == 0)
+                         break;
+                 if (r == -ENOMEM)
+@@ -4097,7 +4097,7 @@ int config_parse_bind_paths(
+ 
+                 /* Optionally, the destination is specified. */
+                 if (p && p[-1] == ':') {
+-                        r = extract_first_word(&p, &destination, ":" WHITESPACE, EXTRACT_QUOTES|EXTRACT_DONT_COALESCE_SEPARATORS);
++                        r = extract_first_word(&p, &destination, ":" WHITESPACE, EXTRACT_UNQUOTE|EXTRACT_DONT_COALESCE_SEPARATORS);
+                         if (r == -ENOMEM)
+                                 return log_oom();
+                         if (r < 0) {
+@@ -4126,7 +4126,7 @@ int config_parse_bind_paths(
+                         if (p && p[-1] == ':') {
+                                 _cleanup_free_ char *options = NULL;
+ 
+-                                r = extract_first_word(&p, &options, NULL, EXTRACT_QUOTES);
++                                r = extract_first_word(&p, &options, NULL, EXTRACT_UNQUOTE);
+                                 if (r == -ENOMEM)
+                                         return log_oom();
+                                 if (r < 0) {
+diff --git a/src/core/manager.c b/src/core/manager.c
+index 12ae911..3f8ea20 100644
+--- a/src/core/manager.c
++++ b/src/core/manager.c
+@@ -47,6 +47,7 @@
+ #include "fs-util.h"
+ #include "hashmap.h"
+ #include "io-util.h"
++#include "install.h"
+ #include "label.h"
+ #include "locale-setup.h"
+ #include "log.h"
+diff --git a/src/core/transaction.c b/src/core/transaction.c
+index 3b6b240..eead1cf 100644
+--- a/src/core/transaction.c
++++ b/src/core/transaction.c
+@@ -6,9 +6,10 @@
+ #include "alloc-util.h"
+ #include "bus-common-errors.h"
+ #include "bus-error.h"
++#include "dbus-unit.h"
++#include "strv.h"
+ #include "terminal-util.h"
+ #include "transaction.h"
+-#include "dbus-unit.h"
+ 
+ static void transaction_unlink_job(Transaction *tr, Job *j, bool delete_dependencies);
+ 
+diff --git a/src/core/unit.c b/src/core/unit.c
+index 1a5b94a..ca66bdf 100644
+--- a/src/core/unit.c
++++ b/src/core/unit.c
+@@ -27,6 +27,7 @@
+ #include "fs-util.h"
+ #include "id128-util.h"
+ #include "io-util.h"
++#include "install.h"
+ #include "load-dropin.h"
+ #include "load-fragment.h"
+ #include "log.h"
+@@ -1105,13 +1106,7 @@ void unit_dump(Unit *u, FILE *f, const char *prefix) {
+         UnitDependency d;
+         Iterator i;
+         const char *prefix2;
+-        char
+-                timestamp0[FORMAT_TIMESTAMP_MAX],
+-                timestamp1[FORMAT_TIMESTAMP_MAX],
+-                timestamp2[FORMAT_TIMESTAMP_MAX],
+-                timestamp3[FORMAT_TIMESTAMP_MAX],
+-                timestamp4[FORMAT_TIMESTAMP_MAX],
+-                timespan[FORMAT_TIMESPAN_MAX];
++        char timestamp[5][FORMAT_TIMESTAMP_MAX], timespan[FORMAT_TIMESPAN_MAX];
+         Unit *following;
+         _cleanup_set_free_ Set *following_set = NULL;
+         const char *n;
+@@ -1148,11 +1143,11 @@ void unit_dump(Unit *u, FILE *f, const char *prefix) {
+                 prefix, strna(u->instance),
+                 prefix, unit_load_state_to_string(u->load_state),
+                 prefix, unit_active_state_to_string(unit_active_state(u)),
+-                prefix, strna(format_timestamp(timestamp0, sizeof(timestamp0), u->state_change_timestamp.realtime)),
+-                prefix, strna(format_timestamp(timestamp1, sizeof(timestamp1), u->inactive_exit_timestamp.realtime)),
+-                prefix, strna(format_timestamp(timestamp2, sizeof(timestamp2), u->active_enter_timestamp.realtime)),
+-                prefix, strna(format_timestamp(timestamp3, sizeof(timestamp3), u->active_exit_timestamp.realtime)),
+-                prefix, strna(format_timestamp(timestamp4, sizeof(timestamp4), u->inactive_enter_timestamp.realtime)),
++                prefix, strna(format_timestamp(timestamp[0], sizeof(timestamp[0]), u->state_change_timestamp.realtime)),
++                prefix, strna(format_timestamp(timestamp[1], sizeof(timestamp[1]), u->inactive_exit_timestamp.realtime)),
++                prefix, strna(format_timestamp(timestamp[2], sizeof(timestamp[2]), u->active_enter_timestamp.realtime)),
++                prefix, strna(format_timestamp(timestamp[3], sizeof(timestamp[3]), u->active_exit_timestamp.realtime)),
++                prefix, strna(format_timestamp(timestamp[4], sizeof(timestamp[4]), u->inactive_enter_timestamp.realtime)),
+                 prefix, yes_no(unit_may_gc(u)),
+                 prefix, yes_no(unit_need_daemon_reload(u)),
+                 prefix, yes_no(u->transient),
+@@ -1251,14 +1246,14 @@ void unit_dump(Unit *u, FILE *f, const char *prefix) {
+                 fprintf(f,
+                         "%s\tCondition Timestamp: %s\n"
+                         "%s\tCondition Result: %s\n",
+-                        prefix, strna(format_timestamp(timestamp1, sizeof(timestamp1), u->condition_timestamp.realtime)),
++                        prefix, strna(format_timestamp(timestamp[0], sizeof(timestamp[0]), u->condition_timestamp.realtime)),
+                         prefix, yes_no(u->condition_result));
+ 
+         if (dual_timestamp_is_set(&u->assert_timestamp))
+                 fprintf(f,
+                         "%s\tAssert Timestamp: %s\n"
+                         "%s\tAssert Result: %s\n",
+-                        prefix, strna(format_timestamp(timestamp1, sizeof(timestamp1), u->assert_timestamp.realtime)),
++                        prefix, strna(format_timestamp(timestamp[0], sizeof(timestamp[0]), u->assert_timestamp.realtime)),
+                         prefix, yes_no(u->assert_result));
+ 
+         for (d = 0; d < _UNIT_DEPENDENCY_MAX; d++) {
+@@ -1774,7 +1769,7 @@ int unit_start(Unit *u) {
+          * condition checks, so that we rather return condition check errors (which are usually not
+          * considered a true failure) than "not supported" errors (which are considered a failure).
+          */
+-        if (!unit_supported(u))
++        if (!unit_type_supported(u->type))
+                 return -EOPNOTSUPP;
+ 
+         /* Let's make sure that the deps really are in order before we start this. Normally the job engine
+@@ -1809,7 +1804,7 @@ bool unit_can_start(Unit *u) {
+         if (u->load_state != UNIT_LOADED)
+                 return false;
+ 
+-        if (!unit_supported(u))
++        if (!unit_type_supported(u->type))
+                 return false;
+ 
+         /* Scope units may be started only once */
+@@ -1858,7 +1853,7 @@ int unit_stop(Unit *u) {
+ bool unit_can_stop(Unit *u) {
+         assert(u);
+ 
+-        if (!unit_supported(u))
++        if (!unit_type_supported(u->type))
+                 return false;
+ 
+         if (u->perpetual)
+diff --git a/src/core/unit.h b/src/core/unit.h
+index c38afe2..1fbfc71 100644
+--- a/src/core/unit.h
++++ b/src/core/unit.h
+@@ -8,9 +8,9 @@
+ #include "bpf-program.h"
+ #include "condition.h"
+ #include "emergency-action.h"
+-#include "install.h"
+ #include "list.h"
+-#include "unit-name.h"
++#include "set.h"
++#include "unit-file.h"
+ #include "cgroup.h"
+ 
+ typedef struct UnitRef UnitRef;
+@@ -772,10 +772,6 @@ bool unit_is_unneeded(Unit *u);
+ pid_t unit_control_pid(Unit *u);
+ pid_t unit_main_pid(Unit *u);
+ 
+-static inline bool unit_supported(Unit *u) {
+-        return unit_type_supported(u->type);
+-}
+-
+ void unit_warn_if_dir_nonempty(Unit *u, const char* where);
+ int unit_fail_if_noncanonical(Unit *u, const char* where);
+ 
+diff --git a/src/environment-d-generator/environment-d-generator.c b/src/environment-d-generator/environment-d-generator.c
+index b2558f0..d1293ef 100644
+--- a/src/environment-d-generator/environment-d-generator.c
++++ b/src/environment-d-generator/environment-d-generator.c
+@@ -8,6 +8,7 @@
+ #include "escape.h"
+ #include "log.h"
+ #include "path-lookup.h"
++#include "strv.h"
+ 
+ static int environment_dirs(char ***ret) {
+         _cleanup_strv_free_ char **dirs = NULL;
+diff --git a/src/journal-remote/journal-remote-main.c b/src/journal-remote/journal-remote-main.c
+index 2321a91..8d6cdd5 100644
+--- a/src/journal-remote/journal-remote-main.c
++++ b/src/journal-remote/journal-remote-main.c
+@@ -123,7 +123,7 @@ static int spawn_getter(const char *getter) {
+         _cleanup_strv_free_ char **words = NULL;
+ 
+         assert(getter);
+-        r = strv_split_extract(&words, getter, WHITESPACE, EXTRACT_QUOTES);
++        r = strv_split_extract(&words, getter, WHITESPACE, EXTRACT_UNQUOTE);
+         if (r < 0)
+                 return log_error_errno(r, "Failed to split getter option: %m");
+ 
+diff --git a/src/locale/keymap-util.c b/src/locale/keymap-util.c
+index b8bd181..d3831d2 100644
+--- a/src/locale/keymap-util.c
++++ b/src/locale/keymap-util.c
+@@ -253,7 +253,7 @@ int x11_read_data(Context *c, sd_bus_message *m) {
+                 if (in_section && first_word(l, "Option")) {
+                         _cleanup_strv_free_ char **a = NULL;
+ 
+-                        r = strv_split_extract(&a, l, WHITESPACE, EXTRACT_QUOTES);
++                        r = strv_split_extract(&a, l, WHITESPACE, EXTRACT_UNQUOTE);
+                         if (r < 0)
+                                 return r;
+ 
+@@ -277,7 +277,7 @@ int x11_read_data(Context *c, sd_bus_message *m) {
+                 } else if (!in_section && first_word(l, "Section")) {
+                         _cleanup_strv_free_ char **a = NULL;
+ 
+-                        r = strv_split_extract(&a, l, WHITESPACE, EXTRACT_QUOTES);
++                        r = strv_split_extract(&a, l, WHITESPACE, EXTRACT_UNQUOTE);
+                         if (r < 0)
+                                 return -ENOMEM;
+ 
+@@ -493,7 +493,7 @@ static int read_next_mapping(const char* filename,
+                 if (IN_SET(l[0], 0, '#'))
+                         continue;
+ 
+-                r = strv_split_extract(&b, l, WHITESPACE, EXTRACT_QUOTES);
++                r = strv_split_extract(&b, l, WHITESPACE, EXTRACT_UNQUOTE);
+                 if (r < 0)
+                         return r;
+ 
+diff --git a/src/portable/portable.c b/src/portable/portable.c
+index 9b6cc21..0f20ce6 100644
+--- a/src/portable/portable.c
++++ b/src/portable/portable.c
+@@ -12,6 +12,7 @@
+ #include "fd-util.h"
+ #include "fileio.h"
+ #include "fs-util.h"
++#include "install.h"
+ #include "io-util.h"
+ #include "locale-util.h"
+ #include "loop-util.h"
+diff --git a/src/resolve/resolvconf-compat.c b/src/resolve/resolvconf-compat.c
+index 383d0b8..575c53b 100644
+--- a/src/resolve/resolvconf-compat.c
++++ b/src/resolve/resolvconf-compat.c
+@@ -82,7 +82,7 @@ static int parse_search_domain(const char *string) {
+         for (;;) {
+                 _cleanup_free_ char *word = NULL;
+ 
+-                r = extract_first_word(&string, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&string, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r < 0)
+                         return r;
+                 if (r == 0)
+diff --git a/src/resolve/resolved-conf.c b/src/resolve/resolved-conf.c
+index 79e388f..1755cbc 100644
+--- a/src/resolve/resolved-conf.c
++++ b/src/resolve/resolved-conf.c
+@@ -119,7 +119,7 @@ int manager_parse_search_domains_and_warn(Manager *m, const char *string) {
+         for (;;) {
+                 _cleanup_free_ char *word = NULL;
+ 
+-                r = extract_first_word(&string, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&string, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r < 0)
+                         return r;
+                 if (r == 0)
+@@ -308,7 +308,7 @@ int config_parse_dnssd_txt(const char *unit, const char *filename, unsigned line
+                 int r;
+ 
+                 r = extract_first_word(&rvalue, &word, NULL,
+-                                       EXTRACT_QUOTES|EXTRACT_CUNESCAPE|EXTRACT_CUNESCAPE_RELAX);
++                                       EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE|EXTRACT_CUNESCAPE_RELAX);
+                 if (r == 0)
+                         break;
+                 if (r == -ENOMEM)
+diff --git a/src/resolve/resolved-dns-trust-anchor.c b/src/resolve/resolved-dns-trust-anchor.c
+index d25b5f9..b7141b7 100644
+--- a/src/resolve/resolved-dns-trust-anchor.c
++++ b/src/resolve/resolved-dns-trust-anchor.c
+@@ -216,7 +216,7 @@ static int dns_trust_anchor_load_positive(DnsTrustAnchor *d, const char *path, u
+         assert(d);
+         assert(line);
+ 
+-        r = extract_first_word(&p, &domain, NULL, EXTRACT_QUOTES);
++        r = extract_first_word(&p, &domain, NULL, EXTRACT_UNQUOTE);
+         if (r < 0)
+                 return log_warning_errno(r, "Unable to parse domain in line %s:%u: %m", path, line);
+ 
+@@ -386,7 +386,7 @@ static int dns_trust_anchor_load_negative(DnsTrustAnchor *d, const char *path, u
+         assert(d);
+         assert(line);
+ 
+-        r = extract_first_word(&p, &domain, NULL, EXTRACT_QUOTES);
++        r = extract_first_word(&p, &domain, NULL, EXTRACT_UNQUOTE);
+         if (r < 0)
+                 return log_warning_errno(r, "Unable to parse line %s:%u: %m", path, line);
+ 
+diff --git a/src/shared/bus-unit-util.c b/src/shared/bus-unit-util.c
+index 6b57a10..c9715c6 100644
+--- a/src/shared/bus-unit-util.c
++++ b/src/shared/bus-unit-util.c
+@@ -325,12 +325,12 @@ static int bus_append_exec_command(sd_bus_message *m, const char *field, const c
+         }
+ 
+         if (explicit_path) {
+-                r = extract_first_word(&eq, &path, NULL, EXTRACT_QUOTES|EXTRACT_CUNESCAPE);
++                r = extract_first_word(&eq, &path, NULL, EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE);
+                 if (r < 0)
+                         return log_error_errno(r, "Failed to parse path: %m");
+         }
+ 
+-        r = strv_split_extract(&l, eq, NULL, EXTRACT_QUOTES|EXTRACT_CUNESCAPE);
++        r = strv_split_extract(&l, eq, NULL, EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE);
+         if (r < 0)
+                 return log_error_errno(r, "Failed to parse command line: %m");
+ 
+@@ -440,13 +440,13 @@ static int bus_append_cgroup_property(sd_bus_message *m, const char *field, cons
+ 
+         if (streq(field, "DisableControllers"))
+ 
+-                return bus_append_strv(m, "DisableControllers", eq, EXTRACT_QUOTES);
++                return bus_append_strv(m, "DisableControllers", eq, EXTRACT_UNQUOTE);
+ 
+         if (streq(field, "Delegate")) {
+ 
+                 r = parse_boolean(eq);
+                 if (r < 0)
+-                        return bus_append_strv(m, "DelegateControllers", eq, EXTRACT_QUOTES);
++                        return bus_append_strv(m, "DelegateControllers", eq, EXTRACT_UNQUOTE);
+ 
+                 r = sd_bus_message_append(m, "(sv)", "Delegate", "b", r);
+                 if (r < 0)
+@@ -807,7 +807,7 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
+                        "RuntimeDirectory", "StateDirectory", "CacheDirectory", "LogsDirectory", "ConfigurationDirectory",
+                        "SupplementaryGroups", "SystemCallArchitectures"))
+ 
+-                return bus_append_strv(m, field, eq, EXTRACT_QUOTES);
++                return bus_append_strv(m, field, eq, EXTRACT_UNQUOTE);
+ 
+         if (STR_IN_SET(field, "SyslogLevel", "LogLevelMax"))
+ 
+@@ -869,7 +869,7 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
+ 
+         if (STR_IN_SET(field, "Environment", "UnsetEnvironment", "PassEnvironment"))
+ 
+-                return bus_append_strv(m, field, eq, EXTRACT_QUOTES|EXTRACT_CUNESCAPE);
++                return bus_append_strv(m, field, eq, EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE);
+ 
+         if (streq(field, "EnvironmentFile")) {
+ 
+@@ -1079,7 +1079,7 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
+                 for (;;) {
+                         _cleanup_free_ char *word = NULL;
+ 
+-                        r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                        r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                         if (r == 0)
+                                 break;
+                         if (r == -ENOMEM)
+@@ -1166,7 +1166,7 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
+                         bool ignore_enoent = false;
+                         uint64_t flags = MS_REC;
+ 
+-                        r = extract_first_word(&p, &source, ":" WHITESPACE, EXTRACT_QUOTES|EXTRACT_DONT_COALESCE_SEPARATORS);
++                        r = extract_first_word(&p, &source, ":" WHITESPACE, EXTRACT_UNQUOTE|EXTRACT_DONT_COALESCE_SEPARATORS);
+                         if (r < 0)
+                                 return log_error_errno(r, "Failed to parse argument: %m");
+                         if (r == 0)
+@@ -1179,7 +1179,7 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
+                         }
+ 
+                         if (p && p[-1] == ':') {
+-                                r = extract_first_word(&p, &destination, ":" WHITESPACE, EXTRACT_QUOTES|EXTRACT_DONT_COALESCE_SEPARATORS);
++                                r = extract_first_word(&p, &destination, ":" WHITESPACE, EXTRACT_UNQUOTE|EXTRACT_DONT_COALESCE_SEPARATORS);
+                                 if (r < 0)
+                                         return log_error_errno(r, "Failed to parse argument: %m");
+                                 if (r == 0)
+@@ -1192,7 +1192,7 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
+                                 if (p && p[-1] == ':') {
+                                         _cleanup_free_ char *options = NULL;
+ 
+-                                        r = extract_first_word(&p, &options, NULL, EXTRACT_QUOTES);
++                                        r = extract_first_word(&p, &options, NULL, EXTRACT_UNQUOTE);
+                                         if (r < 0)
+                                                 return log_error_errno(r, "Failed to parse argument: %m");
+ 
+@@ -1251,7 +1251,7 @@ static int bus_append_execute_property(sd_bus_message *m, const char *field, con
+                         _cleanup_free_ char *word = NULL, *path = NULL;
+                         const char *w;
+ 
+-                        r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                        r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                         if (r < 0)
+                                 return log_error_errno(r, "Failed to parse argument: %m");
+                         if (r == 0)
+@@ -1400,7 +1400,7 @@ static int bus_append_service_property(sd_bus_message *m, const char *field, con
+                         _cleanup_free_ char *word = NULL;
+                         int val;
+ 
+-                        r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                        r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                         if (r == 0)
+                                 break;
+                         if (r == -ENOMEM)
+@@ -1520,7 +1520,7 @@ static int bus_append_socket_property(sd_bus_message *m, const char *field, cons
+ 
+         if (streq(field, "Symlinks"))
+ 
+-                return bus_append_strv(m, field, eq, EXTRACT_QUOTES);
++                return bus_append_strv(m, field, eq, EXTRACT_UNQUOTE);
+ 
+         if (streq(field, "SocketProtocol"))
+ 
+@@ -1638,7 +1638,7 @@ static int bus_append_unit_property(sd_bus_message *m, const char *field, const
+         if (unit_dependency_from_string(field) >= 0 ||
+             STR_IN_SET(field, "Documentation", "RequiresMountsFor"))
+ 
+-                return bus_append_strv(m, field, eq, EXTRACT_QUOTES);
++                return bus_append_strv(m, field, eq, EXTRACT_UNQUOTE);
+ 
+         t = condition_type_from_string(field);
+         if (t >= 0)
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index d1ac9de..7635c9c 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -113,7 +113,7 @@ static int condition_test_kernel_command_line(Condition *c) {
+                 _cleanup_free_ char *word = NULL;
+                 bool found;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES|EXTRACT_RELAX);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE|EXTRACT_RELAX);
+                 if (r < 0)
+                         return r;
+                 if (r == 0)
+diff --git a/src/shared/conf-parser.c b/src/shared/conf-parser.c
+index 2df09ed..3f64e54 100644
+--- a/src/shared/conf-parser.c
++++ b/src/shared/conf-parser.c
+@@ -757,7 +757,7 @@ int config_parse_strv(
+         for (;;) {
+                 char *word = NULL;
+ 
+-                r = extract_first_word(&rvalue, &word, NULL, EXTRACT_QUOTES|EXTRACT_RETAIN_ESCAPE);
++                r = extract_first_word(&rvalue, &word, NULL, EXTRACT_UNQUOTE|EXTRACT_RETAIN_ESCAPE);
+                 if (r == 0)
+                         break;
+                 if (r == -ENOMEM)
+diff --git a/src/shared/cpu-set-util.c b/src/shared/cpu-set-util.c
+index 9a789ae..cffb4cf 100644
+--- a/src/shared/cpu-set-util.c
++++ b/src/shared/cpu-set-util.c
+@@ -61,7 +61,7 @@ int parse_cpu_set_internal(
+                 unsigned cpu, cpu_lower, cpu_upper;
+                 int r;
+ 
+-                r = extract_first_word(&p, &word, WHITESPACE ",", EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, WHITESPACE ",", EXTRACT_UNQUOTE);
+                 if (r == -ENOMEM)
+                         return warn ? log_oom() : -ENOMEM;
+                 if (r < 0)
+diff --git a/src/shared/dropin.c b/src/shared/dropin.c
+index 409eef2..4a29bd0 100644
+--- a/src/shared/dropin.c
++++ b/src/shared/dropin.c
+@@ -24,16 +24,15 @@
+ #include "unit-name.h"
+ 
+ int drop_in_file(const char *dir, const char *unit, unsigned level,
+-                 const char *name, char **_p, char **_q) {
++                 const char *name, char **ret_p, char **ret_q) {
+ 
+         char prefix[DECIMAL_STR_MAX(unsigned)];
+-        _cleanup_free_ char *b = NULL;
+-        char *p, *q;
++        _cleanup_free_ char *b = NULL, *p = NULL, *q = NULL;
+ 
+         assert(unit);
+         assert(name);
+-        assert(_p);
+-        assert(_q);
++        assert(ret_p);
++        assert(ret_q);
+ 
+         sprintf(prefix, "%u", level);
+ 
+@@ -45,17 +44,12 @@ int drop_in_file(const char *dir, const char *unit, unsigned level,
+                 return -EINVAL;
+ 
+         p = strjoin(dir, "/", unit, ".d");
+-        if (!p)
+-                return -ENOMEM;
+-
+         q = strjoin(p, "/", prefix, "-", b, ".conf");
+-        if (!q) {
+-                free(p);
++        if (!p || !q)
+                 return -ENOMEM;
+-        }
+ 
+-        *_p = p;
+-        *_q = q;
++        *ret_p = TAKE_PTR(p);
++        *ret_q = TAKE_PTR(q);
+         return 0;
+ }
+ 
+@@ -99,7 +93,7 @@ int write_drop_in_format(const char *dir, const char *unit, unsigned level,
+         return write_drop_in(dir, unit, level, name, p);
+ }
+ 
+-static int unit_file_find_dir(
++static int unit_file_add_dir(
+                 const char *original_root,
+                 const char *path,
+                 char ***dirs) {
+@@ -109,6 +103,8 @@ static int unit_file_find_dir(
+ 
+         assert(path);
+ 
++        /* This adds [original_root]/path to dirs, if it exists. */
++
+         r = chase_symlinks(path, original_root, 0, &chased);
+         if (r == -ENOENT) /* Ignore -ENOENT, after all most units won't have a drop-in dir. */
+                 return 0;
+@@ -121,11 +117,9 @@ static int unit_file_find_dir(
+         if (r < 0)
+                 return log_warning_errno(r, "Failed to canonicalize path '%s': %m", path);
+ 
+-        r = strv_push(dirs, chased);
+-        if (r < 0)
++        if (strv_consume(dirs, TAKE_PTR(chased)) < 0)
+                 return log_oom();
+ 
+-        chased = NULL;
+         return 0;
+ }
+ 
+@@ -151,7 +145,7 @@ static int unit_file_find_dirs(
+ 
+         path = strjoina(unit_path, "/", name, suffix);
+         if (!unit_path_cache || set_get(unit_path_cache, path)) {
+-                r = unit_file_find_dir(original_root, path, dirs);
++                r = unit_file_add_dir(original_root, path, dirs);
+                 if (r < 0)
+                         return r;
+         }
+@@ -228,19 +222,19 @@ int unit_file_find_dropin_paths(
+                 Set *unit_path_cache,
+                 const char *dir_suffix,
+                 const char *file_suffix,
+-                Set *names,
++                const Set *names,
+                 char ***ret) {
+ 
+         _cleanup_strv_free_ char **dirs = NULL;
+-        char *t, **p;
++        char *name, **p;
+         Iterator i;
+         int r;
+ 
+         assert(ret);
+ 
+-        SET_FOREACH(t, names, i)
++        SET_FOREACH(name, names, i)
+                 STRV_FOREACH(p, lookup_path)
+-                        (void) unit_file_find_dirs(original_root, unit_path_cache, *p, t, dir_suffix, &dirs);
++                        (void) unit_file_find_dirs(original_root, unit_path_cache, *p, name, dir_suffix, &dirs);
+ 
+         if (strv_isempty(dirs)) {
+                 *ret = NULL;
+diff --git a/src/shared/dropin.h b/src/shared/dropin.h
+index ae7379b..89a2ab1 100644
+--- a/src/shared/dropin.h
++++ b/src/shared/dropin.h
+@@ -21,19 +21,5 @@ int unit_file_find_dropin_paths(
+                 Set *unit_path_cache,
+                 const char *dir_suffix,
+                 const char *file_suffix,
+-                Set *names,
++                const Set *names,
+                 char ***paths);
+-
+-static inline int unit_file_find_dropin_conf_paths(
+-                const char *original_root,
+-                char **lookup_path,
+-                Set *unit_path_cache,
+-                Set *names,
+-                char ***paths) {
+-
+-        return unit_file_find_dropin_paths(original_root,
+-                                           lookup_path,
+-                                           unit_path_cache,
+-                                           ".d", ".conf",
+-                                           names, paths);
+-}
+diff --git a/src/shared/install.c b/src/shared/install.c
+index ca52d17..5774a06 100644
+--- a/src/shared/install.c
++++ b/src/shared/install.c
+@@ -37,7 +37,7 @@
+ #include "string-table.h"
+ #include "string-util.h"
+ #include "strv.h"
+-#include "unit-name.h"
++#include "unit-file.h"
+ 
+ #define UNIT_FILE_FOLLOW_SYMLINK_MAX 64
+ 
+@@ -98,25 +98,6 @@ static void presets_freep(Presets *p) {
+         p->n_rules = 0;
+ }
+ 
+-bool unit_type_may_alias(UnitType type) {
+-        return IN_SET(type,
+-                      UNIT_SERVICE,
+-                      UNIT_SOCKET,
+-                      UNIT_TARGET,
+-                      UNIT_DEVICE,
+-                      UNIT_TIMER,
+-                      UNIT_PATH);
+-}
+-
+-bool unit_type_may_template(UnitType type) {
+-        return IN_SET(type,
+-                      UNIT_SERVICE,
+-                      UNIT_SOCKET,
+-                      UNIT_TARGET,
+-                      UNIT_TIMER,
+-                      UNIT_PATH);
+-}
+-
+ static const char *const unit_file_type_table[_UNIT_FILE_TYPE_MAX] = {
+         [UNIT_FILE_TYPE_REGULAR] = "regular",
+         [UNIT_FILE_TYPE_SYMLINK] = "symlink",
+diff --git a/src/shared/install.h b/src/shared/install.h
+index e452940..b2ad9c4 100644
+--- a/src/shared/install.h
++++ b/src/shared/install.h
+@@ -1,8 +1,6 @@
+ /* SPDX-License-Identifier: LGPL-2.1+ */
+ #pragma once
+ 
+-typedef enum UnitFileScope UnitFileScope;
+-typedef enum UnitFileState UnitFileState;
+ typedef enum UnitFilePresetMode UnitFilePresetMode;
+ typedef enum UnitFileChangeType UnitFileChangeType;
+ typedef enum UnitFileFlags UnitFileFlags;
+@@ -19,31 +17,6 @@ typedef struct UnitFileInstallInfo UnitFileInstallInfo;
+ #include "strv.h"
+ #include "unit-name.h"
+ 
+-enum UnitFileScope {
+-        UNIT_FILE_SYSTEM,
+-        UNIT_FILE_GLOBAL,
+-        UNIT_FILE_USER,
+-        _UNIT_FILE_SCOPE_MAX,
+-        _UNIT_FILE_SCOPE_INVALID = -1
+-};
+-
+-enum UnitFileState {
+-        UNIT_FILE_ENABLED,
+-        UNIT_FILE_ENABLED_RUNTIME,
+-        UNIT_FILE_LINKED,
+-        UNIT_FILE_LINKED_RUNTIME,
+-        UNIT_FILE_MASKED,
+-        UNIT_FILE_MASKED_RUNTIME,
+-        UNIT_FILE_STATIC,
+-        UNIT_FILE_DISABLED,
+-        UNIT_FILE_INDIRECT,
+-        UNIT_FILE_GENERATED,
+-        UNIT_FILE_TRANSIENT,
+-        UNIT_FILE_BAD,
+-        _UNIT_FILE_STATE_MAX,
+-        _UNIT_FILE_STATE_INVALID = -1
+-};
+-
+ enum UnitFilePresetMode {
+         UNIT_FILE_PRESET_FULL,
+         UNIT_FILE_PRESET_ENABLE_ONLY,
+@@ -114,9 +87,6 @@ struct UnitFileInstallInfo {
+         bool auxiliary;
+ };
+ 
+-bool unit_type_may_alias(UnitType type) _const_;
+-bool unit_type_may_template(UnitType type) _const_;
+-
+ int unit_file_enable(
+                 UnitFileScope scope,
+                 UnitFileFlags flags,
+diff --git a/src/shared/meson.build b/src/shared/meson.build
+index e05fbce..9298ca3 100644
+--- a/src/shared/meson.build
++++ b/src/shared/meson.build
+@@ -157,6 +157,8 @@ shared_sources = files('''
+         udev-util.h
+         uid-range.c
+         uid-range.h
++        unit-file.h
++        unit-file.c
+         utmp-wtmp.h
+         verbs.c
+         verbs.h
+diff --git a/src/shared/mount-util.c b/src/shared/mount-util.c
+index 9987b6f..f64e363 100644
+--- a/src/shared/mount-util.c
++++ b/src/shared/mount-util.c
+@@ -539,7 +539,7 @@ int mount_option_mangle(
+                 _cleanup_free_ char *word = NULL;
+                 const struct libmnt_optmap *ent;
+ 
+-                r = extract_first_word(&p, &word, ",", EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, ",", EXTRACT_UNQUOTE);
+                 if (r < 0)
+                         return r;
+                 if (r == 0)
+diff --git a/src/shared/path-lookup.h b/src/shared/path-lookup.h
+index cb7d4d5..7070b94 100644
+--- a/src/shared/path-lookup.h
++++ b/src/shared/path-lookup.h
+@@ -5,7 +5,7 @@
+ 
+ typedef struct LookupPaths LookupPaths;
+ 
+-#include "install.h"
++#include "unit-file.h"
+ #include "macro.h"
+ 
+ typedef enum LookupPathsFlags {
+diff --git a/src/shared/securebits-util.c b/src/shared/securebits-util.c
+index 6d31dfe..b2abaf4 100644
+--- a/src/shared/securebits-util.c
++++ b/src/shared/securebits-util.c
+@@ -42,7 +42,7 @@ int secure_bits_from_string(const char *s) {
+         for (p = s;;) {
+                 _cleanup_free_ char *word = NULL;
+ 
+-                r = extract_first_word(&p, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&p, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r == -ENOMEM)
+                         return r;
+                 if (r <= 0)
+diff --git a/src/shared/unit-file.c b/src/shared/unit-file.c
+new file mode 100644
+index 0000000..deed7dc
+--- /dev/null
++++ b/src/shared/unit-file.c
+@@ -0,0 +1,23 @@
++/* SPDX-License-Identifier: LGPL-2.1+ */
++
++#include "macro.h"
++#include "unit-file.h"
++
++bool unit_type_may_alias(UnitType type) {
++        return IN_SET(type,
++                      UNIT_SERVICE,
++                      UNIT_SOCKET,
++                      UNIT_TARGET,
++                      UNIT_DEVICE,
++                      UNIT_TIMER,
++                      UNIT_PATH);
++}
++
++bool unit_type_may_template(UnitType type) {
++        return IN_SET(type,
++                      UNIT_SERVICE,
++                      UNIT_SOCKET,
++                      UNIT_TARGET,
++                      UNIT_TIMER,
++                      UNIT_PATH);
++}
+diff --git a/src/shared/unit-file.h b/src/shared/unit-file.h
+new file mode 100644
+index 0000000..2b9df65
+--- /dev/null
++++ b/src/shared/unit-file.h
+@@ -0,0 +1,37 @@
++/* SPDX-License-Identifier: LGPL-2.1+ */
++#pragma once
++
++#include <stdbool.h>
++
++#include "unit-name.h"
++
++typedef enum UnitFileState UnitFileState;
++typedef enum UnitFileScope UnitFileScope;
++
++enum UnitFileState {
++        UNIT_FILE_ENABLED,
++        UNIT_FILE_ENABLED_RUNTIME,
++        UNIT_FILE_LINKED,
++        UNIT_FILE_LINKED_RUNTIME,
++        UNIT_FILE_MASKED,
++        UNIT_FILE_MASKED_RUNTIME,
++        UNIT_FILE_STATIC,
++        UNIT_FILE_DISABLED,
++        UNIT_FILE_INDIRECT,
++        UNIT_FILE_GENERATED,
++        UNIT_FILE_TRANSIENT,
++        UNIT_FILE_BAD,
++        _UNIT_FILE_STATE_MAX,
++        _UNIT_FILE_STATE_INVALID = -1
++};
++
++enum UnitFileScope {
++        UNIT_FILE_SYSTEM,
++        UNIT_FILE_GLOBAL,
++        UNIT_FILE_USER,
++        _UNIT_FILE_SCOPE_MAX,
++        _UNIT_FILE_SCOPE_INVALID = -1
++};
++
++bool unit_type_may_alias(UnitType type) _const_;
++bool unit_type_may_template(UnitType type) _const_;
+diff --git a/src/systemctl/systemctl.c b/src/systemctl/systemctl.c
+index 359be67..f77466d 100644
+--- a/src/systemctl/systemctl.c
++++ b/src/systemctl/systemctl.c
+@@ -1633,20 +1633,20 @@ static int list_dependencies_get_dependencies(sd_bus *bus, const char *name, cha
+ 
+         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
+         _cleanup_strv_free_ char **ret = NULL;
+-        _cleanup_free_ char *path = NULL;
++        _cleanup_free_ char *dbus_path = NULL;
+         int i, r;
+ 
+         assert(bus);
+         assert(name);
+         assert(deps);
+ 
+-        path = unit_dbus_path_from_name(name);
+-        if (!path)
++        dbus_path = unit_dbus_path_from_name(name);
++        if (!dbus_path)
+                 return log_oom();
+ 
+         r = bus_map_all_properties(bus,
+                                    "org.freedesktop.systemd1",
+-                                   path,
++                                   dbus_path,
+                                    map[arg_dependency],
+                                    BUS_MAP_STRDUP,
+                                    &error,
+@@ -2517,16 +2517,16 @@ static int unit_find_paths(
+             !install_client_side() &&
+             !unit_name_is_valid(unit_name, UNIT_NAME_TEMPLATE)) {
+                 _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
+-                _cleanup_free_ char *load_state = NULL, *unit = NULL;
++                _cleanup_free_ char *load_state = NULL, *dbus_path = NULL;
+ 
+-                unit = unit_dbus_path_from_name(unit_name);
+-                if (!unit)
++                dbus_path = unit_dbus_path_from_name(unit_name);
++                if (!dbus_path)
+                         return log_oom();
+ 
+                 r = sd_bus_get_property_string(
+                                 bus,
+                                 "org.freedesktop.systemd1",
+-                                unit,
++                                dbus_path,
+                                 "org.freedesktop.systemd1.Unit",
+                                 "LoadState",
+                                 &error,
+@@ -2546,7 +2546,7 @@ static int unit_find_paths(
+                 r = sd_bus_get_property_string(
+                                 bus,
+                                 "org.freedesktop.systemd1",
+-                                unit,
++                                dbus_path,
+                                 "org.freedesktop.systemd1.Unit",
+                                 "FragmentPath",
+                                 &error,
+@@ -2558,7 +2558,7 @@ static int unit_find_paths(
+                         r = sd_bus_get_property_strv(
+                                         bus,
+                                         "org.freedesktop.systemd1",
+-                                        unit,
++                                        dbus_path,
+                                         "org.freedesktop.systemd1.Unit",
+                                         "DropInPaths",
+                                         &error,
+@@ -2601,19 +2601,21 @@ static int unit_find_paths(
+                         return log_error_errno(r, "Failed to add unit name: %m");
+ 
+                 if (ret_dropin_paths) {
+-                        r = unit_file_find_dropin_conf_paths(arg_root, lp->search_path, NULL, names, &dropins);
++                        r = unit_file_find_dropin_paths(arg_root, lp->search_path, NULL,
++                                                        ".d", ".conf",
++                                                        names, &dropins);
+                         if (r < 0)
+                                 return r;
+                 }
+         }
+ 
++        if (isempty(path)) {
++                *ret_fragment_path = NULL;
+                 r = 0;
+-
+-        if (!isempty(path)) {
++        } else {
+                 *ret_fragment_path = TAKE_PTR(path);
+                 r = 1;
+-        } else
+-                *ret_fragment_path = NULL;
++        }
+ 
+         if (ret_dropin_paths) {
+                 if (!strv_isempty(dropins)) {
+@@ -2632,21 +2634,21 @@ static int unit_find_paths(
+ 
+ static int get_state_one_unit(sd_bus *bus, const char *name, UnitActiveState *active_state) {
+         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
+-        _cleanup_free_ char *buf = NULL, *path = NULL;
++        _cleanup_free_ char *buf = NULL, *dbus_path = NULL;
+         UnitActiveState state;
+         int r;
+ 
+         assert(name);
+         assert(active_state);
+ 
+-        path = unit_dbus_path_from_name(name);
+-        if (!path)
++        dbus_path = unit_dbus_path_from_name(name);
++        if (!dbus_path)
+                 return log_oom();
+ 
+         r = sd_bus_get_property_string(
+                         bus,
+                         "org.freedesktop.systemd1",
+-                        path,
++                        dbus_path,
+                         "org.freedesktop.systemd1.Unit",
+                         "ActiveState",
+                         &error,
+@@ -2689,7 +2691,7 @@ static int unit_is_masked(sd_bus *bus, LookupPaths *lp, const char *name) {
+ 
+ static int check_triggering_units(sd_bus *bus, const char *name) {
+         _cleanup_(sd_bus_error_free) sd_bus_error error = SD_BUS_ERROR_NULL;
+-        _cleanup_free_ char *n = NULL, *path = NULL, *load_state = NULL;
++        _cleanup_free_ char *n = NULL, *dbus_path = NULL, *load_state = NULL;
+         _cleanup_strv_free_ char **triggered_by = NULL;
+         bool print_warning_label = true;
+         UnitActiveState active_state;
+@@ -2707,14 +2709,14 @@ static int check_triggering_units(sd_bus *bus, const char *name) {
+         if (streq(load_state, "masked"))
+                 return 0;
+ 
+-        path = unit_dbus_path_from_name(n);
+-        if (!path)
++        dbus_path = unit_dbus_path_from_name(n);
++        if (!dbus_path)
+                 return log_oom();
+ 
+         r = sd_bus_get_property_strv(
+                         bus,
+                         "org.freedesktop.systemd1",
+-                        path,
++                        dbus_path,
+                         "org.freedesktop.systemd1.Unit",
+                         "TriggeredBy",
+                         &error,
+diff --git a/src/sysusers/sysusers.c b/src/sysusers/sysusers.c
+index 843c383..5f12ef1 100644
+--- a/src/sysusers/sysusers.c
++++ b/src/sysusers/sysusers.c
+@@ -1358,8 +1358,6 @@ static bool item_equal(Item *a, Item *b) {
+         return true;
+ }
+ 
+-DEFINE_PRIVATE_HASH_OPS_FULL(members_hash_ops, char, string_hash_func, string_compare_func, free, char*, strv_free);
+-
+ static int parse_line(const char *fname, unsigned line, const char *buffer) {
+ 
+         static const Specifier specifier_table[] = {
+@@ -1390,7 +1388,7 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
+ 
+         /* Parse columns */
+         p = buffer;
+-        r = extract_many_words(&p, NULL, EXTRACT_QUOTES,
++        r = extract_many_words(&p, NULL, EXTRACT_UNQUOTE,
+                                &action, &name, &id, &description, &home, &shell, NULL);
+         if (r < 0)
+                 return log_error_errno(r, "[%s:%u] Syntax error.", fname, line);
+@@ -1511,8 +1509,6 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
+                 return 0;
+ 
+         case ADD_MEMBER: {
+-                char **l;
+-
+                 /* Try to extend an existing member or group item */
+                 if (!name)
+                         return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+@@ -1535,38 +1531,9 @@ static int parse_line(const char *fname, unsigned line, const char *buffer) {
+                                                fname, line, action[0],
+                                                description ? "GECOS" : home ? "home directory" : "login shell");
+ 
+-                r = ordered_hashmap_ensure_allocated(&members, &members_hash_ops);
++                r = string_strv_ordered_hashmap_put(&members, resolved_id, resolved_name);
+                 if (r < 0)
+-                        return log_oom();
+-
+-                l = ordered_hashmap_get(members, resolved_id);
+-                if (l) {
+-                        /* A list for this group name already exists, let's append to it */
+-                        r = strv_push(&l, resolved_name);
+-                        if (r < 0)
+-                                return log_oom();
+-
+-                        resolved_name = NULL;
+-
+-                        assert_se(ordered_hashmap_update(members, resolved_id, l) >= 0);
+-                } else {
+-                        /* No list for this group name exists yet, create one */
+-
+-                        l = new0(char *, 2);
+-                        if (!l)
+-                                return -ENOMEM;
+-
+-                        l[0] = resolved_name;
+-                        l[1] = NULL;
+-
+-                        r = ordered_hashmap_put(members, resolved_id, l);
+-                        if (r < 0) {
+-                                free(l);
+-                                return log_oom();
+-                        }
+-
+-                        resolved_id = resolved_name = NULL;
+-                }
++                        return log_error_errno(r, "Failed to store mapping for %s: %m", resolved_id);
+ 
+                 return 0;
+         }
+diff --git a/src/sysv-generator/sysv-generator.c b/src/sysv-generator/sysv-generator.c
+index 514b6e0..7cb6601 100644
+--- a/src/sysv-generator/sysv-generator.c
++++ b/src/sysv-generator/sysv-generator.c
+@@ -322,7 +322,7 @@ static int handle_provides(SysvStub *s, unsigned line, const char *full_text, co
+         for (;;) {
+                 _cleanup_free_ char *word = NULL, *m = NULL;
+ 
+-                r = extract_first_word(&text, &word, NULL, EXTRACT_QUOTES|EXTRACT_RELAX);
++                r = extract_first_word(&text, &word, NULL, EXTRACT_UNQUOTE|EXTRACT_RELAX);
+                 if (r < 0)
+                         return log_error_errno(r, "[%s:%u] Failed to parse word from provides string: %m", s->path, line);
+                 if (r == 0)
+@@ -391,7 +391,7 @@ static int handle_dependencies(SysvStub *s, unsigned line, const char *full_text
+                 _cleanup_free_ char *word = NULL, *m = NULL;
+                 bool is_before;
+ 
+-                r = extract_first_word(&text, &word, NULL, EXTRACT_QUOTES|EXTRACT_RELAX);
++                r = extract_first_word(&text, &word, NULL, EXTRACT_UNQUOTE|EXTRACT_RELAX);
+                 if (r < 0)
+                         return log_error_errno(r, "[%s:%u] Failed to parse word from provides string: %m", s->path, line);
+                 if (r == 0)
+diff --git a/src/test/meson.build b/src/test/meson.build
+index ae970cf..6aacae8 100644
+--- a/src/test/meson.build
++++ b/src/test/meson.build
+@@ -148,7 +148,7 @@ tests += [
+           libmount,
+           libblkid]],
+ 
+-        [['src/test/test-unit-file.c',
++        [['src/test/test-load-fragment.c',
+           'src/test/test-helper.c'],
+          [libcore,
+           libshared],
+@@ -589,6 +589,10 @@ tests += [
+          [],
+          []],
+ 
++        [['src/test/test-env-file.c'],
++         [],
++         []],
++
+         [['src/test/test-env-util.c'],
+          [],
+          []],
+diff --git a/src/test/test-engine.c b/src/test/test-engine.c
+index 701594f..4831122 100644
+--- a/src/test/test-engine.c
++++ b/src/test/test-engine.c
+@@ -7,8 +7,10 @@
+ #include "bus-util.h"
+ #include "manager.h"
+ #include "rm-rf.h"
++#include "strv.h"
+ #include "test-helper.h"
+ #include "tests.h"
++#include "service.h"
+ 
+ int main(int argc, char *argv[]) {
+         _cleanup_(rm_rf_physical_and_freep) char *runtime_dir = NULL;
+diff --git a/src/test/test-env-file.c b/src/test/test-env-file.c
+new file mode 100644
+index 0000000..47f86a5
+--- /dev/null
++++ b/src/test/test-env-file.c
+@@ -0,0 +1,143 @@
++/* SPDX-License-Identifier: LGPL-2.1+ */
++
++#include "env-file.h"
++#include "fd-util.h"
++#include "fs-util.h"
++#include "macro.h"
++#include "strv.h"
++#include "tests.h"
++#include "tmpfile-util.h"
++
++#define env_file_1                              \
++        "a=a\n"                                 \
++        "b=b\\\n"                               \
++        "c\n"                                   \
++        "d=d\\\n"                               \
++        "e\\\n"                                 \
++        "f\n"                                   \
++        "g=g\\ \n"                              \
++        "h=h\n"                                 \
++        "i=i\\"
++
++#define env_file_2                              \
++        "a=a\\\n"
++
++#define env_file_3 \
++        "#SPAMD_ARGS=\"-d --socketpath=/var/lib/bulwark/spamd \\\n" \
++        "#--nouser-config                                     \\\n" \
++        "normal=line"
++
++#define env_file_4 \
++       "# Generated\n" \
++       "\n" \
++       "HWMON_MODULES=\"coretemp f71882fg\"\n" \
++       "\n" \
++       "# For compatibility reasons\n" \
++       "\n" \
++       "MODULE_0=coretemp\n" \
++       "MODULE_1=f71882fg"
++
++#define env_file_5                              \
++        "a=\n"                                 \
++        "b="
++
++static void test_load_env_file_1(void) {
++        _cleanup_strv_free_ char **data = NULL;
++        int r;
++
++        _cleanup_(unlink_tempfilep) char name[] = "/tmp/test-load-env-file.XXXXXX";
++        _cleanup_close_ int fd;
++
++        fd = mkostemp_safe(name);
++        assert_se(fd >= 0);
++        assert_se(write(fd, env_file_1, strlen(env_file_1)) == strlen(env_file_1));
++
++        r = load_env_file(NULL, name, &data);
++        assert_se(r == 0);
++        assert_se(streq(data[0], "a=a"));
++        assert_se(streq(data[1], "b=bc"));
++        assert_se(streq(data[2], "d=def"));
++        assert_se(streq(data[3], "g=g "));
++        assert_se(streq(data[4], "h=h"));
++        assert_se(streq(data[5], "i=i"));
++        assert_se(data[6] == NULL);
++}
++
++static void test_load_env_file_2(void) {
++        _cleanup_strv_free_ char **data = NULL;
++        int r;
++
++        _cleanup_(unlink_tempfilep) char name[] = "/tmp/test-load-env-file.XXXXXX";
++        _cleanup_close_ int fd;
++
++        fd = mkostemp_safe(name);
++        assert_se(fd >= 0);
++        assert_se(write(fd, env_file_2, strlen(env_file_2)) == strlen(env_file_2));
++
++        r = load_env_file(NULL, name, &data);
++        assert_se(r == 0);
++        assert_se(streq(data[0], "a=a"));
++        assert_se(data[1] == NULL);
++}
++
++static void test_load_env_file_3(void) {
++        _cleanup_strv_free_ char **data = NULL;
++        int r;
++
++        _cleanup_(unlink_tempfilep) char name[] = "/tmp/test-load-env-file.XXXXXX";
++        _cleanup_close_ int fd;
++
++        fd = mkostemp_safe(name);
++        assert_se(fd >= 0);
++        assert_se(write(fd, env_file_3, strlen(env_file_3)) == strlen(env_file_3));
++
++        r = load_env_file(NULL, name, &data);
++        assert_se(r == 0);
++        assert_se(data == NULL);
++}
++
++static void test_load_env_file_4(void) {
++        _cleanup_strv_free_ char **data = NULL;
++        _cleanup_(unlink_tempfilep) char name[] = "/tmp/test-load-env-file.XXXXXX";
++        _cleanup_close_ int fd;
++        int r;
++
++        fd = mkostemp_safe(name);
++        assert_se(fd >= 0);
++        assert_se(write(fd, env_file_4, strlen(env_file_4)) == strlen(env_file_4));
++
++        r = load_env_file(NULL, name, &data);
++        assert_se(r == 0);
++        assert_se(streq(data[0], "HWMON_MODULES=coretemp f71882fg"));
++        assert_se(streq(data[1], "MODULE_0=coretemp"));
++        assert_se(streq(data[2], "MODULE_1=f71882fg"));
++        assert_se(data[3] == NULL);
++}
++
++static void test_load_env_file_5(void) {
++        _cleanup_strv_free_ char **data = NULL;
++        int r;
++
++        _cleanup_(unlink_tempfilep) char name[] = "/tmp/test-load-env-file.XXXXXX";
++        _cleanup_close_ int fd;
++
++        fd = mkostemp_safe(name);
++        assert_se(fd >= 0);
++        assert_se(write(fd, env_file_5, strlen(env_file_5)) == strlen(env_file_5));
++
++        r = load_env_file(NULL, name, &data);
++        assert_se(r == 0);
++        assert_se(streq(data[0], "a="));
++        assert_se(streq(data[1], "b="));
++        assert_se(data[2] == NULL);
++}
++
++int main(int argc, char *argv[]) {
++        test_setup_logging(LOG_INFO);
++
++        test_load_env_file_1();
++        test_load_env_file_2();
++        test_load_env_file_3();
++        test_load_env_file_4();
++        test_load_env_file_5();
++}
+diff --git a/src/test/test-extract-word.c b/src/test/test-extract-word.c
+index 3001938..f148b3e 100644
+--- a/src/test/test-extract-word.c
++++ b/src/test/test-extract-word.c
+@@ -43,12 +43,12 @@ static void test_extract_first_word(void) {
+         assert_se(isempty(p));
+ 
+         p = original = "\"foobar\" \'waldo\'";
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES) > 0);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE) > 0);
+         assert_se(streq(t, "foobar"));
+         free(t);
+         assert_se(p == original + 9);
+ 
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES) > 0);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE) > 0);
+         assert_se(streq(t, "waldo"));
+         free(t);
+         assert_se(isempty(p));
+@@ -64,7 +64,7 @@ static void test_extract_first_word(void) {
+         assert_se(isempty(p));
+ 
+         p = original = "\"";
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES) == -EINVAL);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE) == -EINVAL);
+         assert_se(p == original + 1);
+ 
+         p = original = "\'";
+@@ -74,7 +74,7 @@ static void test_extract_first_word(void) {
+         assert_se(isempty(p));
+ 
+         p = original = "\'";
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES) == -EINVAL);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE) == -EINVAL);
+         assert_se(p == original + 1);
+ 
+         p = original = "\'fooo";
+@@ -84,17 +84,17 @@ static void test_extract_first_word(void) {
+         assert_se(isempty(p));
+ 
+         p = original = "\'fooo";
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES) == -EINVAL);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE) == -EINVAL);
+         assert_se(p == original + 5);
+ 
+         p = original = "\'fooo";
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES|EXTRACT_RELAX) > 0);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE|EXTRACT_RELAX) > 0);
+         assert_se(streq(t, "fooo"));
+         free(t);
+         assert_se(isempty(p));
+ 
+         p = original = "\"fooo";
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES|EXTRACT_RELAX) > 0);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE|EXTRACT_RELAX) > 0);
+         assert_se(streq(t, "fooo"));
+         free(t);
+         assert_se(isempty(p));
+@@ -106,7 +106,7 @@ static void test_extract_first_word(void) {
+         assert_se(isempty(p));
+ 
+         p = original = "yay\'foo\'bar";
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES) > 0);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE) > 0);
+         assert_se(streq(t, "yayfoobar"));
+         free(t);
+         assert_se(isempty(p));
+@@ -135,7 +135,7 @@ static void test_extract_first_word(void) {
+         free(t);
+         assert_se(p == original + 13);
+ 
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES|EXTRACT_CUNESCAPE) > 0);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE) > 0);
+         assert_se(streq(t, "pi\360\237\222\251le"));
+         free(t);
+         assert_se(isempty(p));
+@@ -169,7 +169,7 @@ static void test_extract_first_word(void) {
+         assert_se(p == original + 5);
+ 
+         p = original = "\"foo\\";
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES|EXTRACT_RELAX) > 0);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE|EXTRACT_RELAX) > 0);
+         assert_se(streq(t, "foo"));
+         free(t);
+         assert_se(isempty(p));
+@@ -205,17 +205,17 @@ static void test_extract_first_word(void) {
+         assert_se(isempty(p));
+ 
+         p = original = "\"foo\\";
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES|EXTRACT_CUNESCAPE_RELAX) == -EINVAL);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE_RELAX) == -EINVAL);
+         assert_se(p == original + 5);
+ 
+         p = original = "\"foo\\";
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES|EXTRACT_CUNESCAPE_RELAX|EXTRACT_RELAX) > 0);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE_RELAX|EXTRACT_RELAX) > 0);
+         assert_se(streq(t, "foo\\"));
+         free(t);
+         assert_se(isempty(p));
+ 
+         p = original = "\"foo\\";
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES|EXTRACT_CUNESCAPE|EXTRACT_CUNESCAPE_RELAX|EXTRACT_RELAX) > 0);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE|EXTRACT_CUNESCAPE_RELAX|EXTRACT_RELAX) > 0);
+         assert_se(streq(t, "foo\\"));
+         free(t);
+         assert_se(isempty(p));
+@@ -265,12 +265,12 @@ static void test_extract_first_word(void) {
+         assert_se(isempty(p));
+ 
+         p = original = "-N ''";
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES) > 0);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE) > 0);
+         assert_se(streq(t, "-N"));
+         free(t);
+         assert_se(p == original + 3);
+ 
+-        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_QUOTES) > 0);
++        assert_se(extract_first_word(&p, &t, NULL, EXTRACT_UNQUOTE) > 0);
+         assert_se(streq(t, ""));
+         free(t);
+         assert_se(isempty(p));
+@@ -340,12 +340,12 @@ static void test_extract_first_word_and_warn(void) {
+         assert_se(isempty(p));
+ 
+         p = original = "\"foobar\" \'waldo\'";
+-        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_QUOTES, NULL, "fake", 1, original) > 0);
++        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_UNQUOTE, NULL, "fake", 1, original) > 0);
+         assert_se(streq(t, "foobar"));
+         free(t);
+         assert_se(p == original + 9);
+ 
+-        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_QUOTES, NULL, "fake", 1, original) > 0);
++        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_UNQUOTE, NULL, "fake", 1, original) > 0);
+         assert_se(streq(t, "waldo"));
+         free(t);
+         assert_se(isempty(p));
+@@ -355,19 +355,19 @@ static void test_extract_first_word_and_warn(void) {
+         assert_se(isempty(p));
+ 
+         p = original = "\"";
+-        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_QUOTES, NULL, "fake", 1, original) == -EINVAL);
++        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_UNQUOTE, NULL, "fake", 1, original) == -EINVAL);
+         assert_se(p == original + 1);
+ 
+         p = original = "\'";
+-        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_QUOTES, NULL, "fake", 1, original) == -EINVAL);
++        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_UNQUOTE, NULL, "fake", 1, original) == -EINVAL);
+         assert_se(p == original + 1);
+ 
+         p = original = "\'fooo";
+-        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_QUOTES, NULL, "fake", 1, original) == -EINVAL);
++        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_UNQUOTE, NULL, "fake", 1, original) == -EINVAL);
+         assert_se(p == original + 5);
+ 
+         p = original = "\'fooo";
+-        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_QUOTES|EXTRACT_RELAX, NULL, "fake", 1, original) > 0);
++        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_UNQUOTE|EXTRACT_RELAX, NULL, "fake", 1, original) > 0);
+         assert_se(streq(t, "fooo"));
+         free(t);
+         assert_se(isempty(p));
+@@ -390,7 +390,7 @@ static void test_extract_first_word_and_warn(void) {
+         free(t);
+         assert_se(p == original + 13);
+ 
+-        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_QUOTES|EXTRACT_CUNESCAPE, NULL, "fake", 1, original) > 0);
++        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE, NULL, "fake", 1, original) > 0);
+         assert_se(streq(t, "pi\360\237\222\251le"));
+         free(t);
+         assert_se(isempty(p));
+@@ -414,21 +414,21 @@ static void test_extract_first_word_and_warn(void) {
+         assert_se(isempty(p));
+ 
+         p = original = "\"foo\\";
+-        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_QUOTES, NULL, "fake", 1, original) == -EINVAL);
++        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_UNQUOTE, NULL, "fake", 1, original) == -EINVAL);
+         assert_se(p == original + 5);
+ 
+         p = original = "\"foo\\";
+-        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_QUOTES|EXTRACT_RELAX, NULL, "fake", 1, original) > 0);
++        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_UNQUOTE|EXTRACT_RELAX, NULL, "fake", 1, original) > 0);
+         assert_se(streq(t, "foo"));
+         free(t);
+         assert_se(isempty(p));
+ 
+         p = original = "\"foo\\";
+-        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_QUOTES|EXTRACT_CUNESCAPE, NULL, "fake", 1, original) == -EINVAL);
++        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE, NULL, "fake", 1, original) == -EINVAL);
+         assert_se(p == original + 5);
+ 
+         p = original = "\"foo\\";
+-        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_QUOTES|EXTRACT_CUNESCAPE|EXTRACT_RELAX, NULL, "fake", 1, original) > 0);
++        assert_se(extract_first_word_and_warn(&p, &t, NULL, EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE|EXTRACT_RELAX, NULL, "fake", 1, original) > 0);
+         assert_se(streq(t, "foo"));
+         free(t);
+         assert_se(isempty(p));
+@@ -488,7 +488,7 @@ static void test_extract_many_words(void) {
+         free(b);
+ 
+         p = original = "'foobar' wa\"ld\"i   ";
+-        assert_se(extract_many_words(&p, NULL, EXTRACT_QUOTES, &a, &b, &c, NULL) == 2);
++        assert_se(extract_many_words(&p, NULL, EXTRACT_UNQUOTE, &a, &b, &c, NULL) == 2);
+         assert_se(isempty(p));
+         assert_se(streq_ptr(a, "foobar"));
+         assert_se(streq_ptr(b, "waldi"));
+diff --git a/src/test/test-fs-util.c b/src/test/test-fs-util.c
+index f0f0150..fbd0375 100644
+--- a/src/test/test-fs-util.c
++++ b/src/test/test-fs-util.c
+@@ -751,11 +751,11 @@ int main(int argc, char *argv[]) {
+ 
+         arg_test_dir = argv[1];
+ 
++        test_chase_symlinks();
+         test_unlink_noerrno();
+-        test_get_files_in_directory();
+         test_readlink_and_make_absolute();
++        test_get_files_in_directory();
+         test_var_tmp();
+-        test_chase_symlinks();
+         test_dot_or_dot_dot();
+         test_access_fd();
+         test_touch_file();
+diff --git a/src/test/test-hashmap-plain.c b/src/test/test-hashmap-plain.c
+index fdb0c7e..57cf89f 100644
+--- a/src/test/test-hashmap-plain.c
++++ b/src/test/test-hashmap-plain.c
+@@ -831,6 +831,31 @@ static void test_hashmap_free(void) {
+         }
+ }
+ 
++typedef struct Item {
++        int seen;
++} Item;
++static void item_seen(Item *item) {
++        item->seen++;
++}
++
++static void test_hashmap_free_with_destructor(void) {
++        Hashmap *m;
++        struct Item items[4] = {};
++        unsigned i;
++
++        log_info("/* %s */", __func__);
++
++        assert_se(m = hashmap_new(NULL));
++        for (i = 0; i < ELEMENTSOF(items) - 1; i++)
++                assert_se(hashmap_put(m, INT_TO_PTR(i), items + i) == 1);
++
++        m = hashmap_free_with_destructor(m, item_seen);
++        assert_se(items[0].seen == 1);
++        assert_se(items[1].seen == 1);
++        assert_se(items[2].seen == 1);
++        assert_se(items[3].seen == 0);
++}
++
+ static void test_hashmap_first(void) {
+         _cleanup_hashmap_free_ Hashmap *m = NULL;
+ 
+@@ -978,9 +1003,65 @@ static void test_hashmap_reserve(void) {
+         assert_se(hashmap_reserve(m, UINT_MAX - 1) == -ENOMEM);
+ }
+ 
++static void test_path_hashmap(void) {
++        _cleanup_hashmap_free_ Hashmap *h = NULL;
++
++        log_info("/* %s */", __func__);
++
++        assert_se(h = hashmap_new(&path_hash_ops));
++
++        assert_se(hashmap_put(h, "foo", INT_TO_PTR(1)) >= 0);
++        assert_se(hashmap_put(h, "/foo", INT_TO_PTR(2)) >= 0);
++        assert_se(hashmap_put(h, "//foo", INT_TO_PTR(3)) == -EEXIST);
++        assert_se(hashmap_put(h, "//foox/", INT_TO_PTR(4)) >= 0);
++        assert_se(hashmap_put(h, "/foox////", INT_TO_PTR(5)) == -EEXIST);
++        assert_se(hashmap_put(h, "foo//////bar/quux//", INT_TO_PTR(6)) >= 0);
++        assert_se(hashmap_put(h, "foo/bar//quux/", INT_TO_PTR(8)) == -EEXIST);
++
++        assert_se(hashmap_get(h, "foo") == INT_TO_PTR(1));
++        assert_se(hashmap_get(h, "foo/") == INT_TO_PTR(1));
++        assert_se(hashmap_get(h, "foo////") == INT_TO_PTR(1));
++        assert_se(hashmap_get(h, "/foo") == INT_TO_PTR(2));
++        assert_se(hashmap_get(h, "//foo") == INT_TO_PTR(2));
++        assert_se(hashmap_get(h, "/////foo////") == INT_TO_PTR(2));
++        assert_se(hashmap_get(h, "/////foox////") == INT_TO_PTR(4));
++        assert_se(hashmap_get(h, "/foox/") == INT_TO_PTR(4));
++        assert_se(hashmap_get(h, "/foox") == INT_TO_PTR(4));
++        assert_se(!hashmap_get(h, "foox"));
++        assert_se(hashmap_get(h, "foo/bar/quux") == INT_TO_PTR(6));
++        assert_se(hashmap_get(h, "foo////bar////quux/////") == INT_TO_PTR(6));
++        assert_se(!hashmap_get(h, "/foo////bar////quux/////"));
++}
++
++static void test_string_strv_hashmap(void) {
++        _cleanup_hashmap_free_ Hashmap *m = NULL;
++        char **s;
++
++        log_info("/* %s */", __func__);
++
++        assert_se(string_strv_hashmap_put(&m, "foo", "bar") == 1);
++        assert_se(string_strv_hashmap_put(&m, "foo", "bar") == 0);
++        assert_se(string_strv_hashmap_put(&m, "foo", "BAR") == 1);
++        assert_se(string_strv_hashmap_put(&m, "foo", "BAR") == 0);
++        assert_se(string_strv_hashmap_put(&m, "foo", "bar") == 0);
++        assert_se(hashmap_contains(m, "foo"));
++
++        s = hashmap_get(m, "foo");
++        assert_se(strv_equal(s, STRV_MAKE("bar", "BAR")));
++
++        assert_se(string_strv_hashmap_put(&m, "xxx", "bar") == 1);
++        assert_se(string_strv_hashmap_put(&m, "xxx", "bar") == 0);
++        assert_se(string_strv_hashmap_put(&m, "xxx", "BAR") == 1);
++        assert_se(string_strv_hashmap_put(&m, "xxx", "BAR") == 0);
++        assert_se(string_strv_hashmap_put(&m, "xxx", "bar") == 0);
++        assert_se(hashmap_contains(m, "xxx"));
++
++        s = hashmap_get(m, "xxx");
++        assert_se(strv_equal(s, STRV_MAKE("bar", "BAR")));
++}
++
+ void test_hashmap_funcs(void) {
+-        log_parse_environment();
+-        log_open();
++        log_info("/************ %s ************/", __func__);
+ 
+         test_hashmap_copy();
+         test_hashmap_get_strv();
+@@ -1005,6 +1086,7 @@ void test_hashmap_funcs(void) {
+         test_hashmap_size();
+         test_hashmap_many();
+         test_hashmap_free();
++        test_hashmap_free_with_destructor();
+         test_hashmap_first();
+         test_hashmap_first_key();
+         test_hashmap_steal_first_key();
+@@ -1012,4 +1094,6 @@ void test_hashmap_funcs(void) {
+         test_hashmap_clear_free_free();
+         test_hashmap_clear_free_with_destructor();
+         test_hashmap_reserve();
++        test_path_hashmap();
++        test_string_strv_hashmap();
+ }
+diff --git a/src/test/test-hashmap.c b/src/test/test-hashmap.c
+index ee4c0e6..1a6e8ff 100644
+--- a/src/test/test-hashmap.c
++++ b/src/test/test-hashmap.c
+@@ -31,31 +31,6 @@ static void test_ordered_hashmap_next(void) {
+         assert_se(!ordered_hashmap_next(m, INT_TO_PTR(3)));
+ }
+ 
+-typedef struct Item {
+-        int seen;
+-} Item;
+-static void item_seen(Item *item) {
+-        item->seen++;
+-}
+-
+-static void test_hashmap_free_with_destructor(void) {
+-        Hashmap *m;
+-        struct Item items[4] = {};
+-        unsigned i;
+-
+-        log_info("/* %s */", __func__);
+-
+-        assert_se(m = hashmap_new(NULL));
+-        for (i = 0; i < ELEMENTSOF(items) - 1; i++)
+-                assert_se(hashmap_put(m, INT_TO_PTR(i), items + i) == 1);
+-
+-        m = hashmap_free_with_destructor(m, item_seen);
+-        assert_se(items[0].seen == 1);
+-        assert_se(items[1].seen == 1);
+-        assert_se(items[2].seen == 1);
+-        assert_se(items[3].seen == 0);
+-}
+-
+ static void test_uint64_compare_func(void) {
+         const uint64_t a = 0x100, b = 0x101;
+ 
+@@ -134,47 +109,24 @@ static void test_iterated_cache(void) {
+         assert_se(iterated_cache_free(c) == NULL);
+ }
+ 
+-static void test_path_hashmap(void) {
+-        _cleanup_hashmap_free_ Hashmap *h = NULL;
++int main(int argc, const char *argv[]) {
++        /* This file tests in test-hashmap-plain.c, and tests in test-hashmap-ordered.c, which is generated
++         * from test-hashmap-plain.c. Hashmap tests should be added to test-hashmap-plain.c, and here only if
++         * they don't apply to ordered hashmaps. */
+ 
+-        log_info("/* %s */", __func__);
++        log_parse_environment();
++        log_open();
+ 
+-        assert_se(h = hashmap_new(&path_hash_ops));
+-
+-        assert_se(hashmap_put(h, "foo", INT_TO_PTR(1)) >= 0);
+-        assert_se(hashmap_put(h, "/foo", INT_TO_PTR(2)) >= 0);
+-        assert_se(hashmap_put(h, "//foo", INT_TO_PTR(3)) == -EEXIST);
+-        assert_se(hashmap_put(h, "//foox/", INT_TO_PTR(4)) >= 0);
+-        assert_se(hashmap_put(h, "/foox////", INT_TO_PTR(5)) == -EEXIST);
+-        assert_se(hashmap_put(h, "foo//////bar/quux//", INT_TO_PTR(6)) >= 0);
+-        assert_se(hashmap_put(h, "foo/bar//quux/", INT_TO_PTR(8)) == -EEXIST);
+-
+-        assert_se(hashmap_get(h, "foo") == INT_TO_PTR(1));
+-        assert_se(hashmap_get(h, "foo/") == INT_TO_PTR(1));
+-        assert_se(hashmap_get(h, "foo////") == INT_TO_PTR(1));
+-        assert_se(hashmap_get(h, "/foo") == INT_TO_PTR(2));
+-        assert_se(hashmap_get(h, "//foo") == INT_TO_PTR(2));
+-        assert_se(hashmap_get(h, "/////foo////") == INT_TO_PTR(2));
+-        assert_se(hashmap_get(h, "/////foox////") == INT_TO_PTR(4));
+-        assert_se(hashmap_get(h, "/foox/") == INT_TO_PTR(4));
+-        assert_se(hashmap_get(h, "/foox") == INT_TO_PTR(4));
+-        assert_se(!hashmap_get(h, "foox"));
+-        assert_se(hashmap_get(h, "foo/bar/quux") == INT_TO_PTR(6));
+-        assert_se(hashmap_get(h, "foo////bar////quux/////") == INT_TO_PTR(6));
+-        assert_se(!hashmap_get(h, "/foo////bar////quux/////"));
+-}
+-
+-int main(int argc, const char *argv[]) {
+         test_hashmap_funcs();
+         test_ordered_hashmap_funcs();
+ 
++        log_info("/************ non-shared tests ************/");
++
+         test_ordered_hashmap_next();
+-        test_hashmap_free_with_destructor();
+         test_uint64_compare_func();
+         test_trivial_compare_func();
+         test_string_compare_func();
+         test_iterated_cache();
+-        test_path_hashmap();
+ 
+         return 0;
+ }
+diff --git a/src/test/test-unit-file.c b/src/test/test-load-fragment.c
+similarity index 88%
+rename from src/test/test-unit-file.c
+rename to src/test/test-load-fragment.c
+index 8a0251e..8deaf4e 100644
+--- a/src/test/test-unit-file.c
++++ b/src/test/test-load-fragment.c
+@@ -11,7 +11,6 @@
+ #include "alloc-util.h"
+ #include "capability-util.h"
+ #include "conf-parser.h"
+-#include "env-file.h"
+ #include "fd-util.h"
+ #include "format-util.h"
+ #include "fs-util.h"
+@@ -489,130 +488,6 @@ static void test_config_parse_log_extra_fields(void) {
+         log_info("/* %s – bye */", __func__);
+ }
+ 
+-#define env_file_1                              \
+-        "a=a\n"                                 \
+-        "b=b\\\n"                               \
+-        "c\n"                                   \
+-        "d=d\\\n"                               \
+-        "e\\\n"                                 \
+-        "f\n"                                   \
+-        "g=g\\ \n"                              \
+-        "h=h\n"                                 \
+-        "i=i\\"
+-
+-#define env_file_2                              \
+-        "a=a\\\n"
+-
+-#define env_file_3 \
+-        "#SPAMD_ARGS=\"-d --socketpath=/var/lib/bulwark/spamd \\\n" \
+-        "#--nouser-config                                     \\\n" \
+-        "normal=line"
+-
+-#define env_file_4 \
+-       "# Generated\n" \
+-       "\n" \
+-       "HWMON_MODULES=\"coretemp f71882fg\"\n" \
+-       "\n" \
+-       "# For compatibility reasons\n" \
+-       "\n" \
+-       "MODULE_0=coretemp\n" \
+-       "MODULE_1=f71882fg"
+-
+-#define env_file_5                              \
+-        "a=\n"                                 \
+-        "b="
+-
+-static void test_load_env_file_1(void) {
+-        _cleanup_strv_free_ char **data = NULL;
+-        int r;
+-
+-        _cleanup_(unlink_tempfilep) char name[] = "/tmp/test-load-env-file.XXXXXX";
+-        _cleanup_close_ int fd;
+-
+-        fd = mkostemp_safe(name);
+-        assert_se(fd >= 0);
+-        assert_se(write(fd, env_file_1, strlen(env_file_1)) == strlen(env_file_1));
+-
+-        r = load_env_file(NULL, name, &data);
+-        assert_se(r == 0);
+-        assert_se(streq(data[0], "a=a"));
+-        assert_se(streq(data[1], "b=bc"));
+-        assert_se(streq(data[2], "d=def"));
+-        assert_se(streq(data[3], "g=g "));
+-        assert_se(streq(data[4], "h=h"));
+-        assert_se(streq(data[5], "i=i"));
+-        assert_se(data[6] == NULL);
+-}
+-
+-static void test_load_env_file_2(void) {
+-        _cleanup_strv_free_ char **data = NULL;
+-        int r;
+-
+-        _cleanup_(unlink_tempfilep) char name[] = "/tmp/test-load-env-file.XXXXXX";
+-        _cleanup_close_ int fd;
+-
+-        fd = mkostemp_safe(name);
+-        assert_se(fd >= 0);
+-        assert_se(write(fd, env_file_2, strlen(env_file_2)) == strlen(env_file_2));
+-
+-        r = load_env_file(NULL, name, &data);
+-        assert_se(r == 0);
+-        assert_se(streq(data[0], "a=a"));
+-        assert_se(data[1] == NULL);
+-}
+-
+-static void test_load_env_file_3(void) {
+-        _cleanup_strv_free_ char **data = NULL;
+-        int r;
+-
+-        _cleanup_(unlink_tempfilep) char name[] = "/tmp/test-load-env-file.XXXXXX";
+-        _cleanup_close_ int fd;
+-
+-        fd = mkostemp_safe(name);
+-        assert_se(fd >= 0);
+-        assert_se(write(fd, env_file_3, strlen(env_file_3)) == strlen(env_file_3));
+-
+-        r = load_env_file(NULL, name, &data);
+-        assert_se(r == 0);
+-        assert_se(data == NULL);
+-}
+-
+-static void test_load_env_file_4(void) {
+-        _cleanup_strv_free_ char **data = NULL;
+-        _cleanup_(unlink_tempfilep) char name[] = "/tmp/test-load-env-file.XXXXXX";
+-        _cleanup_close_ int fd;
+-        int r;
+-
+-        fd = mkostemp_safe(name);
+-        assert_se(fd >= 0);
+-        assert_se(write(fd, env_file_4, strlen(env_file_4)) == strlen(env_file_4));
+-
+-        r = load_env_file(NULL, name, &data);
+-        assert_se(r == 0);
+-        assert_se(streq(data[0], "HWMON_MODULES=coretemp f71882fg"));
+-        assert_se(streq(data[1], "MODULE_0=coretemp"));
+-        assert_se(streq(data[2], "MODULE_1=f71882fg"));
+-        assert_se(data[3] == NULL);
+-}
+-
+-static void test_load_env_file_5(void) {
+-        _cleanup_strv_free_ char **data = NULL;
+-        int r;
+-
+-        _cleanup_(unlink_tempfilep) char name[] = "/tmp/test-load-env-file.XXXXXX";
+-        _cleanup_close_ int fd;
+-
+-        fd = mkostemp_safe(name);
+-        assert_se(fd >= 0);
+-        assert_se(write(fd, env_file_5, strlen(env_file_5)) == strlen(env_file_5));
+-
+-        r = load_env_file(NULL, name, &data);
+-        assert_se(r == 0);
+-        assert_se(streq(data[0], "a="));
+-        assert_se(streq(data[1], "b="));
+-        assert_se(data[2] == NULL);
+-}
+-
+ static void test_install_printf(void) {
+         char    name[] = "name.service",
+                 path[] = "/run/systemd/system/name.service";
+@@ -919,11 +794,6 @@ int main(int argc, char *argv[]) {
+         test_config_parse_capability_set();
+         test_config_parse_rlimit();
+         test_config_parse_pass_environ();
+-        test_load_env_file_1();
+-        test_load_env_file_2();
+-        test_load_env_file_3();
+-        test_load_env_file_4();
+-        test_load_env_file_5();
+         TEST_REQ_RUNNING_SYSTEMD(test_install_printf());
+         test_unit_dump_config_items();
+ 
+diff --git a/src/test/test-path-util.c b/src/test/test-path-util.c
+index 1829916..aca057a 100644
+--- a/src/test/test-path-util.c
++++ b/src/test/test-path-util.c
+@@ -25,6 +25,8 @@
+ static void test_path_simplify(const char *in, const char *out, const char *out_dot) {
+         char *p;
+ 
++        log_info("/* %s */", __func__);
++
+         p = strdupa(in);
+         assert_se(streq(path_simplify(p, false), out));
+ 
+@@ -35,6 +37,8 @@ static void test_path_simplify(const char *in, const char *out, const char *out_
+ static void test_path(void) {
+         _cleanup_close_ int fd = -1;
+ 
++        log_info("/* %s */", __func__);
++
+         test_path_compare("/goo", "/goo", 0);
+         test_path_compare("/goo", "/goo", 0);
+         test_path_compare("//goo", "/goo", 0);
+@@ -114,6 +118,8 @@ static void test_path(void) {
+ static void test_path_equal_root(void) {
+         /* Nail down the details of how path_equal("/", ...) works. */
+ 
++        log_info("/* %s */", __func__);
++
+         assert_se(path_equal("/", "/"));
+         assert_se(path_equal("/", "//"));
+ 
+@@ -156,6 +162,8 @@ static void test_path_equal_root(void) {
+ static void test_find_binary(const char *self) {
+         char *p;
+ 
++        log_info("/* %s */", __func__);
++
+         assert_se(find_binary("/bin/sh", &p) == 0);
+         puts(p);
+         assert_se(path_equal(p, "/bin/sh"));
+@@ -191,6 +199,8 @@ static void test_prefixes(void) {
+         char s[PATH_MAX];
+         bool b;
+ 
++        log_info("/* %s */", __func__);
++
+         i = 0;
+         PATH_FOREACH_PREFIX_MORE(s, "/a/b/c/d") {
+                 log_error("---%s---", s);
+@@ -238,6 +248,7 @@ static void test_prefixes(void) {
+ }
+ 
+ static void test_path_join(void) {
++        log_info("/* %s */", __func__);
+ 
+ #define test_join(expected, ...) {        \
+                 _cleanup_free_ char *z = NULL;   \
+@@ -283,6 +294,8 @@ static void test_path_join(void) {
+ }
+ 
+ static void test_fsck_exists(void) {
++        log_info("/* %s */", __func__);
++
+         /* Ensure we use a sane default for PATH. */
+         unsetenv("PATH");
+ 
+@@ -296,6 +309,8 @@ static void test_fsck_exists(void) {
+ static void test_make_relative(void) {
+         char *result;
+ 
++        log_info("/* %s */", __func__);
++
+         assert_se(path_make_relative("some/relative/path", "/some/path", &result) < 0);
+         assert_se(path_make_relative("/some/path", "some/relative/path", &result) < 0);
+         assert_se(path_make_relative("/some/dotdot/../path", "/some/path", &result) < 0);
+@@ -347,6 +362,8 @@ static void test_strv_resolve(void) {
+ static void test_path_startswith(void) {
+         const char *p;
+ 
++        log_info("/* %s */", __func__);
++
+         p = path_startswith("/foo/bar/barfoo/", "/foo");
+         assert_se(streq_ptr(p, "bar/barfoo/"));
+ 
+@@ -397,6 +414,8 @@ static void test_prefix_root_one(const char *r, const char *p, const char *expec
+ }
+ 
+ static void test_prefix_root(void) {
++        log_info("/* %s */", __func__);
++
+         test_prefix_root_one("/", "/foo", "/foo");
+         test_prefix_root_one(NULL, "/foo", "/foo");
+         test_prefix_root_one("", "/foo", "/foo");
+@@ -415,6 +434,8 @@ static void test_prefix_root(void) {
+ static void test_file_in_same_dir(void) {
+         char *t;
+ 
++        log_info("/* %s */", __func__);
++
+         t = file_in_same_dir("/", "a");
+         assert_se(streq(t, "/a"));
+         free(t);
+@@ -467,6 +488,8 @@ static void test_path_extract_filename_one(const char *input, const char *output
+ }
+ 
+ static void test_path_extract_filename(void) {
++        log_info("/* %s */", __func__);
++
+         test_path_extract_filename_one(NULL, NULL, -EINVAL);
+         test_path_extract_filename_one("a/b/c", "c", 0);
+         test_path_extract_filename_one("a/b/c/", "c", 0);
+@@ -499,6 +522,8 @@ static void test_filename_is_valid(void) {
+         char foo[FILENAME_MAX+2];
+         int i;
+ 
++        log_info("/* %s */", __func__);
++
+         assert_se(!filename_is_valid(""));
+         assert_se(!filename_is_valid("/bar/foo"));
+         assert_se(!filename_is_valid("/"));
+@@ -516,6 +541,8 @@ static void test_filename_is_valid(void) {
+ }
+ 
+ static void test_hidden_or_backup_file(void) {
++        log_info("/* %s */", __func__);
++
+         assert_se(hidden_or_backup_file(".hidden"));
+         assert_se(hidden_or_backup_file("..hidden"));
+         assert_se(!hidden_or_backup_file("hidden."));
+@@ -541,6 +568,8 @@ static void test_systemd_installation_has_version(const char *path) {
+         const unsigned versions[] = {0, 231, PROJECT_VERSION, 999};
+         unsigned i;
+ 
++        log_info("/* %s */", __func__);
++
+         for (i = 0; i < ELEMENTSOF(versions); i++) {
+                 r = systemd_installation_has_version(path, versions[i]);
+                 assert_se(r >= 0);
+@@ -550,6 +579,7 @@ static void test_systemd_installation_has_version(const char *path) {
+ }
+ 
+ static void test_skip_dev_prefix(void) {
++        log_info("/* %s */", __func__);
+ 
+         assert_se(streq(skip_dev_prefix("/"), "/"));
+         assert_se(streq(skip_dev_prefix("/dev"), ""));
+@@ -565,6 +595,8 @@ static void test_skip_dev_prefix(void) {
+ }
+ 
+ static void test_empty_or_root(void) {
++        log_info("/* %s */", __func__);
++
+         assert_se(empty_or_root(NULL));
+         assert_se(empty_or_root(""));
+         assert_se(empty_or_root("/"));
+@@ -578,6 +610,7 @@ static void test_empty_or_root(void) {
+ }
+ 
+ static void test_path_startswith_set(void) {
++        log_info("/* %s */", __func__);
+ 
+         assert_se(streq_ptr(PATH_STARTSWITH_SET("/foo/bar", "/foo/quux", "/foo/bar", "/zzz"), ""));
+         assert_se(streq_ptr(PATH_STARTSWITH_SET("/foo/bar", "/foo/quux", "/foo/", "/zzz"), "bar"));
+@@ -598,6 +631,28 @@ static void test_path_startswith_set(void) {
+         assert_se(streq_ptr(PATH_STARTSWITH_SET("/foo2/bar", "/foo/quux", "", "/zzz"), NULL));
+ }
+ 
++static void test_path_startswith_strv(void) {
++        log_info("/* %s */", __func__);
++
++        assert_se(streq_ptr(path_startswith_strv("/foo/bar", STRV_MAKE("/foo/quux", "/foo/bar", "/zzz")), ""));
++        assert_se(streq_ptr(path_startswith_strv("/foo/bar", STRV_MAKE("/foo/quux", "/foo/", "/zzz")), "bar"));
++        assert_se(streq_ptr(path_startswith_strv("/foo/bar", STRV_MAKE("/foo/quux", "/foo", "/zzz")), "bar"));
++        assert_se(streq_ptr(path_startswith_strv("/foo/bar", STRV_MAKE("/foo/quux", "/", "/zzz")), "foo/bar"));
++        assert_se(streq_ptr(path_startswith_strv("/foo/bar", STRV_MAKE("/foo/quux", "", "/zzz")), NULL));
++
++        assert_se(streq_ptr(path_startswith_strv("/foo/bar2", STRV_MAKE("/foo/quux", "/foo/bar", "/zzz")), NULL));
++        assert_se(streq_ptr(path_startswith_strv("/foo/bar2", STRV_MAKE("/foo/quux", "/foo/", "/zzz")), "bar2"));
++        assert_se(streq_ptr(path_startswith_strv("/foo/bar2", STRV_MAKE("/foo/quux", "/foo", "/zzz")), "bar2"));
++        assert_se(streq_ptr(path_startswith_strv("/foo/bar2", STRV_MAKE("/foo/quux", "/", "/zzz")), "foo/bar2"));
++        assert_se(streq_ptr(path_startswith_strv("/foo/bar2", STRV_MAKE("/foo/quux", "", "/zzz")), NULL));
++
++        assert_se(streq_ptr(path_startswith_strv("/foo2/bar", STRV_MAKE("/foo/quux", "/foo/bar", "/zzz")), NULL));
++        assert_se(streq_ptr(path_startswith_strv("/foo2/bar", STRV_MAKE("/foo/quux", "/foo/", "/zzz")), NULL));
++        assert_se(streq_ptr(path_startswith_strv("/foo2/bar", STRV_MAKE("/foo/quux", "/foo", "/zzz")), NULL));
++        assert_se(streq_ptr(path_startswith_strv("/foo2/bar", STRV_MAKE("/foo/quux", "/", "/zzz")), "foo2/bar"));
++        assert_se(streq_ptr(path_startswith_strv("/foo2/bar", STRV_MAKE("/foo/quux", "", "/zzz")), NULL));
++}
++
+ int main(int argc, char **argv) {
+         test_setup_logging(LOG_DEBUG);
+ 
+@@ -619,6 +674,7 @@ int main(int argc, char **argv) {
+         test_skip_dev_prefix();
+         test_empty_or_root();
+         test_path_startswith_set();
++        test_path_startswith_strv();
+ 
+         test_systemd_installation_has_version(argv[1]); /* NULL is OK */
+ 
+diff --git a/src/test/test-string-util.c b/src/test/test-string-util.c
+index 064a5ab..f7dde61 100644
+--- a/src/test/test-string-util.c
++++ b/src/test/test-string-util.c
+@@ -380,7 +380,7 @@ static void check(const char *test, char** expected, bool trailing) {
+         for (;;) {
+                 _cleanup_free_ char *word = NULL;
+ 
+-                r = extract_first_word(&test, &word, NULL, EXTRACT_QUOTES);
++                r = extract_first_word(&test, &word, NULL, EXTRACT_UNQUOTE);
+                 if (r == 0) {
+                         assert_se(!trailing);
+                         break;
+diff --git a/src/test/test-strv.c b/src/test/test-strv.c
+index 18ad036..2db9646 100644
+--- a/src/test/test-strv.c
++++ b/src/test/test-strv.c
+@@ -23,6 +23,8 @@ static void test_specifier_printf(void) {
+         _cleanup_free_ char *w = NULL;
+         int r;
+ 
++        log_info("/* %s */", __func__);
++
+         r = specifier_printf("xxx a=%a b=%b yyy", table, NULL, &w);
+         assert_se(r >= 0);
+         assert_se(w);
+@@ -38,6 +40,8 @@ static void test_specifier_printf(void) {
+ }
+ 
+ static void test_str_in_set(void) {
++        log_info("/* %s */", __func__);
++
+         assert_se(STR_IN_SET("x", "x", "y", "z"));
+         assert_se(!STR_IN_SET("X", "x", "y", "z"));
+         assert_se(!STR_IN_SET("", "x", "y", "z"));
+@@ -45,6 +49,8 @@ static void test_str_in_set(void) {
+ }
+ 
+ static void test_strptr_in_set(void) {
++        log_info("/* %s */", __func__);
++
+         assert_se(STRPTR_IN_SET("x", "x", "y", "z"));
+         assert_se(!STRPTR_IN_SET("X", "x", "y", "z"));
+         assert_se(!STRPTR_IN_SET("", "x", "y", "z"));
+@@ -57,6 +63,8 @@ static void test_strptr_in_set(void) {
+ }
+ 
+ static void test_startswith_set(void) {
++        log_info("/* %s */", __func__);
++
+         assert_se(!STARTSWITH_SET("foo", "bar", "baz", "waldo"));
+         assert_se(!STARTSWITH_SET("foo", "bar"));
+ 
+@@ -105,11 +113,15 @@ static const char* const input_table_one_empty[] = {
+ };
+ 
+ static void test_strv_find(void) {
++        log_info("/* %s */", __func__);
++
+         assert_se(strv_find((char **)input_table_multiple, "three"));
+         assert_se(!strv_find((char **)input_table_multiple, "four"));
+ }
+ 
+ static void test_strv_find_prefix(void) {
++        log_info("/* %s */", __func__);
++
+         assert_se(strv_find_prefix((char **)input_table_multiple, "o"));
+         assert_se(strv_find_prefix((char **)input_table_multiple, "one"));
+         assert_se(strv_find_prefix((char **)input_table_multiple, ""));
+@@ -120,6 +132,8 @@ static void test_strv_find_prefix(void) {
+ static void test_strv_find_startswith(void) {
+         char *r;
+ 
++        log_info("/* %s */", __func__);
++
+         r = strv_find_startswith((char **)input_table_multiple, "o");
+         assert_se(r && streq(r, "ne"));
+ 
+@@ -136,6 +150,8 @@ static void test_strv_find_startswith(void) {
+ static void test_strv_join(void) {
+         _cleanup_free_ char *p = NULL, *q = NULL, *r = NULL, *s = NULL, *t = NULL, *v = NULL, *w = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         p = strv_join((char **)input_table_multiple, ", ");
+         assert_se(p);
+         assert_se(streq(p, "one, two, three"));
+@@ -168,6 +184,8 @@ static void test_strv_join(void) {
+ static void test_strv_join_prefix(void) {
+         _cleanup_free_ char *p = NULL, *q = NULL, *r = NULL, *s = NULL, *t = NULL, *v = NULL, *w = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         p = strv_join_prefix((char **)input_table_multiple, ", ", "foo");
+         assert_se(p);
+         assert_se(streq(p, "fooone, footwo, foothree"));
+@@ -204,7 +222,9 @@ static void test_strv_unquote(const char *quoted, char **list) {
+         char **t;
+         int r;
+ 
+-        r = strv_split_extract(&s, quoted, WHITESPACE, EXTRACT_QUOTES);
++        log_info("/* %s */", __func__);
++
++        r = strv_split_extract(&s, quoted, WHITESPACE, EXTRACT_UNQUOTE);
+         assert_se(r == (int) strv_length(list));
+         assert_se(s);
+         j = strv_join(s, " | ");
+@@ -221,15 +241,19 @@ static void test_invalid_unquote(const char *quoted) {
+         char **s = NULL;
+         int r;
+ 
+-        r = strv_split_extract(&s, quoted, WHITESPACE, EXTRACT_QUOTES);
++        log_info("/* %s */", __func__);
++
++        r = strv_split_extract(&s, quoted, WHITESPACE, EXTRACT_UNQUOTE);
+         assert_se(s == NULL);
+         assert_se(r == -EINVAL);
+ }
+ 
+ static void test_strv_split(void) {
+-        _cleanup_strv_free_ char **l = NULL;
++        _cleanup_(strv_free_erasep) char **l = NULL;
+         const char str[] = "one,two,three";
+ 
++        log_info("/* %s */", __func__);
++
+         l = strv_split(str, ",");
+         assert_se(l);
+         assert_se(strv_equal(l, (char**) input_table_multiple));
+@@ -290,6 +314,8 @@ static void test_strv_split(void) {
+ static void test_strv_split_empty(void) {
+         _cleanup_strv_free_ char **l = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         l = strv_split("", WHITESPACE);
+         assert_se(l);
+         assert_se(strv_isempty(l));
+@@ -355,6 +381,8 @@ static void test_strv_split_extract(void) {
+         const char *str = ":foo\\:bar::waldo:";
+         int r;
+ 
++        log_info("/* %s */", __func__);
++
+         r = strv_split_extract(&l, str, ":", EXTRACT_DONT_COALESCE_SEPARATORS);
+         assert_se(r == (int) strv_length(l));
+         assert_se(streq_ptr(l[0], ""));
+@@ -371,8 +399,9 @@ static void test_strv_split_newlines(void) {
+         _cleanup_strv_free_ char **l = NULL;
+         const char str[] = "one\ntwo\nthree";
+ 
+-        l = strv_split_newlines(str);
++        log_info("/* %s */", __func__);
+ 
++        l = strv_split_newlines(str);
+         assert_se(l);
+ 
+         STRV_FOREACH(s, l) {
+@@ -384,6 +413,8 @@ static void test_strv_split_nulstr(void) {
+         _cleanup_strv_free_ char **l = NULL;
+         const char nulstr[] = "str0\0str1\0str2\0str3\0";
+ 
++        log_info("/* %s */", __func__);
++
+         l = strv_split_nulstr (nulstr);
+         assert_se(l);
+ 
+@@ -397,6 +428,8 @@ static void test_strv_parse_nulstr(void) {
+         _cleanup_strv_free_ char **l = NULL;
+         const char nulstr[] = "hoge\0hoge2\0hoge3\0\0hoge5\0\0xxx";
+ 
++        log_info("/* %s */", __func__);
++
+         l = strv_parse_nulstr(nulstr, sizeof(nulstr)-1);
+         assert_se(l);
+         puts("Parse nulstr:");
+@@ -429,6 +462,8 @@ static void test_strv_overlap(void) {
+                 NULL
+         };
+ 
++        log_info("/* %s */", __func__);
++
+         assert_se(strv_overlap((char **)input_table, (char**)input_table_overlap));
+         assert_se(!strv_overlap((char **)input_table, (char**)input_table_unique));
+ }
+@@ -443,6 +478,8 @@ static void test_strv_sort(void) {
+                 NULL
+         };
+ 
++        log_info("/* %s */", __func__);
++
+         strv_sort((char **)input_table);
+ 
+         assert_se(streq(input_table[0], "CAPITAL LETTERS FIRST"));
+@@ -455,6 +492,8 @@ static void test_strv_sort(void) {
+ static void test_strv_extend_strv_concat(void) {
+         _cleanup_strv_free_ char **a = NULL, **b = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         a = strv_new("without", "suffix");
+         b = strv_new("with", "suffix");
+         assert_se(a);
+@@ -471,6 +510,8 @@ static void test_strv_extend_strv_concat(void) {
+ static void test_strv_extend_strv(void) {
+         _cleanup_strv_free_ char **a = NULL, **b = NULL, **n = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         a = strv_new("abc", "def", "ghi");
+         b = strv_new("jkl", "mno", "abc", "pqr");
+         assert_se(a);
+@@ -497,6 +538,8 @@ static void test_strv_extend_strv(void) {
+ static void test_strv_extend(void) {
+         _cleanup_strv_free_ char **a = NULL, **b = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         a = strv_new("test", "test1");
+         assert_se(a);
+         assert_se(strv_extend(&a, "test2") >= 0);
+@@ -511,6 +554,8 @@ static void test_strv_extend(void) {
+ static void test_strv_extendf(void) {
+         _cleanup_strv_free_ char **a = NULL, **b = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         a = strv_new("test", "test1");
+         assert_se(a);
+         assert_se(strv_extendf(&a, "test2 %s %d %s", "foo", 128, "bar") >= 0);
+@@ -527,13 +572,13 @@ static void test_strv_foreach(void) {
+         unsigned i = 0;
+         char **check;
+ 
+-        a = strv_new("one", "two", "three");
++        log_info("/* %s */", __func__);
+ 
++        a = strv_new("one", "two", "three");
+         assert_se(a);
+ 
+-        STRV_FOREACH(check, a) {
++        STRV_FOREACH(check, a)
+                 assert_se(streq(*check, input_table_multiple[i++]));
+-        }
+ }
+ 
+ static void test_strv_foreach_backwards(void) {
+@@ -541,6 +586,8 @@ static void test_strv_foreach_backwards(void) {
+         unsigned i = 2;
+         char **check;
+ 
++        log_info("/* %s */", __func__);
++
+         a = strv_new("one", "two", "three");
+ 
+         assert_se(a);
+@@ -559,19 +606,21 @@ static void test_strv_foreach_pair(void) {
+         _cleanup_strv_free_ char **a = NULL;
+         char **x, **y;
+ 
++        log_info("/* %s */", __func__);
++
+         a = strv_new("pair_one",   "pair_one",
+                      "pair_two",   "pair_two",
+                      "pair_three", "pair_three");
+-
+-        STRV_FOREACH_PAIR(x, y, a) {
++        STRV_FOREACH_PAIR(x, y, a)
+                 assert_se(streq(*x, *y));
+-        }
+ }
+ 
+ static void test_strv_from_stdarg_alloca_one(char **l, const char *first, ...) {
+         char **j;
+         unsigned i;
+ 
++        log_info("/* %s */", __func__);
++
+         j = strv_from_stdarg_alloca(first);
+ 
+         for (i = 0;; i++) {
+@@ -583,6 +632,8 @@ static void test_strv_from_stdarg_alloca_one(char **l, const char *first, ...) {
+ }
+ 
+ static void test_strv_from_stdarg_alloca(void) {
++        log_info("/* %s */", __func__);
++
+         test_strv_from_stdarg_alloca_one(STRV_MAKE("foo", "bar"), "foo", "bar", NULL);
+         test_strv_from_stdarg_alloca_one(STRV_MAKE("foo"), "foo", NULL);
+         test_strv_from_stdarg_alloca_one(STRV_MAKE_EMPTY, NULL);
+@@ -591,6 +642,8 @@ static void test_strv_from_stdarg_alloca(void) {
+ static void test_strv_insert(void) {
+         _cleanup_strv_free_ char **a = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         assert_se(strv_insert(&a, 0, strdup("first")) == 0);
+         assert_se(streq(a[0], "first"));
+         assert_se(!a[1]);
+@@ -621,6 +674,8 @@ static void test_strv_insert(void) {
+ static void test_strv_push_prepend(void) {
+         _cleanup_strv_free_ char **a = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         a = strv_new("foo", "bar", "three");
+ 
+         assert_se(strv_push_prepend(&a, strdup("first")) >= 0);
+@@ -643,6 +698,8 @@ static void test_strv_push(void) {
+         _cleanup_strv_free_ char **a = NULL;
+         char *i, *j;
+ 
++        log_info("/* %s */", __func__);
++
+         assert_se(i = strdup("foo"));
+         assert_se(strv_push(&a, i) >= 0);
+ 
+@@ -661,6 +718,8 @@ static void test_strv_equal(void) {
+         _cleanup_strv_free_ char **b = NULL;
+         _cleanup_strv_free_ char **c = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         a = strv_new("one", "two", "three");
+         assert_se(a);
+         b = strv_new("one", "two", "three");
+@@ -680,6 +739,8 @@ static void test_strv_equal(void) {
+ static void test_strv_is_uniq(void) {
+         _cleanup_strv_free_ char **a = NULL, **b = NULL, **c = NULL, **d = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         a = strv_new(NULL);
+         assert_se(a);
+         assert_se(strv_is_uniq(a));
+@@ -700,6 +761,8 @@ static void test_strv_is_uniq(void) {
+ static void test_strv_reverse(void) {
+         _cleanup_strv_free_ char **a = NULL, **b = NULL, **c = NULL, **d = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         a = strv_new(NULL);
+         assert_se(a);
+ 
+@@ -731,6 +794,8 @@ static void test_strv_reverse(void) {
+ static void test_strv_shell_escape(void) {
+         _cleanup_strv_free_ char **v = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         v = strv_new("foo:bar", "bar,baz", "wal\\do");
+         assert_se(v);
+         assert_se(strv_shell_escape(v, ",:"));
+@@ -746,6 +811,8 @@ static void test_strv_skip_one(char **a, size_t n, char **b) {
+ }
+ 
+ static void test_strv_skip(void) {
++        log_info("/* %s */", __func__);
++
+         test_strv_skip_one(STRV_MAKE("foo", "bar", "baz"), 0, STRV_MAKE("foo", "bar", "baz"));
+         test_strv_skip_one(STRV_MAKE("foo", "bar", "baz"), 1, STRV_MAKE("bar", "baz"));
+         test_strv_skip_one(STRV_MAKE("foo", "bar", "baz"), 2, STRV_MAKE("baz"));
+@@ -765,6 +832,8 @@ static void test_strv_skip(void) {
+ static void test_strv_extend_n(void) {
+         _cleanup_strv_free_ char **v = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         v = strv_new("foo", "bar");
+         assert_se(v);
+ 
+@@ -796,6 +865,8 @@ static void test_strv_make_nulstr_one(char **l) {
+         size_t n, m;
+         unsigned i = 0;
+ 
++        log_info("/* %s */", __func__);
++
+         assert_se(strv_make_nulstr(l, &b, &n) >= 0);
+         assert_se(q = strv_parse_nulstr(b, n));
+         assert_se(strv_equal(l, q));
+@@ -810,6 +881,8 @@ static void test_strv_make_nulstr_one(char **l) {
+ }
+ 
+ static void test_strv_make_nulstr(void) {
++        log_info("/* %s */", __func__);
++
+         test_strv_make_nulstr_one(NULL);
+         test_strv_make_nulstr_one(STRV_MAKE(NULL));
+         test_strv_make_nulstr_one(STRV_MAKE("foo"));
+@@ -820,6 +893,8 @@ static void test_strv_make_nulstr(void) {
+ static void test_strv_free_free(void) {
+         char ***t;
+ 
++        log_info("/* %s */", __func__);
++
+         assert_se(t = new(char**, 3));
+         assert_se(t[0] = strv_new("a", "b"));
+         assert_se(t[1] = strv_new("c", "d", "e"));
+@@ -838,6 +913,8 @@ static void test_foreach_string(void) {
+         const char *x;
+         unsigned i = 0;
+ 
++        log_info("/* %s */", __func__);
++
+         FOREACH_STRING(x, "foo", "bar", "waldo")
+                 assert_se(streq_ptr(t[i++], x));
+ 
+@@ -850,6 +927,8 @@ static void test_foreach_string(void) {
+ static void test_strv_fnmatch(void) {
+         _cleanup_strv_free_ char **v = NULL;
+ 
++        log_info("/* %s */", __func__);
++
+         assert_se(!strv_fnmatch(STRV_MAKE_EMPTY, "a", 0));
+ 
+         v = strv_new("*\\*");
+diff --git a/src/test/test-unit-name.c b/src/test/test-unit-name.c
+index fd2443e..7fe732c 100644
+--- a/src/test/test-unit-name.c
++++ b/src/test/test-unit-name.c
+@@ -430,29 +430,31 @@ static void test_unit_name_to_instance(void) {
+         int r;
+ 
+         r = unit_name_to_instance("foo@bar.service", &instance);
+-        assert_se(r >= 0);
++        assert_se(r == UNIT_NAME_INSTANCE);
+         assert_se(streq(instance, "bar"));
+         free(instance);
+ 
+         r = unit_name_to_instance("foo@.service", &instance);
+-        assert_se(r >= 0);
++        assert_se(r == UNIT_NAME_TEMPLATE);
+         assert_se(streq(instance, ""));
+         free(instance);
+ 
+         r = unit_name_to_instance("fo0-stUff_b@b.service", &instance);
+-        assert_se(r >= 0);
++        assert_se(r == UNIT_NAME_INSTANCE);
+         assert_se(streq(instance, "b"));
+         free(instance);
+ 
+         r = unit_name_to_instance("foo.service", &instance);
+-        assert_se(r == 0);
++        assert_se(r == UNIT_NAME_PLAIN);
+         assert_se(!instance);
+ 
+         r = unit_name_to_instance("fooj@unk", &instance);
+         assert_se(r < 0);
++        assert_se(!instance);
+ 
+         r = unit_name_to_instance("foo@", &instance);
+         assert_se(r < 0);
++        assert_se(!instance);
+ }
+ 
+ static void test_unit_name_escape(void) {
+diff --git a/src/tmpfiles/tmpfiles.c b/src/tmpfiles/tmpfiles.c
+index d9d1cc1..4b7c9b9 100644
+--- a/src/tmpfiles/tmpfiles.c
++++ b/src/tmpfiles/tmpfiles.c
+@@ -909,7 +909,7 @@ static int parse_xattrs_from_arg(Item *i) {
+         for (;;) {
+                 _cleanup_free_ char *name = NULL, *value = NULL, *xattr = NULL;
+ 
+-                r = extract_first_word(&p, &xattr, NULL, EXTRACT_QUOTES|EXTRACT_CUNESCAPE);
++                r = extract_first_word(&p, &xattr, NULL, EXTRACT_UNQUOTE|EXTRACT_CUNESCAPE);
+                 if (r < 0)
+                         log_warning_errno(r, "Failed to parse extended attribute '%s', ignoring: %m", p);
+                 if (r <= 0)
+@@ -2488,7 +2488,7 @@ static int parse_line(const char *fname, unsigned line, const char *buffer, bool
+         r = extract_many_words(
+                         &buffer,
+                         NULL,
+-                        EXTRACT_QUOTES,
++                        EXTRACT_UNQUOTE,
+                         &action,
+                         &path,
+                         &mode,
+-- 
+2.17.1
+

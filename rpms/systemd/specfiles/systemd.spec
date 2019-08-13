@@ -27,7 +27,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        242
-Release:        2.fb3
+Release:        2.fb4
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -75,7 +75,10 @@ Patch1004:      1004-bpf-firewall-optimization-for-IPAddressXYZ-any-and-u.patch
 # PR#12346: socket-util: make sure accept_flush() doesn't hang on EOPNOTSUPP
 Patch1005:      12346.patch
 # PR#12979: add SystemCallErrorNumber=EPERM to systemd-portabled.service
-Patch1006:	12979.patch
+Patch1006:    	12979.patch
+Patch1007:      1007-core-ExecCondition-for-services.patch
+Patch1008:      1008-prep-for-unit-loading-rework.patch
+Patch1009:      1009-PR-13119-Rework-unit-loading-to-take-into-account-al.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -725,6 +728,11 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Wed Aug 7 2019 Anita Zhang <anitazha@fb.com> - 242-2.fb4
+- Backport PR#12933 (core: ExecCondition= for services)
+- Backport PR#13096 (Preparatory work for the unit loading rework)
+- Backport PR#13119 (Rework unit loading to take into account all aliases)
+
 * Thu Jul 18 2019 Anita Zhang <anitazha@fb.com> - 242-2.fb3
 - Backport PR#12346 (make sure accept_flush() doesn't hang on EOPNOTSUPP)
 - Backport PR#12979 (add SystemCallErrorNumber=EPERM to systemd-portabled.service)
