@@ -1,0 +1,222 @@
+From 9ecc722cb6ee6768f55a8132a0eda6139977af1a Mon Sep 17 00:00:00 2001
+From: Anita Zhang <the.anitazha@gmail.com>
+Date: Tue, 20 Aug 2019 17:39:38 -0700
+Subject: [PATCH] core: add ExecXYZEx= bus hook ups to all exec command
+ properties
+
+The "Ex" variant was originally only added for ExecStartXYZ= but it makes
+sense to have feature parity for the rest of the exec command properties
+as well (e.g. ExecReload=, ExecStop=, etc).
+---
+ src/core/dbus-service.c                   |  4 ++
+ src/core/service.c                        |  4 ++
+ src/shared/bus-unit-util.c                |  5 ++-
+ src/systemctl/systemctl.c                 |  5 +++
+ test/TEST-40-EXEC-COMMAND-EX/Makefile     |  9 +++++
+ test/TEST-40-EXEC-COMMAND-EX/test.sh      | 43 +++++++++++++++++++++
+ test/TEST-40-EXEC-COMMAND-EX/testsuite.sh | 46 +++++++++++++++++++++++
+ 7 files changed, 114 insertions(+), 2 deletions(-)
+ create mode 100644 test/TEST-40-EXEC-COMMAND-EX/Makefile
+ create mode 100755 test/TEST-40-EXEC-COMMAND-EX/test.sh
+ create mode 100755 test/TEST-40-EXEC-COMMAND-EX/testsuite.sh
+
+diff --git a/src/core/dbus-service.c b/src/core/dbus-service.c
+index ad7471c7292..c401b90aafc 100644
+--- a/src/core/dbus-service.c
++++ b/src/core/dbus-service.c
+@@ -130,6 +130,7 @@ const sd_bus_vtable bus_service_vtable[] = {
+ 
+         BUS_EXEC_STATUS_VTABLE("ExecMain", offsetof(Service, main_exec_status), SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+         BUS_EXEC_COMMAND_LIST_VTABLE("ExecCondition", offsetof(Service, exec_command[SERVICE_EXEC_CONDITION]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
++        BUS_EXEC_EX_COMMAND_LIST_VTABLE("ExecConditionEx", offsetof(Service, exec_command[SERVICE_EXEC_CONDITION]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+         BUS_EXEC_COMMAND_LIST_VTABLE("ExecStartPre", offsetof(Service, exec_command[SERVICE_EXEC_START_PRE]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+         BUS_EXEC_EX_COMMAND_LIST_VTABLE("ExecStartPreEx", offsetof(Service, exec_command[SERVICE_EXEC_START_PRE]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+         BUS_EXEC_COMMAND_LIST_VTABLE("ExecStart", offsetof(Service, exec_command[SERVICE_EXEC_START]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+@@ -137,8 +138,11 @@ const sd_bus_vtable bus_service_vtable[] = {
+         BUS_EXEC_COMMAND_LIST_VTABLE("ExecStartPost", offsetof(Service, exec_command[SERVICE_EXEC_START_POST]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+         BUS_EXEC_EX_COMMAND_LIST_VTABLE("ExecStartPostEx", offsetof(Service, exec_command[SERVICE_EXEC_START_POST]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+         BUS_EXEC_COMMAND_LIST_VTABLE("ExecReload", offsetof(Service, exec_command[SERVICE_EXEC_RELOAD]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
++        BUS_EXEC_EX_COMMAND_LIST_VTABLE("ExecReloadEx", offsetof(Service, exec_command[SERVICE_EXEC_RELOAD]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+         BUS_EXEC_COMMAND_LIST_VTABLE("ExecStop", offsetof(Service, exec_command[SERVICE_EXEC_STOP]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
++        BUS_EXEC_EX_COMMAND_LIST_VTABLE("ExecStopEx", offsetof(Service, exec_command[SERVICE_EXEC_STOP]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+         BUS_EXEC_COMMAND_LIST_VTABLE("ExecStopPost", offsetof(Service, exec_command[SERVICE_EXEC_STOP_POST]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
++        BUS_EXEC_EX_COMMAND_LIST_VTABLE("ExecStopPostEx", offsetof(Service, exec_command[SERVICE_EXEC_STOP_POST]), SD_BUS_VTABLE_PROPERTY_EMITS_INVALIDATION),
+ 
+         /* The following four are obsolete, and thus marked hidden here. They moved into the Unit interface */
+         SD_BUS_PROPERTY("StartLimitInterval", "t", bus_property_get_usec, offsetof(Unit, start_limit.interval), SD_BUS_VTABLE_PROPERTY_CONST|SD_BUS_VTABLE_HIDDEN),
+diff --git a/src/core/service.c b/src/core/service.c
+index 894b8af6616..71befcddc83 100644
+--- a/src/core/service.c
++++ b/src/core/service.c
+@@ -4329,9 +4329,13 @@ static const char* const service_exec_command_table[_SERVICE_EXEC_COMMAND_MAX] =
+ DEFINE_STRING_TABLE_LOOKUP(service_exec_command, ServiceExecCommand);
+ 
+ static const char* const service_exec_ex_command_table[_SERVICE_EXEC_COMMAND_MAX] = {
++        [SERVICE_EXEC_CONDITION] = "ExecConditionEx",
+         [SERVICE_EXEC_START_PRE] = "ExecStartPreEx",
+         [SERVICE_EXEC_START] = "ExecStartEx",
+         [SERVICE_EXEC_START_POST] = "ExecStartPostEx",
++        [SERVICE_EXEC_RELOAD] = "ExecReloadEx",
++        [SERVICE_EXEC_STOP] = "ExecStopEx",
++        [SERVICE_EXEC_STOP_POST] = "ExecStopPostEx",
+ };
+ 
+ DEFINE_STRING_TABLE_LOOKUP(service_exec_ex_command, ServiceExecCommand);
+diff --git a/src/shared/bus-unit-util.c b/src/shared/bus-unit-util.c
+index e53b9d5ea29..612ae84fff4 100644
+--- a/src/shared/bus-unit-util.c
++++ b/src/shared/bus-unit-util.c
+@@ -1434,8 +1434,9 @@ static int bus_append_service_property(sd_bus_message *m, const char *field, con
+ 
+         if (STR_IN_SET(field,
+                        "ExecCondition", "ExecStartPre", "ExecStart", "ExecStartPost",
+-                       "ExecStartPreEx", "ExecStartEx", "ExecStartPostEx",
+-                       "ExecReload", "ExecStop", "ExecStopPost"))
++                       "ExecConditionEx", "ExecStartPreEx", "ExecStartEx", "ExecStartPostEx",
++                       "ExecReload", "ExecStop", "ExecStopPost",
++                       "ExecReloadEx", "ExecStopEx", "ExecStopPostEx"))
+                 return bus_append_exec_command(m, field, eq);
+ 
+         if (STR_IN_SET(field, "RestartPreventExitStatus", "RestartForceExitStatus", "SuccessExitStatus")) {
+diff --git a/src/systemctl/systemctl.c b/src/systemctl/systemctl.c
+index dcf76bed7c0..7917cbe39f5 100644
+--- a/src/systemctl/systemctl.c
++++ b/src/systemctl/systemctl.c
+@@ -5534,6 +5534,8 @@ static int show_one(
+                 { "IPEgressBytes",                  "t",               NULL,           offsetof(UnitStatusInfo, ip_egress_bytes)                   },
+                 { "IOReadBytes",                    "t",               NULL,           offsetof(UnitStatusInfo, io_read_bytes)                     },
+                 { "IOWriteBytes",                   "t",               NULL,           offsetof(UnitStatusInfo, io_write_bytes)                    },
++                { "ExecCondition",                  "a(sasbttttuii)",  map_exec,       0                                                           },
++                { "ExecConditionEx",                "a(sasasttttuii)", map_exec,       0                                                           },
+                 { "ExecStartPre",                   "a(sasbttttuii)",  map_exec,       0                                                           },
+                 { "ExecStartPreEx",                 "a(sasasttttuii)", map_exec,       0                                                           },
+                 { "ExecStart",                      "a(sasbttttuii)",  map_exec,       0                                                           },
+@@ -5541,9 +5543,12 @@ static int show_one(
+                 { "ExecStartPost",                  "a(sasbttttuii)",  map_exec,       0                                                           },
+                 { "ExecStartPostEx",                "a(sasasttttuii)", map_exec,       0                                                           },
+                 { "ExecReload",                     "a(sasbttttuii)",  map_exec,       0                                                           },
++                { "ExecReloadEx",                   "a(sasasttttuii)", map_exec,       0                                                           },
+                 { "ExecStopPre",                    "a(sasbttttuii)",  map_exec,       0                                                           },
+                 { "ExecStop",                       "a(sasbttttuii)",  map_exec,       0                                                           },
++                { "ExecStopEx",                     "a(sasasttttuii)", map_exec,       0                                                           },
+                 { "ExecStopPost",                   "a(sasbttttuii)",  map_exec,       0                                                           },
++                { "ExecStopPostEx",                 "a(sasasttttuii)", map_exec,       0                                                           },
+                 {}
+         };
+ 
+diff --git a/test/TEST-40-EXEC-COMMAND-EX/Makefile b/test/TEST-40-EXEC-COMMAND-EX/Makefile
+new file mode 100644
+index 00000000000..45e9bfc67cd
+--- /dev/null
++++ b/test/TEST-40-EXEC-COMMAND-EX/Makefile
+@@ -0,0 +1,9 @@
++BUILD_DIR=$(shell ../../tools/find-build-dir.sh)
++
++all setup run:
++	@basedir=../.. TEST_BASE_DIR=../ BUILD_DIR=$(BUILD_DIR) ./test.sh --$@
++
++clean clean-again:
++	@basedir=../.. TEST_BASE_DIR=../ BUILD_DIR=$(BUILD_DIR) ./test.sh --clean
++
++.PHONY: all setup run clean clean-again
+diff --git a/test/TEST-40-EXEC-COMMAND-EX/test.sh b/test/TEST-40-EXEC-COMMAND-EX/test.sh
+new file mode 100755
+index 00000000000..723c9ccd4b1
+--- /dev/null
++++ b/test/TEST-40-EXEC-COMMAND-EX/test.sh
+@@ -0,0 +1,43 @@
++#!/bin/bash
++set -e
++TEST_DESCRIPTION="test ExecXYZEx= service unit dbus hookups"
++
++. $TEST_BASE_DIR/test-functions
++
++test_setup() {
++    create_empty_image_rootdir
++
++    (
++        LOG_LEVEL=5
++        eval $(udevadm info --export --query=env --name=${LOOPDEV}p2)
++
++        setup_basic_environment
++
++        # mask some services that we do not want to run in these tests
++        ln -fs /dev/null $initdir/etc/systemd/system/systemd-hwdb-update.service
++        ln -fs /dev/null $initdir/etc/systemd/system/systemd-journal-catalog-update.service
++        ln -fs /dev/null $initdir/etc/systemd/system/systemd-networkd.service
++        ln -fs /dev/null $initdir/etc/systemd/system/systemd-networkd.socket
++        ln -fs /dev/null $initdir/etc/systemd/system/systemd-resolved.service
++        ln -fs /dev/null $initdir/etc/systemd/system/systemd-machined.service
++
++        # setup the testsuite service
++        cat >$initdir/etc/systemd/system/testsuite.service <<EOF
++[Unit]
++Description=Testsuite service
++
++[Service]
++ExecStart=/testsuite.sh
++Type=oneshot
++StandardOutput=tty
++StandardError=tty
++NotifyAccess=all
++EOF
++        cp testsuite.sh $initdir/
++
++        setup_testsuite
++    )
++    setup_nspawn_root
++}
++
++do_test "$@"
+diff --git a/test/TEST-40-EXEC-COMMAND-EX/testsuite.sh b/test/TEST-40-EXEC-COMMAND-EX/testsuite.sh
+new file mode 100755
+index 00000000000..e0580ae75a3
+--- /dev/null
++++ b/test/TEST-40-EXEC-COMMAND-EX/testsuite.sh
+@@ -0,0 +1,46 @@
++#!/bin/bash
++set -ex
++set -o pipefail
++
++systemd-analyze log-level debug
++systemd-analyze log-target console
++
++declare -A property
++
++property[1_one]=ExecCondition
++property[2_two]=ExecStartPre
++property[3_three]=ExecStart
++property[4_four]=ExecStartPost
++property[5_five]=ExecReload
++property[6_six]=ExecStop
++property[7_seven]=ExecStopPost
++
++# These should all get upgraded to the corresponding Ex property as the non-Ex variant
++# does not support the ":" prefix (no-env-expand).
++for c in "${!property[@]}"; do
++    systemd-run --unit="$c" -r -p "Type=oneshot" -p "${property[$c]}=:/bin/echo \${$c}" /bin/true
++    systemctl show -p "${property[$c]}" "$c" | grep -F "path=/bin/echo ; argv[]=/bin/echo \${$c} ; ignore_errors=no"
++    systemctl show -p "${property[$c]}Ex" "$c" | grep -F "path=/bin/echo ; argv[]=/bin/echo \${$c} ; flags=no-env-expand"
++done
++
++declare -A property_ex
++
++property_ex[1_one_ex]=ExecConditionEx
++property_ex[2_two_ex]=ExecStartPreEx
++property_ex[3_three_ex]=ExecStartEx
++property_ex[4_four_ex]=ExecStartPostEx
++property_ex[5_five_ex]=ExecReloadEx
++property_ex[6_six_ex]=ExecStopEx
++property_ex[7_seven_ex]=ExecStopPostEx
++
++for c in "${!property_ex[@]}"; do
++    systemd-run --unit="$c" -r -p "Type=oneshot" -p "${property_ex[$c]}=:/bin/echo \${$c}" /bin/true
++    systemctl show -p "${property_ex[$c]%??}" "$c" | grep -F "path=/bin/echo ; argv[]=/bin/echo \${$c} ; ignore_errors=no"
++    systemctl show -p "${property_ex[$c]}" "$c" | grep -F "path=/bin/echo ; argv[]=/bin/echo \${$c} ; flags=no-env-expand"
++done
++
++systemd-analyze log-level info
++
++echo OK > /testok
++
++exit 0

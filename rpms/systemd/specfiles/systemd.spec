@@ -9,10 +9,10 @@
 
 %define _python_bytecompile_errors_terminate_build 0
 
-#global commit f02b5472c6f0c41e5dc8dc2c84590866baf937ff
+%global commit fab6f010ac6c3bc93a10868de722d7c8c3622eb9
 %{?commit:%global shortcommit %(c=%{commit}; echo ${c:0:7})}
 
-#global stable 1
+%global stable 1
 
 # We ship a .pc file but don't want to have a dep on pkg-config. We
 # strip the automatically generated dep here and instead co-own the
@@ -26,8 +26,8 @@
 
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
-Version:        242
-Release:        2.fb4
+Version:        243
+Release:        2.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -63,22 +63,11 @@ GIT_DIR=../../src/systemd/.git git diffab -M v233..master@{2017-06-15} -- hwdb/[
 %endif
 
 Patch0002:      0002-Revert-units-set-NoNewPrivileges-for-all-long-runnin.patch
-Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
-
 Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
-# PR#12336: support DisableControllers= for transient units
-Patch1001:      12336.patch
-Patch1002:      1002-core-add-ExecStartXYZEx-with-dbus-support-for-execut.patch
-# PR#12729: nspawn: don't hard fail when setting capabilities
-Patch1003:      12729.patch
-Patch1004:      1004-bpf-firewall-optimization-for-IPAddressXYZ-any-and-u.patch
-# PR#12346: socket-util: make sure accept_flush() doesn't hang on EOPNOTSUPP
-Patch1005:      12346.patch
-# PR#12979: add SystemCallErrorNumber=EPERM to systemd-portabled.service
-Patch1006:    	12979.patch
-Patch1007:      1007-core-ExecCondition-for-services.patch
-Patch1008:      1008-prep-for-unit-loading-rework.patch
-Patch1009:      1009-PR-13119-Rework-unit-loading-to-take-into-account-al.patch
+Patch1001:      FB-disable-udev-test.patch
+# PR#13369: core: add ExecXYZEx= bus hook ups to all exec command properties
+Patch1002:      13369.patch
+Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -163,6 +152,8 @@ Provides:       systemd-sysv = 206
 %if 0%{?fedora}
 Conflicts:      fedora-release < 23-0.12
 %endif
+Obsoletes:      timedatex < 0.6-3
+Provides:       timedatex = 0.6-3
 
 %description
 systemd is a system and service manager that runs as PID 1 and starts
@@ -178,6 +169,10 @@ date, locale, maintain a list of logged-in users, system accounts,
 runtime directories and settings, and daemons to manage simple network
 configuration, network time synchronization, log forwarding, and name
 resolution.
+%if 0%{?stable}
+This package was built from the %{version}-stable branch of systemd,
+commit https://github.com/systemd/systemd-stable/commit/%{shortcommit}.
+%endif
 
 %package libs
 Summary:        systemd libraries
@@ -384,11 +379,6 @@ chmod 600 %{buildroot}/etc/crypttab
 
 # /etc/sysctl.conf compat
 ln -s ../sysctl.conf %{buildroot}/etc/sysctl.d/99-sysctl.conf
-
-# We create all wants links manually at installation time to make sure
-# they are not owned and hence overriden by rpm after the user deleted
-# them.
-rm -r %{buildroot}%{_sysconfdir}/systemd/system/*.target.wants
 
 # Make sure these directories are properly owned
 mkdir -p %{buildroot}%{system_unit_dir}/basic.target.wants
@@ -728,19 +718,83 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Fri Sep 27 2019 Davide Cavalca <dcavalca@fb.com> - 243-2.fb1
+- Facebook rebuild
+- drop "use bfq as the default scheduler" patch
+- backport PR#13369 (ExecXYZEx= bus hook ups)
+- disable udev-test.pl for now due to flakiness
+
+* Sat Sep 21 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 243-2.gitfab6f01
+- Backport a bunch of patches (memory access issues, improvements to error
+  reporting and handling in networkd, some misleading man page contents #1751363)
+- Fix permissions on static nodes (#1740664)
+- Make systemd-networks follow the RFC for DHPCv6 and radv timeouts
+- Fix one crash in systemd-resolved (#1703598)
+- Make journal catalog creation reproducible (avoid unordered hashmap use)
+- Mark the accelerometer in HP laptops as part of the laptop base
+- Fix relabeling of directories with relabel-extra.d/
+- Fix potential stuck noop jobs in pid1
+- Obsolete timedatex package (#1735584)
+
+* Tue Sep  3 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 243-1
+- Update to latest release
+- Emission of Session property-changed notifications from logind is fixed
+  (this was breaking the switching of sessions to and from gnome).
+- Security issue: unprivileged users were allowed to change DNS
+  servers configured in systemd-resolved. Now proper polkit authorization
+  is required.
+
+* Mon Aug 26 2019 Adam Williamson <awilliam@redhat.com> - 243~rc2-2
+- Backport PR #13406 to solve PATH ordering issue (#1744059)
+
+* Thu Aug 22 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 243~rc2-1
+- Update to latest pre-release. Fixes #1740113, #1717712.
+- The default scheduler for disks is set to BFQ (1738828)
+- The default cgroup hierarchy is set to unified (cgroups v2) (#1732114).
+  Use systemd.unified-cgroup-hierachy=0 on the kernel command line to revert.
+  See https://fedoraproject.org/wiki/Changes/CGroupsV2.
+
+* Wed Aug 07 2019 Adam Williamson <awilliam@redhat.com> - 243~rc1-2
+- Backport PR #1737362 so we own /etc/systemd/system again (#1737362)
+
 * Wed Aug 7 2019 Anita Zhang <anitazha@fb.com> - 242-2.fb4
 - Backport PR#12933 (core: ExecCondition= for services)
 - Backport PR#13096 (Preparatory work for the unit loading rework)
 - Backport PR#13119 (Rework unit loading to take into account all aliases)
 
+* Tue Jul 30 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 243~rc1-1
+- Update to latest version (#1715699, #1696373, #1711065, #1718192)
+
+* Sat Jul 27 2019 Fedora Release Engineering <releng@fedoraproject.org>
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_31_Mass_Rebuild
+
+* Sat Jul 20 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 242-6.git9d34e79
+- Ignore bad rdrand output on AMD CPUs (#1729268)
+- A bunch of backported patches from upstream: documentation, memory
+  access fixups, command output tweaks (#1708996)
+
 * Thu Jul 18 2019 Anita Zhang <anitazha@fb.com> - 242-2.fb3
 - Backport PR#12346 (make sure accept_flush() doesn't hang on EOPNOTSUPP)
 - Backport PR#12979 (add SystemCallErrorNumber=EPERM to systemd-portabled.service)
+
+* Tue Jun 25 2019 Björn Esser <besser82@fedoraproject.org>- 242-5.git7a6d834
+- Rebuilt (libqrencode.so.4)
+
+* Tue Jun 25 2019 Miro Hrončok <mhroncok@redhat.com>- 242-4.git7a6d834
+- Rebuilt for iptables update (libip4tc.so.2)
 
 * Thu Jun 20 2019 Anita Zhang <anitazha@fb.com> - 242-2.fb2
 - Backport PR#11778 (ExecStartXYZEx= dbus support)
 - Backport PR#12729 (nspawn: don't hard fail when setting capabilities)
 - Backport PR#12745 (IPAddressXYZ="any" for users with CAP_NET_ADMIN)
+
+* Fri Apr 26 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 242-3.git7a6d834
+- Add symbol to mark vtable format changes (anything using sd_add_object_vtable
+  or sd_add_fallback_vtable needs to be rebuilt)
+- Fix wireguard ListenPort handling in systemd-networkd
+- Fix hang in flush_accept (#1702358)
+- Fix handling of RUN keys in udevd
+- Some documentation and shell completion updates and minor fixes
 
 * Thu Apr 25 2019 Davide Cavalca <dcavalca@fb.com> - 242-2.fb1
 - Facebook rebuild
