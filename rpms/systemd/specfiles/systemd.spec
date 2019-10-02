@@ -27,7 +27,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        243
-Release:        2.fb1
+Release:        2.fb2
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -67,6 +67,8 @@ Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.p
 Patch1001:      FB-disable-udev-test.patch
 # PR#13369: core: add ExecXYZEx= bus hook ups to all exec command properties
 Patch1002:      13369.patch
+# PR#13689: cgroup: A bunch of protection-related fixes
+Patch1003:      13689.patch
 Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
 
 %ifarch %{ix86} x86_64 aarch64
@@ -718,6 +720,9 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Wed Oct  2 2019 Davide Cavalca <dcavalca@fb.com> - 243-2.fb2
+- Backport PR#13689 (a bunch of protection-related fixes)
+
 * Fri Sep 27 2019 Davide Cavalca <dcavalca@fb.com> - 243-2.fb1
 - Facebook rebuild
 - drop "use bfq as the default scheduler" patch
