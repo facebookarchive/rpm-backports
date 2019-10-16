@@ -1,52 +1,38 @@
-%if 0%{?rhel}
-# Meson settings
-%global _vpath_srcdir .
-%global _vpath_builddir %{_target_platform}
-%global __global_cflags  %{optflags}
-%global __global_cxxflags  %{optflags}
-%global __global_fflags  %{optflags} -I%_fmoddir
-%global __global_fcflags %{optflags} -I%_fmoddir
-%global __global_ldflags -Wl,-z,relro %{_hardened_ldflags}
-%endif
+%global dbus_user_id 81
 
-Name:           dbus-broker
-Version:        16
-Release:        1.fb1%{?dist}
-Summary:        Linux D-Bus Message Broker
-License:        ASL 2.0
-URL:            https://github.com/bus1/dbus-broker
-Source0:        https://github.com/bus1/dbus-broker/releases/download/v%{version}/dbus-broker-%{version}.tar.xz
-Provides:       bundled(c-dvar) = 1
-Provides:       bundled(c-list) = 3
-Provides:       bundled(c-rbtree) = 3
+Name:                 dbus-broker
+Version:              21
+Release:              6%{?dist}
+Summary:              Linux D-Bus Message Broker
+License:              ASL 2.0
+URL:                  https://github.com/bus1/dbus-broker
+Source0:              https://github.com/bus1/dbus-broker/releases/download/v%{version}/dbus-broker-%{version}.tar.xz
+Patch0:               0001-units-system-add-messagebus-alias.patch
+Patch1:               0001-launch-improve-error-handling-for-opendir.patch
+Patch2:               0001-metrics-change-the-constant-used-for-invalid-timesta.patch
+Patch3:               0001-dbus-socket-treat-MSG_CTRUNC-gracefully.patch
+Provides:             bundled(c-dvar) = 1
+Provides:             bundled(c-ini) = 1
+Provides:             bundled(c-list) = 3
+Provides:             bundled(c-rbtree) = 3
+Provides:             bundled(c-shquote) = 1
 %{?systemd_requires}
-BuildRequires:  pkgconfig(audit)
-BuildRequires:  pkgconfig(expat)
-BuildRequires:  pkgconfig(dbus-1)
-BuildRequires:  pkgconfig(glib-2.0)
-BuildRequires:  pkgconfig(libcap-ng)
-BuildRequires:  pkgconfig(libselinux)
-BuildRequires:  pkgconfig(libsystemd)
-BuildRequires:  pkgconfig(systemd)
-%if 0%{?rhel}
-# for stdatomic.h (gcc 4.9) and __builtin_umulll_overflow (gcc 5)
-BuildRequires:  devtoolset-4-gcc
-%else
-BuildRequires:  gcc
-%endif
-BuildRequires:  glibc-devel
-BuildRequires:  meson
-%if 0%{?rhel}
-# for rst2man
-BuildRequires:  python-docutils
-%else
-BuildRequires:  python3-docutils
-%endif
-%if 0%{?rhel}
-Requires:       dbus
-%else
-Requires:       dbus-common
-%endif
+BuildRequires:        pkgconfig(audit)
+BuildRequires:        pkgconfig(expat)
+BuildRequires:        pkgconfig(dbus-1)
+BuildRequires:        pkgconfig(libcap-ng)
+BuildRequires:        pkgconfig(libselinux)
+BuildRequires:        pkgconfig(libsystemd)
+BuildRequires:        pkgconfig(systemd)
+BuildRequires:        gcc
+BuildRequires:        glibc-devel
+BuildRequires:        meson
+BuildRequires:        python3-docutils
+Requires:             dbus-common
+Requires(pre):        shadow-utils
+Requires(post):       /usr/bin/systemctl
+# for triggerpostun
+Requires:             /usr/bin/systemctl
 
 %description
 dbus-broker is an implementation of a message bus as defined by the D-Bus
@@ -59,11 +45,6 @@ recent Linux kernel releases.
 %autosetup -p1
 
 %build
-%if 0%{?rhel}
-export PATH="/opt/rh/devtoolset-4/root/usr/bin:$PATH"
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
-%endif
 %meson -Dselinux=true -Daudit=true -Ddocs=true -Dsystem-console-users=gdm
 %meson_build
 
@@ -73,9 +54,66 @@ export LC_ALL=en_US.UTF-8
 %check
 %meson_test
 
+%pre
+# create dbus user and group
+getent group dbus >/dev/null || groupadd -f -g %{dbus_user_id} -r dbus
+if ! getent passwd dbus >/dev/null ; then
+    if ! getent passwd %{dbus_user_id} >/dev/null ; then
+      useradd -r -u %{dbus_user_id} -g %{dbus_user_id} -d '/' -s /sbin/nologin -c "System message bus" dbus
+    else
+      useradd -r -g %{dbus_user_id} -d '/' -s /sbin/nologin -c "System message bus" dbus
+    fi
+fi
+exit 0
+
 %post
-%systemd_post dbus-broker.service
-%systemd_user_post dbus-broker.service
+# Since F30 dbus-broker is the default bus implementation. However, changing
+# the systemd presets does not automatically switch over. Instead, we have to
+# explicitly disable dbus-daemon and enable dbus-broker. We do this on the first
+# install of this package.
+#
+# Note that there is a virtual circular dependency between this package and the
+# fedora presets (in 'fedora-release'). To break this, we explicitly enable
+# dbus-broker here. Once the presets are in, we will be able to drop the
+# explicit 'enable' calls and rely on the presets below.
+#systemd_post dbus-broker.service
+#systemd_user_post dbus-broker.service
+#
+# systemd has special checks if dbus.socket and dbus.service are active and
+# will close the dbus connection if they are not. When the symlinks are changed
+# from dbus-daemon to dbus-broker, systemd would think that dbus is gone,
+# because dbus.service (which now is an alias for dbus-broker.service) is not
+# active. Let's add a temporary override that will keep pid1 happy.
+
+if [ $1 -eq 1 ] ; then
+        if systemctl is-enabled -q dbus-daemon.service; then
+                # Install a temporary generator that'll keep providing the
+                # alias as it was.
+                mkdir -p /run/systemd/system-generators/
+                cat >>/run/systemd/system-generators/dbus-symlink-generator <<EOF
+#!/bin/sh
+ln -s /usr/lib/systemd/system/dbus-daemon.service \$2/dbus.service
+EOF
+                chmod +x /run/systemd/system-generators/dbus-symlink-generator
+                chcon system_u:object_r:init_exec_t:s0 /run/systemd/system-generators/dbus-symlink-generator || :
+        fi
+
+        if systemctl is-enabled -q --global dbus-daemon.service; then
+                mkdir -p /run/systemd/user-generators/
+                cat >>/run/systemd/user-generators/dbus-symlink-generator <<EOF
+#!/bin/sh
+ln -s /usr/lib/systemd/user/dbus-daemon.service \$2/dbus.service
+EOF
+                chmod +x /run/systemd/user-generators/dbus-symlink-generator
+        fi
+
+        systemctl --no-reload -q          disable dbus-daemon.service || :
+        systemctl --no-reload -q --global disable dbus-daemon.service || :
+        systemctl --no-reload -q          enable dbus-broker.service || :
+        systemctl --no-reload -q --global enable dbus-broker.service || :
+fi
+
+%journal_catalog_update
 
 %preun
 %systemd_preun dbus-broker.service
@@ -85,22 +123,106 @@ export LC_ALL=en_US.UTF-8
 %systemd_postun dbus-broker.service
 %systemd_user_postun dbus-broker.service
 
+%triggerpostun -- dbus-daemon
+if [ $2 -eq 0 ] ; then
+        # See above comment about presets.
+        #systemctl --no-reload preset dbus-broker.service || :
+        #systemctl --no-reload --global preset dbus-broker.service || :
+        systemctl --no-reload          enable dbus-broker.service || :
+        systemctl --no-reload --global enable dbus-broker.service || :
+fi
+
 %files
 %license AUTHORS
 %license LICENSE
 %{_bindir}/dbus-broker
 %{_bindir}/dbus-broker-launch
+%{_journalcatalogdir}/dbus-broker.catalog
+%{_journalcatalogdir}/dbus-broker-launch.catalog
 %{_mandir}/man1/dbus-broker.1*
 %{_mandir}/man1/dbus-broker-launch.1*
 %{_unitdir}/dbus-broker.service
 %{_userunitdir}/dbus-broker.service
 
 %changelog
-* Wed Oct 03 2018 Davide Cavalca <dcavalca@fb.com> - 16-1.fb1
-- Facebook release
-- Update to upstream v16 release
-- Use gcc from devtoolset-4 to build on CentOS
-- Depend on dbus instead of dbus-common on CentOS
+* Wed Jul 24 2019 Fedora Release Engineering <releng@fedoraproject.org> - 21-6
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_31_Mass_Rebuild
+
+* Sun Jul 14 2019 Neal Gompa <ngompa13@gmail.com> - 21-5
+- Fix reference to dbus_user_id macro in scriptlet
+
+* Wed Jul 10 2019 Jonathan Brielmaier <jbrielmaier@suse.de> - 21-4
+- Make creation of dbus user/group more robust, fixes #1717925
+
+* Thu May  9 2019 Tom Gundersen <teg@jklm.no> - 21-2
+- Gracefully handle missing FDs in received messages, #1706883
+- Minor bugfixes
+
+* Fri May  3 2019 Tom Gundersen <teg@jklm.no> - 21-1
+- Don't fail on EACCESS when reading config, fixes #1704920
+
+* Thu May  2 2019 Tom Gundersen <teg@jklm.no> - 21-1
+- Minor bugfixes related to config reload for #1704488
+
+* Wed Apr 17 2019 Tom Gundersen <teg@jklm.no> - 20-4
+- Fix assert due to failing reload #1700514
+
+* Tue Apr 16 2019 Adam Williamson <awilliam@redhat.com> - 20-3
+- Rebuild with Meson fix for #1699099
+
+* Thu Apr 11 2019 Tom Gundersen <teg@jklm.no> - 20-2
+- Fix the c_assert macro
+
+* Wed Apr 10 2019 Tom Gundersen <teg@jklm.no> - 20-1
+- Improve handling of broken or deprecated configuration
+- Avoid at_console workaround if possible
+
+* Tue Apr  9 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 19-2
+- Add a temporary generator to fix switching from dbus-daemon to
+  dbus-broker (#1674045)
+
+* Thu Mar 28 2019 Tom Gundersen <teg@jklm.no> - 19-1
+- Minor bug fixes
+
+* Thu Feb 21 2019 Tom Gundersen <teg@jklm.no> - 18-1
+- Minor bug fixes
+
+* Thu Jan 31 2019 Fedora Release Engineering <releng@fedoraproject.org> - 17-4
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_30_Mass_Rebuild
+
+* Mon Jan 14 2019 Tom Gundersen <teg@jklm.no> - 17-3
+- run in the root network namespace
+
+* Sat Jan 12 2019 Tom Gundersen <teg@jklm.no> - 17-2
+- ignore config files that cannot be opened (fix rhbz #1665450)
+
+* Wed Jan 2 2019 Tom Gundersen <teg@jklm.no> - 17-1
+- apply more sandboxing through systemd
+- improve logging on disconnect
+- don't send FDs to clients who don't declare support
+
+* Wed Nov 28 2018 Tom Gundersen <teg@jklm.no> - 16-8
+- don't apply presets on updates to dbus-daemon
+
+* Mon Nov 26 2018 Tom Gundersen <teg@jklm.no> - 16-7
+- enable service file correctly at install
+
+* Mon Nov 26 2018 Tom Gundersen <teg@jklm.no> - 16-5
+- use full paths when calling binaries from rpm scripts
+
+* Sun Nov 25 2018 Tom Gundersen <teg@jklm.no> - 16-4
+- fix SELinux bug
+
+* Tue Oct 30 2018 Tom Gundersen <teg@jklm.no> - 16-3
+- add explicit systemctl dependency
+
+* Tue Oct 23 2018 David Herrmann <dh.herrmann@gmail.com> - 16-2
+- create dbus user and group if non-existant
+- add explicit %%postlets to switch over to the broker as default
+
+* Fri Oct 12 2018 Tom Gundersen <teg@jklm.no> - 16-1
+- make resource limits configurable
+- rerun presets in case dbus-daemon is disabled
 
 * Thu Aug 30 2018 Tom Gundersen <teg@jklm.no> - 15-4
 - depend on dbus-common rather than dbus
@@ -144,8 +266,8 @@ export LC_ALL=en_US.UTF-8
 - Respect User= in service files
 
 * Tue Oct 17 2017 Tom Gundersen <teg@jklm.no> - 8-1
-- Don't clean-up children of activated services by default
-- Don't use audit from the user instance
+- Dont clean-up children of activated services by default
+- Dont use audit from the user instance
 - Support the ReloadConfig() API
 
 * Tue Oct 17 2017 Tom Gundersen <teg@jklm.no> - 7-1

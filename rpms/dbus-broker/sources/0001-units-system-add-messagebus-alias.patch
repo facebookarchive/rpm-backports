@@ -1,0 +1,28 @@
+From b7155364aa8df83534cbe5795f5959cb32030be1 Mon Sep 17 00:00:00 2001
+From: Tom Gundersen <teg@jklm.no>
+Date: Tue, 20 Nov 2018 17:09:44 +0100
+Subject: [PATCH] units/system: add `messagebus` alias
+
+This makes sure we are pulled in by services that depend on the old
+sysvinit name for dbus.
+
+Signed-off-by: Tom Gundersen <teg@jklm.no>
+---
+ src/units/system/dbus-broker.service.in | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/units/system/dbus-broker.service.in b/src/units/system/dbus-broker.service.in
+index 97f1655..ed28e66 100644
+--- a/src/units/system/dbus-broker.service.in
++++ b/src/units/system/dbus-broker.service.in
+@@ -19,4 +19,6 @@ ExecStart=@bindir@/dbus-broker-launch --scope system --audit
+ ExecReload=@bindir@/busctl call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig
+ 
+ [Install]
+-Alias=dbus.service
++# Make sure that services can still refer to this under the name of the
++# old SysV script (messagebus).
++Alias=dbus.service messagebus.service
+-- 
+2.20.1
+
