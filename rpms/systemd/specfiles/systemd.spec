@@ -27,7 +27,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        243
-Release:        2.fb2
+Release:        2.fb3
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -69,6 +69,8 @@ Patch1001:      FB-disable-udev-test.patch
 Patch1002:      13369.patch
 # PR#13689: cgroup: A bunch of protection-related fixes
 Patch1003:      13689.patch
+# PR#13754: Allow restart for oneshot units
+Patch1004:      13754.patch
 Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
 
 %ifarch %{ix86} x86_64 aarch64
@@ -110,9 +112,16 @@ BuildRequires:  gperf
 BuildRequires:  gawk
 BuildRequires:  tree
 BuildRequires:  hostname
+%if 0%{?el7}
 BuildRequires:  python34-devel
 BuildRequires:  python34-lxml
 BuildRequires:  python36
+%global __python3 python36
+%else
+BuildRequires:  python3-devel
+BuildRequires:  python3-lxml
+BuildRequires:  python3
+%endif
 BuildRequires:  pcre2-devel
 %if 0%{?have_gnu_efi}
 BuildRequires:  gnu-efi gnu-efi-devel
@@ -352,11 +361,16 @@ CONFIGURE_OPTS=(
 )
 
 %if 0%{?facebook}
+%if 0%{?el7}
+%global _hierarchy legacy
+%else
+%global _hierarchy unified
+%endif
 CONFIGURE_OPTS+=(
         -Dntp-servers='1.ntp.vip.facebook.com 2.ntp.vip.facebook.com 3.ntp.vip.facebook.com 4.ntp.vip.facebook.com'
         -Ddns-servers='10.127.255.51 10.191.255.51 2401:db00:eef0:a53:: 2401:db00:eef0:b53::'
         -Dsupport-url='https://www.facebook.com/groups/prodos.users/'
-        -Ddefault-hierarchy=legacy
+        -Ddefault-hierarchy=%{_hierarchy}
         -Dcontainer-uid-base-min=10485760
 )
 %endif
@@ -454,14 +468,16 @@ install -Dm0755 -t %{buildroot}%{_prefix}/lib/kernel/install.d/ %{SOURCE11}
 
 install -D -t %{buildroot}/usr/lib/systemd/ %{SOURCE3}
 
+%if 0%{?el7}
 sed -i 's|#!/usr/bin/env python3|#!/usr/bin/env python36|' %{buildroot}/usr/lib/systemd/tests/run-unit-tests.py
+%endif
 
 %find_lang %{name}
 
 # Split files in build root into rpms. See split-files.py for the
 # rules towards the end, anything which is an exception needs a line
 # here.
-python36 %{SOURCE2} %buildroot <<EOF
+%{__python3} %{SOURCE2} %buildroot <<EOF
 %ghost %config(noreplace) /etc/crypttab
 %ghost /etc/udev/hwdb.bin
 /etc/inittab
@@ -720,6 +736,11 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Thu Oct 31 2019 Davide Cavalca <dcavalca@fb.com> - 243-2.fb3
+- Backport PR#13754 (allow restart for oneshot units)
+- Misc specfiles fixes to support building on el8 as well
+- Default el8 builds to the unified hierarchy
+
 * Wed Oct  2 2019 Davide Cavalca <dcavalca@fb.com> - 243-2.fb2
 - Backport PR#13689 (a bunch of protection-related fixes)
 
