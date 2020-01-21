@@ -3,10 +3,7 @@ From: =?UTF-8?q?Zbigniew=20J=C4=99drzejewski-Szmek?= <zbyszek@in.waw.pl>
 Date: Fri, 11 Mar 2016 17:06:17 -0500
 Subject: [PATCH] resolved: create /etc/resolv.conf symlink at runtime
 
-If the symlink doesn't exists, and we are being started, let's
-create it to provie name resolution.
-
-If it exists, do nothing. In particular, if it is a broken symlink,
+If the symlink exists, do nothing. In particular, if it is a broken symlink,
 we cannot really know if the administator configured it to point to
 a location used by some service that hasn't started yet, so we
 don't touch it in that case either.
@@ -17,21 +14,6 @@ https://bugzilla.redhat.com/show_bug.cgi?id=1313085
  tmpfiles.d/etc.conf.m4 | 3 ---
  2 files changed, 4 insertions(+), 3 deletions(-)
 
-diff --git a/src/resolve/resolved.c b/src/resolve/resolved.c
-index 2ca9fbdc72..3c8a9ff12a 100644
---- a/src/resolve/resolved.c
-+++ b/src/resolve/resolved.c
-@@ -49,6 +49,10 @@ static int run(int argc, char *argv[]) {
-         /* Drop privileges, but only if we have been started as root. If we are not running as root we assume most
-          * privileges are already dropped. */
-         if (getuid() == 0) {
-+                r = symlink("../run/systemd/resolve/resolv.conf", "/etc/resolv.conf");
-+                if (r < 0 && errno != EEXIST)
-+                        log_warning_errno(errno,
-+                                          "Could not create /etc/resolv.conf symlink: %m");
- 
-                 /* Drop privileges, but keep three caps. Note that we drop those too, later on (see below) */
-                 r = drop_privileges(uid, gid,
 diff --git a/tmpfiles.d/etc.conf.m4 b/tmpfiles.d/etc.conf.m4
 index f82e0b82ce..66a777bdb2 100644
 --- a/tmpfiles.d/etc.conf.m4

@@ -9,7 +9,7 @@
 
 %define _python_bytecompile_errors_terminate_build 0
 
-%global commit fab6f010ac6c3bc93a10868de722d7c8c3622eb9
+%global commit 639dc9f4bfd2c09535bee079ae9bc7006b520a66
 %{?commit:%global shortcommit %(c=%{commit}; echo ${c:0:7})}
 
 %global stable 1
@@ -21,13 +21,12 @@
 
 %global pkgdir %{_prefix}/lib/systemd
 %global system_unit_dir %{pkgdir}/system
-
 %global user_unit_dir %{pkgdir}/user
 
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
-Version:        243
-Release:        2.fb3
+Version:        244
+Release:        2.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -38,7 +37,11 @@ Summary:        System and Service Manager
 %if %{defined commit}
 Source0:        https://github.com/systemd/systemd%{?stable:-stable}/archive/%{commit}/%{name}-%{shortcommit}.tar.gz
 %else
+%if 0%{?stable}
+Source0:        https://github.com/systemd/systemd-stable/archive/v%{github_version}/%{name}-%{github_version}.tar.gz
+%else
 Source0:        https://github.com/systemd/systemd/archive/v%{github_version}/%{name}-%{github_version}.tar.gz
+%endif
 %endif
 # This file must be available before %%prep.
 # It is generated during systemd build and can be found in build/src/core/.
@@ -62,16 +65,12 @@ i=1; for j in 00*patch; do printf "Patch%04d:      %s\n" $i $j; i=$((i+1));done|
 GIT_DIR=../../src/systemd/.git git diffab -M v233..master@{2017-06-15} -- hwdb/[67]* hwdb/parse_hwdb.py > hwdb.patch
 %endif
 
-Patch0002:      0002-Revert-units-set-NoNewPrivileges-for-all-long-runnin.patch
-Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
-Patch1001:      FB-disable-udev-test.patch
-# PR#13369: core: add ExecXYZEx= bus hook ups to all exec command properties
-Patch1002:      13369.patch
-# PR#13689: cgroup: A bunch of protection-related fixes
-Patch1003:      13689.patch
-# PR#13754: Allow restart for oneshot units
-Patch1004:      13754.patch
 Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
+Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
+# PR 13823 - PrivateUsers=true for (unprivileged) user managers
+Patch1001:      13823_unprivprivate.patch
+# PR 14441 - Fix type.d drop-in ordering
+Patch1002:      14441_topdropfix.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -166,6 +165,10 @@ Conflicts:      fedora-release < 23-0.12
 Obsoletes:      timedatex < 0.6-3
 Provides:       timedatex = 0.6-3
 
+# https://bugzilla.redhat.com/show_bug.cgi?id=1753381
+Provides:       u2f-hidraw-policy = 1.0.2-40
+Obsoletes:      u2f-hidraw-policy < 1.0.2-40
+
 %description
 systemd is a system and service manager that runs as PID 1 and starts
 the rest of the system. It provides aggressive parallelization
@@ -181,7 +184,7 @@ runtime directories and settings, and daemons to manage simple network
 configuration, network time synchronization, log forwarding, and name
 resolution.
 %if 0%{?stable}
-This package was built from the %{version}-stable branch of systemd,
+This package was built from the %{github_version}-stable branch of systemd,
 commit https://github.com/systemd/systemd-stable/commit/%{shortcommit}.
 %endif
 
@@ -215,8 +218,11 @@ Summary:        Macros that define paths and scriptlets related to systemd
 BuildArch:      noarch
 
 %description rpm-macros
-Just the definitions of rpm macros. Use %%{?systemd_requires} in the
-binary packages that use any scriptlets from this package.
+Just the definitions of rpm macros.
+
+See
+https://docs.fedoraproject.org/en-US/packaging-guidelines/Scriptlets/#_systemd
+for information how to use those macros.
 
 %package devel
 Summary:        Development headers for systemd
@@ -313,6 +319,8 @@ CONFIGURE_OPTS=(
         -Dsysvinit-path=/etc/rc.d/init.d
         -Drc-local=/etc/rc.d/rc.local
         -Dntp-servers='0.%{ntpvendor}.pool.ntp.org 1.%{ntpvendor}.pool.ntp.org 2.%{ntpvendor}.pool.ntp.org 3.%{ntpvendor}.pool.ntp.org'
+        -Duser-path=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin
+        -Dservice-watchdog=
         -Ddev-kvm-mode=0666
         -Dkmod=true
         -Dxkbcommon=true
@@ -356,6 +364,7 @@ CONFIGURE_OPTS=(
         -Dsplit-bin=true
         -Db_lto=false
         -Db_ndebug=false
+        -Dman=true
         -Dversion-tag=v%{version}-%{release}
         -Ddocdir=%{_pkgdocdir}
 )
@@ -533,7 +542,6 @@ getent group systemd-journal &>/dev/null || groupadd -r -g 190 systemd-journal 2
 getent group systemd-coredump &>/dev/null || groupadd -r systemd-coredump 2>&1 || :
 getent passwd systemd-coredump &>/dev/null || useradd -r -l -g systemd-coredump -d / -s /sbin/nologin -c "systemd Core Dumper" systemd-coredump &>/dev/null || :
 
-
 getent group systemd-network &>/dev/null || groupadd -r -g 192 systemd-network 2>&1 || :
 getent passwd systemd-network &>/dev/null || useradd -r -u 192 -l -g systemd-network -d / -s /sbin/nologin -c "systemd Network Management" systemd-network &>/dev/null || :
 
@@ -549,7 +557,7 @@ systemd-tmpfiles --create &>/dev/null || :
 # create /var/log/journal only on initial installation,
 # and only if it's writable (it won't be in rpm-ostree).
 if [ $1 -eq 1 ] && [ -w %{_localstatedir} ]; then
-     mkdir -p %{_localstatedir}/log/journal
+    mkdir -p %{_localstatedir}/log/journal
 fi
 
 # Make sure new journal files will be owned by the "systemd-journal" group
@@ -563,7 +571,7 @@ setfacl -Rnm g:wheel:rx,d:g:wheel:rx,g:adm:rx,d:g:adm:rx /var/log/journal/ &>/de
 # We reset the enablement of all services upon initial installation
 # https://bugzilla.redhat.com/show_bug.cgi?id=1118740#c23
 # This will fix up enablement of any preset services that got installed
-#  before systemd due to rpm ordering problems:
+# before systemd due to rpm ordering problems:
 # https://bugzilla.redhat.com/show_bug.cgi?id=1647172
 if [ $1 -eq 1 ] ; then
         systemctl preset-all &>/dev/null || :
@@ -736,10 +744,52 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Thu Jan  9 2020  Anita Zhang <anitazha@fb.com> - 244-2.fb1
+- Facebook rebuild
+- Backport PR#13823 (PrivateUsers=true for unprivileged user managers)
+- Backport PR#14441 (Fix type.d drop-in ordering)
+
+* Sat Dec 21 2019  <zbyszek@nano-f31> - 244.1-2
+- Disable service watchdogs (for systemd units)
+
+* Sun Dec 15 2019  <zbyszek@nano-f31> - 244.1-1
+- Update to latest stable batch (systemd-networkd fixups, better
+  support for seccomp on s390x, minor cleanups to documentation).
+- Drop patch to revert addition of NoNewPrivileges to systemd units
+
+* Fri Nov 29 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 244-1
+- Update to latest version. Just minor bugs fixed since the pre-release.
+
+* Fri Nov 22 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 244~rc1-1
+- Update to latest pre-release version,
+  see https://github.com/systemd/systemd/blob/master/NEWS#L3.
+  Biggest items: cgroups v2 cpuset controller, fido_id builtin in udev,
+  systemd-networkd does not create a default route for link local addressing,
+  systemd-networkd supports dynamic reconfiguration and a bunch of new settings.
+  Network files support matching on WLAN SSID and BSSID.
+- Better error messages when preset/enable/disable are used with a glob (#1763488)
+- u2f-hidraw-policy package is obsoleted (#1753381)
+
+* Tue Nov 19 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 243.4
+- Latest bugfix release. Systemd-stable snapshots will now be numbered.
+- Fix broken PrivateDevices filter on big-endian, s390x in particular (#1769148)
+- systemd-modules-load.service should only warn, not fail, on error (#1254340)
+- Fix incorrect certificate validation with DNS over TLS (#1771725, #1771726,
+  CVE-2018-21029)
+- Fix regression with crypttab keys with colons
+- Various memleaks and minor memory access issues, warning adjustments
+
 * Thu Oct 31 2019 Davide Cavalca <dcavalca@fb.com> - 243-2.fb3
 - Backport PR#13754 (allow restart for oneshot units)
 - Misc specfiles fixes to support building on el8 as well
 - Default el8 builds to the unified hierarchy
+
+* Fri Oct 18 2019 Adam Williamson <awilliam@redhat.com> - 243-4.gitef67743
+- Backport PR #13792 to fix nomodeset+BIOS CanGraphical bug (#1728240)
+
+* Thu Oct 10 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 243-3.gitef67743
+- Various minor documentation and error message cleanups
+- Do not use cgroup v1 hierarchy in nspawn on groups v2 (#1756143)
 
 * Wed Oct  2 2019 Davide Cavalca <dcavalca@fb.com> - 243-2.fb2
 - Backport PR#13689 (a bunch of protection-related fixes)

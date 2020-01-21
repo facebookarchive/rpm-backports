@@ -8,15 +8,15 @@
 %global __global_ldflags -Wl,-z,relro %{_hardened_ldflags}
 %global __meson_wrap_mode default
 
-#global commit ad47606e6ac9f4ef3451369a4c3b1ba2b60ef16d
-#global systemd_commit f02b5472c6f0c41e5dc8dc2c84590866baf937ff
+#global commit 49ff0872ce34684617ee6a6ebe5ba3b07da316b5
+#global systemd_commit db9c5ae73e23d816e2df2a3e10a9a2a60b5b3ed7
 %{?commit:%global shortcommit %(c=%{commit}; echo ${c:0:7})}
 %{?commit:%global systemd_shortcommit %(c=%{systemd_commit}; echo ${c:0:7})}
 
 Name:           systemd-compat-libs
 Url:            https://github.com/facebookincubator/systemd-compat-libs
-Version:        243
-Release:        2.fb3
+Version:        244
+Release:        2.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+
 Summary:        Compatibility libraries for systemd
@@ -44,7 +44,11 @@ BuildRequires:  gettext
 BuildRequires:  intltool
 BuildRequires:  libxslt
 BuildRequires:  docbook-style-xsl
+%if 0%{?el7}
 BuildRequires:  python34
+%else
+BuildRequires:  python3
+%endif
 %if %{defined systemd_commit}
 BuildRequires:  coreutils
 BuildRequires:  gawk
@@ -62,7 +66,7 @@ originally shipped with versions < 230, such as CentOS 7.
 %package devel
 Summary:        Development headers for systemd-compat-libs
 License:        LGPLv2+
-Requires:       %{name}-compat-libs%{?_isa} = %{version}-%{release}
+Requires:       %{name}%{?_isa} = %{version}-%{release}
 
 %description devel
 Development headers and auxiliary files for developing applications linking
@@ -117,10 +121,13 @@ export LC_ALL=en_US.UTF-8
 %{_libdir}/pkgconfig/libsystemd-id128.pc
 
 %changelog
+* Thu Jan  9 2020 Anita Zhang <anitazha@fb.com> - 244-2.fb1
+- New upstream release
+
 * Thu Oct 31 2019 Davide Cavalca <dcavalca@fb.com> - 243-2.fb3
 - Bump version to match systemd packages
 
-* Wed Oct  3 2019 Davide Cavalca <dcavalca@fb.com> - 243-2.fb2
+* Thu Oct  3 2019 Davide Cavalca <dcavalca@fb.com> - 243-2.fb2
 - Bump version to match systemd packages
 
 * Fri Sep 27 2019 Davide Cavalca <dcavalca@fb.com> - 243-2.fb1

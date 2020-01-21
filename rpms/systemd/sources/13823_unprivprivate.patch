@@ -1,0 +1,904 @@
+From 83077cd8c0151f61a329d4df29a8b46223b163a8 Mon Sep 17 00:00:00 2001
+From: Anita Zhang <the.anitazha@gmail.com>
+Date: Tue, 22 Oct 2019 17:37:47 -0700
+Subject: [PATCH 1/4] core: PrivateUsers=true for (unprivileged) user managers
+
+Let per-user service managers have user namespaces too.
+
+For unprivileged users, user namespaces are set up much earlier
+(before the mount, network, and UTS namespaces vs after) in
+order to obtain capbilities in the new user namespace and enable use of
+the other listed namespaces. However for privileged users (root), the
+set up for the user namspace is still done at the end to avoid any
+restrictions with combining namespaces inside a user namespace (see
+inline comments).
+
+Closes #10576
+---
+ man/systemd.exec.xml |  14 ++++--
+ src/core/execute.c   | 108 +++++++++++++++++++++++++++----------------
+ 2 files changed, 78 insertions(+), 44 deletions(-)
+
+diff --git a/man/systemd.exec.xml b/man/systemd.exec.xml
+index ff332e9..27b5843 100644
+--- a/man/systemd.exec.xml
++++ b/man/systemd.exec.xml
+@@ -830,7 +830,8 @@ CapabilityBoundingSet=~CAP_B CAP_C</programlisting>
+     <para>Also note that some sandboxing functionality is generally not available in user services (i.e. services run
+     by the per-user service manager). Specifically, the various settings requiring file system namespacing support
+     (such as <varname>ProtectSystem=</varname>) are not available, as the underlying kernel functionality is only
+-    accessible to privileged processes.</para>
++    accessible to privileged processes. However, most namespacing settings, that will not work on their own in user
++    services, will work when used in conjunction with <varname>PrivateUsers=</varname><option>true</option>.</para>
+ 
+     <variablelist class='unit-directives'>
+ 
+@@ -1251,6 +1252,13 @@ BindReadOnlyPaths=/var/lib/systemd</programlisting>
+         such as <varname>CapabilityBoundingSet=</varname> will affect only the latter, and there's no way to acquire
+         additional capabilities in the host's user namespace. Defaults to off.</para>
+ 
++        <para>When this setting is set up by a per-user instance of the service manager, the mapping of the
++        <literal>root</literal> user and group to itself is omitted (unless the user manager is root).
++        Additionally, in the per-user instance manager case, the
++        user namespace will be set up before most other namespaces. This means that combining
++        <varname>PrivateUsers=</varname><option>true</option> with other namespaces will enable use of features not
++        normally supported by the per-user instances of the service manager.</para>
++
+         <para>This setting is particularly useful in conjunction with
+         <varname>RootDirectory=</varname>/<varname>RootImage=</varname>, as the need to synchronize the user and group
+         databases in the root directory and on the host is reduced, as the only users and groups who need to be matched
+@@ -1258,9 +1266,7 @@ BindReadOnlyPaths=/var/lib/systemd</programlisting>
+ 
+         <para>Note that the implementation of this setting might be impossible (for example if user namespaces are not
+         available), and the unit should be written in a way that does not solely rely on this setting for
+-        security.</para>
+-
+-        <xi:include href="system-only.xml" xpointer="singular"/></listitem>
++        security.</para></listitem>
+       </varlistentry>
+ 
+       <varlistentry>
+diff --git a/src/core/execute.c b/src/core/execute.c
+index abc164f..87c4081 100644
+--- a/src/core/execute.c
++++ b/src/core/execute.c
+@@ -1900,7 +1900,7 @@ static bool exec_needs_mount_namespace(
+         return false;
+ }
+ 
+-static int setup_private_users(uid_t uid, gid_t gid) {
++static int setup_private_users(uid_t ouid, gid_t ogid, uid_t uid, gid_t gid) {
+         _cleanup_free_ char *uid_map = NULL, *gid_map = NULL;
+         _cleanup_close_pair_ int errno_pipe[2] = { -1, -1 };
+         _cleanup_close_ int unshare_ready_fd = -1;
+@@ -1909,38 +1909,43 @@ static int setup_private_users(uid_t uid, gid_t gid) {
+         ssize_t n;
+         int r;
+ 
+-        /* Set up a user namespace and map root to root, the selected UID/GID to itself, and everything else to
++        /* Set up a user namespace and map the original UID/GID (IDs from before any user or group changes, i.e.
++         * the IDs from the user or system manager(s)) to itself, the selected UID/GID to itself, and everything else to
+          * nobody. In order to be able to write this mapping we need CAP_SETUID in the original user namespace, which
+          * we however lack after opening the user namespace. To work around this we fork() a temporary child process,
+          * which waits for the parent to create the new user namespace while staying in the original namespace. The
+          * child then writes the UID mapping, under full privileges. The parent waits for the child to finish and
+-         * continues execution normally. */
++         * continues execution normally.
++         * For unprivileged users (i.e. without capabilities), the root to root mapping is excluded. As such, it
++         * does not need CAP_SETUID to write the single line mapping to itself. */
+ 
+-        if (uid != 0 && uid_is_valid(uid)) {
++        /* Can only set up multiple mappings with CAP_SETUID. */
++        if (have_effective_cap(CAP_SETUID) && uid != ouid && uid_is_valid(uid))
+                 r = asprintf(&uid_map,
+-                             "0 0 1\n"                      /* Map root → root */
++                             UID_FMT " " UID_FMT " 1\n"     /* Map $OUID → $OUID */
+                              UID_FMT " " UID_FMT " 1\n",    /* Map $UID → $UID */
+-                             uid, uid);
+-                if (r < 0)
+-                        return -ENOMEM;
+-        } else {
+-                uid_map = strdup("0 0 1\n");            /* The case where the above is the same */
+-                if (!uid_map)
+-                        return -ENOMEM;
+-        }
++                             ouid, ouid, uid, uid);
++        else
++                r = asprintf(&uid_map,
++                             UID_FMT " " UID_FMT " 1\n",    /* Map $OUID → $OUID */
++                             ouid, ouid);
+ 
+-        if (gid != 0 && gid_is_valid(gid)) {
++        if (r < 0)
++                return -ENOMEM;
++
++        /* Can only set up multiple mappings with CAP_SETGID. */
++        if (have_effective_cap(CAP_SETGID) && gid != ogid && gid_is_valid(gid))
+                 r = asprintf(&gid_map,
+-                             "0 0 1\n"                      /* Map root → root */
++                             GID_FMT " " GID_FMT " 1\n"     /* Map $OGID → $OGID */
+                              GID_FMT " " GID_FMT " 1\n",    /* Map $GID → $GID */
+-                             gid, gid);
+-                if (r < 0)
+-                        return -ENOMEM;
+-        } else {
+-                gid_map = strdup("0 0 1\n");            /* The case where the above is the same */
+-                if (!gid_map)
+-                        return -ENOMEM;
+-        }
++                             ogid, ogid, gid, gid);
++        else
++                r = asprintf(&gid_map,
++                             GID_FMT " " GID_FMT " 1\n",    /* Map $OGID -> $OGID */
++                             ogid, ogid);
++
++        if (r < 0)
++                return -ENOMEM;
+ 
+         /* Create a communication channel so that the parent can tell the child when it finished creating the user
+          * namespace. */
+@@ -2983,6 +2988,7 @@ static int exec_child(
+         char **final_argv = NULL;
+         dev_t journal_stream_dev = 0;
+         ino_t journal_stream_ino = 0;
++        bool userns_set_up = false;
+         bool needs_sandboxing,          /* Do we need to set up full sandboxing? (i.e. all namespacing, all MAC stuff, caps, yadda yadda */
+                 needs_setuid,           /* Do we need to do the actual setresuid()/setresgid() calls? */
+                 needs_mount_namespace,  /* Do we need to set up a mount namespace for this kernel? */
+@@ -2997,6 +3003,8 @@ static int exec_child(
+ #if HAVE_APPARMOR
+         bool use_apparmor = false;
+ #endif
++        uid_t saved_uid = getuid();
++        gid_t saved_gid = getgid();
+         uid_t uid = UID_INVALID;
+         gid_t gid = GID_INVALID;
+         size_t n_fds;
+@@ -3418,6 +3426,30 @@ static int exec_child(
+                 }
+         }
+ 
++        if (needs_sandboxing) {
++#if HAVE_SELINUX
++                if (use_selinux && params->selinux_context_net && socket_fd >= 0) {
++                        r = mac_selinux_get_child_mls_label(socket_fd, command->path, context->selinux_context, &mac_selinux_context_net);
++                        if (r < 0) {
++                                *exit_status = EXIT_SELINUX_CONTEXT;
++                                return log_unit_error_errno(unit, r, "Failed to determine SELinux context: %m");
++                        }
++                }
++#endif
++
++                /* If we're unprivileged, set up the user namespace first to enable use of the other namespaces.
++                 * Users with CAP_SYS_ADMIN can set up user namespaces last because they will be able to
++                 * set up the all of the other namespaces (i.e. network, mount, UTS) without a user namespace. */
++                if (context->private_users && !have_effective_cap(CAP_SYS_ADMIN)) {
++                        userns_set_up = true;
++                        r = setup_private_users(saved_uid, saved_gid, uid, gid);
++                        if (r < 0) {
++                                *exit_status = EXIT_USER;
++                                return log_unit_error_errno(unit, r, "Failed to set up user namespacing for unprivileged user: %m");
++                        }
++                }
++        }
++
+         if ((context->private_network || context->network_namespace_path) && runtime && runtime->netns_storage_socket[0] >= 0) {
+ 
+                 if (ns_type_supported(NAMESPACE_NET)) {
+@@ -3466,7 +3498,9 @@ static int exec_child(
+ #endif
+         }
+ 
+-        /* Drop groups as early as possbile */
++        /* Drop groups as early as possible.
++         * This needs to be done after PrivateDevices=y setup as device nodes should be owned by the host's root.
++         * For non-root in a userns, devices will be owned by the user/group before the group change, and nobody. */
+         if (needs_setuid) {
+                 r = enforce_groups(gid, supplementary_gids, ngids);
+                 if (r < 0) {
+@@ -3475,23 +3509,17 @@ static int exec_child(
+                 }
+         }
+ 
+-        if (needs_sandboxing) {
+-#if HAVE_SELINUX
+-                if (use_selinux && params->selinux_context_net && socket_fd >= 0) {
+-                        r = mac_selinux_get_child_mls_label(socket_fd, command->path, context->selinux_context, &mac_selinux_context_net);
+-                        if (r < 0) {
+-                                *exit_status = EXIT_SELINUX_CONTEXT;
+-                                return log_unit_error_errno(unit, r, "Failed to determine SELinux context: %m");
+-                        }
+-                }
+-#endif
++        /* If the user namespace was not set up above, try to do it now.
++         * It's preferred to set up the user namespace later (after all other namespaces) so as not to be
++         * restricted by rules pertaining to combining user namspaces with other namespaces (e.g. in the
++         * case of mount namespaces being less privileged when the mount point list is copied from a
++         * different user namespace). */
+ 
+-                if (context->private_users) {
+-                        r = setup_private_users(uid, gid);
+-                        if (r < 0) {
+-                                *exit_status = EXIT_USER;
+-                                return log_unit_error_errno(unit, r, "Failed to set up user namespacing: %m");
+-                        }
++        if (needs_sandboxing && context->private_users && !userns_set_up) {
++                r = setup_private_users(saved_uid, saved_gid, uid, gid);
++                if (r < 0) {
++                        *exit_status = EXIT_USER;
++                        return log_unit_error_errno(unit, r, "Failed to set up user namespacing: %m");
+                 }
+         }
+ 
+-- 
+2.17.1
+
+
+From d8685b737a506f6cfa64ff25475baad8db7400c6 Mon Sep 17 00:00:00 2001
+From: Filipe Brandenburger <filbranden@gmail.com>
+Date: Wed, 13 Nov 2019 10:32:24 -0800
+Subject: [PATCH 2/4] core: add test case for PrivateUsers=true in user manager
+
+The test exercises that PrivateTmp=yes and ProtectHome={read-only,tmpfs}
+directives work as expected when PrivateUsers=yes in a user manager.
+
+Some code is also added to test-functions to help set up test cases that
+exercise the user manager.
+---
+ test/TEST-43-PRIVATEUSER-UNPRIV/Makefile     |  9 +++
+ test/TEST-43-PRIVATEUSER-UNPRIV/test.sh      | 45 +++++++++++++++
+ test/TEST-43-PRIVATEUSER-UNPRIV/testsuite.sh | 61 ++++++++++++++++++++
+ test/test-functions                          | 49 +++++++++++++++-
+ 4 files changed, 163 insertions(+), 1 deletion(-)
+ create mode 100644 test/TEST-43-PRIVATEUSER-UNPRIV/Makefile
+ create mode 100755 test/TEST-43-PRIVATEUSER-UNPRIV/test.sh
+ create mode 100755 test/TEST-43-PRIVATEUSER-UNPRIV/testsuite.sh
+
+diff --git a/test/TEST-43-PRIVATEUSER-UNPRIV/Makefile b/test/TEST-43-PRIVATEUSER-UNPRIV/Makefile
+new file mode 100644
+index 0000000..45e9bfc
+--- /dev/null
++++ b/test/TEST-43-PRIVATEUSER-UNPRIV/Makefile
+@@ -0,0 +1,9 @@
++BUILD_DIR=$(shell ../../tools/find-build-dir.sh)
++
++all setup run:
++	@basedir=../.. TEST_BASE_DIR=../ BUILD_DIR=$(BUILD_DIR) ./test.sh --$@
++
++clean clean-again:
++	@basedir=../.. TEST_BASE_DIR=../ BUILD_DIR=$(BUILD_DIR) ./test.sh --clean
++
++.PHONY: all setup run clean clean-again
+diff --git a/test/TEST-43-PRIVATEUSER-UNPRIV/test.sh b/test/TEST-43-PRIVATEUSER-UNPRIV/test.sh
+new file mode 100755
+index 0000000..23904a3
+--- /dev/null
++++ b/test/TEST-43-PRIVATEUSER-UNPRIV/test.sh
+@@ -0,0 +1,45 @@
++#!/bin/bash
++set -e
++TEST_DESCRIPTION="Test PrivateUsers=yes on user manager"
++. $TEST_BASE_DIR/test-functions
++
++test_setup() {
++    create_empty_image_rootdir
++
++    (
++        LOG_LEVEL=5
++        eval $(udevadm info --export --query=env --name=${LOOPDEV}p2)
++
++        setup_basic_environment
++
++        mask_supporting_services
++
++        usermod --root $initdir -d /home/nobody -s /bin/bash nobody
++        mkdir $initdir/home $initdir/home/nobody
++        # Ubuntu's equivalent is nogroup
++        chown nobody:nobody $initdir/home/nobody || chown nobody:nogroup $initdir/home/nobody
++
++        enable_user_manager nobody
++
++        nobody_uid=$(id -u nobody)
++
++        # setup the testsuite service
++        cat >$initdir/etc/systemd/system/testsuite.service <<EOF
++[Unit]
++Description=Testsuite service
++After=systemd-logind.service user@$nobody_uid.service
++
++[Service]
++ExecStart=/testsuite.sh
++Type=oneshot
++EOF
++        cp testsuite.sh $initdir/
++
++        setup_testsuite
++    )
++    setup_nspawn_root
++}
++
++has_user_dbus_socket || exit 0
++
++do_test "$@"
+diff --git a/test/TEST-43-PRIVATEUSER-UNPRIV/testsuite.sh b/test/TEST-43-PRIVATEUSER-UNPRIV/testsuite.sh
+new file mode 100755
+index 0000000..3cabd78
+--- /dev/null
++++ b/test/TEST-43-PRIVATEUSER-UNPRIV/testsuite.sh
+@@ -0,0 +1,61 @@
++#!/bin/bash
++set -ex
++set -o pipefail
++
++systemd-analyze log-level debug
++
++runas() {
++    declare userid=$1
++    shift
++    su "$userid" -c 'XDG_RUNTIME_DIR=/run/user/$UID "$@"' -- sh "$@"
++}
++
++runas nobody systemctl --user --wait is-system-running
++
++runas nobody systemd-run --user --unit=test-private-users \
++    -p PrivateUsers=yes -P echo hello
++
++runas nobody systemd-run --user --unit=test-private-tmp-innerfile \
++    -p PrivateUsers=yes -p PrivateTmp=yes \
++    -P touch /tmp/innerfile.txt
++# File should not exist outside the job's tmp directory.
++test ! -e /tmp/innerfile.txt
++
++touch /tmp/outerfile.txt
++# File should not appear in unit's private tmp.
++runas nobody systemd-run --user --unit=test-private-tmp-outerfile \
++    -p PrivateUsers=yes -p PrivateTmp=yes \
++    -P test ! -e /tmp/outerfile.txt
++
++# Confirm that creating a file in home works
++runas nobody systemd-run --user --unit=test-unprotected-home \
++    -P touch /home/nobody/works.txt
++test -e /home/nobody/works.txt
++
++# Confirm that creating a file in home is blocked under read-only
++runas nobody systemd-run --user --unit=test-protect-home-read-only \
++    -p PrivateUsers=yes -p ProtectHome=read-only \
++    -P bash -c '
++        test -e /home/nobody/works.txt
++        ! touch /home/nobody/blocked.txt
++    '
++test ! -e /home/nobody/blocked.txt
++
++# Check that tmpfs hides the whole directory
++runas nobody systemd-run --user --unit=test-protect-home-tmpfs \
++    -p PrivateUsers=yes -p ProtectHome=tmpfs \
++    -P test ! -e /home/nobody
++
++# Confirm we cannot change groups because we only have one mapping in the user
++# namespace (no CAP_SETGID in the parent namespace to write the additional
++# mapping of the user supplied group and thus cannot change groups to an
++# unmapped group ID)
++! runas nobody systemd-run --user --unit=test-group-fail \
++    -p PrivateUsers=yes -p Group=daemon \
++    -P true
++
++systemd-analyze log-level info
++
++echo OK > /testok
++
++exit 0
+diff --git a/test/test-functions b/test/test-functions
+index 468a36d..5fffa5b 100644
+--- a/test/test-functions
++++ b/test/test-functions
+@@ -787,7 +787,7 @@ install_libnss() {
+ install_dbus() {
+     inst $ROOTLIBDIR/system/dbus.socket
+ 
+-    # Newer Fedora versions use dbus-broker by default. Let's install it is available.
++    # Newer Fedora versions use dbus-broker by default. Let's install it if it's available.
+     if [ -f $ROOTLIBDIR/system/dbus-broker.service ]; then
+         inst $ROOTLIBDIR/system/dbus-broker.service
+         inst_symlink /etc/systemd/system/dbus.service
+@@ -809,6 +809,31 @@ install_dbus() {
+     done
+ }
+ 
++install_user_dbus() {
++    inst $ROOTLIBDIR/user/dbus.socket
++    inst_symlink /usr/lib/systemd/user/sockets.target.wants/dbus.socket || inst_symlink /etc/systemd/user/sockets.target.wants/dbus.socket
++
++    # Append the After= dependency on dbus in case it isn't already set up
++    mkdir -p "$initdir/etc/systemd/system/user@.service.d/"
++    cat <<EOF >"$initdir/etc/systemd/system/user@.service.d/dbus.conf"
++[Unit]
++After=dbus.service
++EOF
++
++    # Newer Fedora versions use dbus-broker by default. Let's install it if it's available.
++    if [ -f $ROOTLIBDIR/user/dbus-broker.service ]; then
++        inst $ROOTLIBDIR/user/dbus-broker.service
++        inst_symlink /etc/systemd/user/dbus.service
++    elif [ -f $ROOTLIBDIR/system/dbus-daemon.service ]; then
++        # Fedora rawhide replaced dbus.service with dbus-daemon.service
++        inst $ROOTLIBDIR/user/dbus-daemon.service
++        # Alias symlink
++        inst_symlink /etc/systemd/user/dbus.service
++    else
++        inst $ROOTLIBDIR/user/dbus.service
++    fi
++}
++
+ install_pam() {
+     (
+     if [[ "$LOOKS_LIKE_DEBIAN" ]] && type -p dpkg-architecture &>/dev/null; then
+@@ -879,6 +904,28 @@ install_terminfo() {
+     dracut_install -o ${_terminfodir}/l/linux
+ }
+ 
++has_user_dbus_socket() {
++    if [ -f /usr/lib/systemd/user/dbus.socket ] || [ -f /etc/systemd/user/dbus.socket ]; then
++        return 0
++    else
++        echo "Per-user instances are not supported. Skipping..."
++        return 1
++    fi
++}
++
++enable_user_manager() {
++    has_user_dbus_socket || return 0
++
++    local _userid
++    [[ $# -gt 0 ]] || set -- nobody
++    mkdir -p "$initdir/var/lib/systemd/linger"
++    for _userid; do
++        touch "$initdir/var/lib/systemd/linger/$_userid"
++    done
++    dracut_install su
++    install_user_dbus
++}
++
+ setup_testsuite() {
+     cp $TEST_BASE_DIR/testsuite.target $initdir/etc/systemd/system/
+     cp $TEST_BASE_DIR/end.service $initdir/etc/systemd/system/
+-- 
+2.17.1
+
+
+From ce3b6f82aca28ebb915fa0da173109389ad9d1ca Mon Sep 17 00:00:00 2001
+From: Anita Zhang <the.anitazha@gmail.com>
+Date: Tue, 19 Nov 2019 14:24:52 -0800
+Subject: [PATCH 3/4] core: create inaccessible nodes for users when making
+ runtime dirs
+
+To support ProtectHome=y in a user namespace (which mounts the inaccessible
+nodes), the nodes need to be accessible by the user. Create these paths and
+devices in the user runtime directory so they can be used later if needed.
+---
+ src/core/mount-setup.c                       |  2 +-
+ src/core/namespace.c                         | 18 +++++-
+ src/login/user-runtime-dir.c                 |  3 +
+ src/nspawn/nspawn-mount.c                    |  7 ++-
+ src/nspawn/nspawn.c                          |  5 +-
+ src/shared/dev-setup.c                       | 18 +++---
+ src/shared/mount-util.c                      | 58 ++++++++++++++++----
+ src/shared/mount-util.h                      |  2 +-
+ src/test/test-dev-setup.c                    |  3 +-
+ test/TEST-43-PRIVATEUSER-UNPRIV/test.sh      |  1 +
+ test/TEST-43-PRIVATEUSER-UNPRIV/testsuite.sh |  9 +++
+ 11 files changed, 96 insertions(+), 30 deletions(-)
+
+diff --git a/src/core/mount-setup.c b/src/core/mount-setup.c
+index 7ef5b12..5dfcb61 100644
+--- a/src/core/mount-setup.c
++++ b/src/core/mount-setup.c
+@@ -536,7 +536,7 @@ int mount_setup(bool loaded_policy) {
+ 
+         /* Also create /run/systemd/inaccessible nodes, so that we always have something to mount inaccessible nodes
+          * from. */
+-        (void) make_inaccessible_nodes(NULL, UID_INVALID, GID_INVALID);
++        (void) make_inaccessible_nodes("/run/systemd", UID_INVALID, GID_INVALID);
+ 
+         return 0;
+ }
+diff --git a/src/core/namespace.c b/src/core/namespace.c
+index c0ff44c..b2d9f3c 100644
+--- a/src/core/namespace.c
++++ b/src/core/namespace.c
+@@ -11,6 +11,7 @@
+ #include "base-filesystem.h"
+ #include "dev-setup.h"
+ #include "fd-util.h"
++#include "format-util.h"
+ #include "fs-util.h"
+ #include "label.h"
+ #include "loop-util.h"
+@@ -904,6 +905,7 @@ static int apply_mount(
+                 const char *root_directory,
+                 MountEntry *m) {
+ 
++        _cleanup_free_ char *inaccessible = NULL;
+         bool rbind = true, make = false;
+         const char *what;
+         int r;
+@@ -915,6 +917,8 @@ static int apply_mount(
+         switch (m->mode) {
+ 
+         case INACCESSIBLE: {
++                _cleanup_free_ char *tmp = NULL;
++                const char *runtime_dir;
+                 struct stat target;
+ 
+                 /* First, get rid of everything that is below if there
+@@ -929,10 +933,20 @@ static int apply_mount(
+                         return log_debug_errno(errno, "Failed to lstat() %s to determine what to mount over it: %m", mount_entry_path(m));
+                 }
+ 
+-                what = mode_to_inaccessible_node(target.st_mode);
+-                if (!what)
++                if (geteuid() == 0)
++                        runtime_dir = "/run/systemd";
++                else {
++                        if (asprintf(&tmp, "/run/user/"UID_FMT, geteuid()) < 0)
++                                log_oom();
++
++                        runtime_dir = tmp;
++                }
++
++                r = mode_to_inaccessible_node(runtime_dir, target.st_mode, &inaccessible);
++                if (r < 0)
+                         return log_debug_errno(SYNTHETIC_ERRNO(ELOOP),
+                                                "File type not supported for inaccessible mounts. Note that symlinks are not allowed");
++                what = inaccessible;
+                 break;
+         }
+ 
+diff --git a/src/login/user-runtime-dir.c b/src/login/user-runtime-dir.c
+index c8a5625..1f98898 100644
+--- a/src/login/user-runtime-dir.c
++++ b/src/login/user-runtime-dir.c
+@@ -6,6 +6,7 @@
+ #include "sd-bus.h"
+ 
+ #include "bus-error.h"
++#include "dev-setup.h"
+ #include "fs-util.h"
+ #include "format-util.h"
+ #include "label.h"
+@@ -91,6 +92,8 @@ static int user_mkdir_runtime_path(
+                         log_warning_errno(r, "Failed to fix label of \"%s\", ignoring: %m", runtime_path);
+         }
+ 
++        /* Set up inaccessible nodes now so they're available if we decide to use them with user namespaces. */
++        (void) make_inaccessible_nodes(runtime_path, uid, gid);
+         return 0;
+ 
+ fail:
+diff --git a/src/nspawn/nspawn-mount.c b/src/nspawn/nspawn-mount.c
+index 6407503..1f771d5 100644
+--- a/src/nspawn/nspawn-mount.c
++++ b/src/nspawn/nspawn-mount.c
+@@ -870,8 +870,7 @@ static int mount_overlay(const char *dest, CustomMount *m) {
+ }
+ 
+ static int mount_inaccessible(const char *dest, CustomMount *m) {
+-        _cleanup_free_ char *where = NULL;
+-        const char *source;
++        _cleanup_free_ char *where = NULL, *source = NULL;
+         struct stat st;
+         int r;
+ 
+@@ -884,7 +883,9 @@ static int mount_inaccessible(const char *dest, CustomMount *m) {
+                 return m->graceful ? 0 : r;
+         }
+ 
+-        assert_se(source = mode_to_inaccessible_node(st.st_mode));
++        r = mode_to_inaccessible_node("/run/systemd", st.st_mode, &source);
++        if (r < 0)
++                return m->graceful ? 0 : r;
+ 
+         r = mount_verbose(m->graceful ? LOG_DEBUG : LOG_ERR, source, where, NULL, MS_BIND, NULL);
+         if (r < 0)
+diff --git a/src/nspawn/nspawn.c b/src/nspawn/nspawn.c
+index 873a765..efcdf64 100644
+--- a/src/nspawn/nspawn.c
++++ b/src/nspawn/nspawn.c
+@@ -3254,6 +3254,7 @@ static int outer_child(
+                 int netns_fd) {
+ 
+         _cleanup_close_ int fd = -1;
++        const char *p;
+         pid_t pid;
+         ssize_t l;
+         int r;
+@@ -3436,7 +3437,9 @@ static int outer_child(
+                 return r;
+ 
+         (void) dev_setup(directory, arg_uid_shift, arg_uid_shift);
+-        (void) make_inaccessible_nodes(directory, arg_uid_shift, arg_uid_shift);
++
++        p = prefix_roota(directory, "/run/systemd");
++        (void) make_inaccessible_nodes(p, arg_uid_shift, arg_uid_shift);
+ 
+         r = setup_pts(directory);
+         if (r < 0)
+diff --git a/src/shared/dev-setup.c b/src/shared/dev-setup.c
+index 071ff7b..4bce8b1 100644
+--- a/src/shared/dev-setup.c
++++ b/src/shared/dev-setup.c
+@@ -61,20 +61,20 @@ int make_inaccessible_nodes(const char *root, uid_t uid, gid_t gid) {
+                 const char *name;
+                 mode_t mode;
+         } table[] = {
+-                { "/run/systemd",                   S_IFDIR  | 0755 },
+-                { "/run/systemd/inaccessible",      S_IFDIR  | 0000 },
+-                { "/run/systemd/inaccessible/reg",  S_IFREG  | 0000 },
+-                { "/run/systemd/inaccessible/dir",  S_IFDIR  | 0000 },
+-                { "/run/systemd/inaccessible/fifo", S_IFIFO  | 0000 },
+-                { "/run/systemd/inaccessible/sock", S_IFSOCK | 0000 },
++                { "",                   S_IFDIR  | 0755 },
++                { "/inaccessible",      S_IFDIR  | 0000 },
++                { "/inaccessible/reg",  S_IFREG  | 0000 },
++                { "/inaccessible/dir",  S_IFDIR  | 0000 },
++                { "/inaccessible/fifo", S_IFIFO  | 0000 },
++                { "/inaccessible/sock", S_IFSOCK | 0000 },
+ 
+                 /* The following two are likely to fail if we lack the privs for it (for example in an userns
+                  * environment, if CAP_SYS_MKNOD is missing, or if a device node policy prohibit major/minor of 0
+                  * device nodes to be created). But that's entirely fine. Consumers of these files should carry
+-                 * fallback to use a different node then, for example /run/systemd/inaccessible/sock, which is close
++                 * fallback to use a different node then, for example <root>/inaccessible/sock, which is close
+                  * enough in behaviour and semantics for most uses. */
+-                { "/run/systemd/inaccessible/chr",  S_IFCHR  | 0000 },
+-                { "/run/systemd/inaccessible/blk",  S_IFBLK  | 0000 },
++                { "/inaccessible/chr",  S_IFCHR  | 0000 },
++                { "/inaccessible/blk",  S_IFBLK  | 0000 },
+         };
+ 
+         _cleanup_umask_ mode_t u;
+diff --git a/src/shared/mount-util.c b/src/shared/mount-util.c
+index d316e81..95d7ea9 100644
+--- a/src/shared/mount-util.c
++++ b/src/shared/mount-util.c
+@@ -339,38 +339,72 @@ int repeat_unmount(const char *path, int flags) {
+         }
+ }
+ 
+-const char* mode_to_inaccessible_node(mode_t mode) {
++int mode_to_inaccessible_node(const char *runtime_dir, mode_t mode, char **dest) {
+         /* This function maps a node type to a corresponding inaccessible file node. These nodes are created during
+          * early boot by PID 1. In some cases we lacked the privs to create the character and block devices (maybe
+          * because we run in an userns environment, or miss CAP_SYS_MKNOD, or run with a devices policy that excludes
+          * device nodes with major and minor of 0), but that's fine, in that case we use an AF_UNIX file node instead,
+          * which is not the same, but close enough for most uses. And most importantly, the kernel allows bind mounts
+          * from socket nodes to any non-directory file nodes, and that's the most important thing that matters. */
++        _cleanup_free_ char *d = NULL;
++        const char *node = NULL;
++        char *tmp;
++
++        assert(dest);
+ 
+         switch(mode & S_IFMT) {
+                 case S_IFREG:
+-                        return "/run/systemd/inaccessible/reg";
++                        node = "/inaccessible/reg";
++                        break;
+ 
+                 case S_IFDIR:
+-                        return "/run/systemd/inaccessible/dir";
++                        node = "/inaccessible/dir";
++                        break;
+ 
+                 case S_IFCHR:
+-                        if (access("/run/systemd/inaccessible/chr", F_OK) == 0)
+-                                return "/run/systemd/inaccessible/chr";
+-                        return "/run/systemd/inaccessible/sock";
++                        d = path_join(runtime_dir, "/inaccessible/chr");
++                        if (!d)
++                                return log_oom();
++
++                        if (access(d, F_OK) == 0) {
++                                *dest = TAKE_PTR(d);
++                                return 0;
++                        }
++
++                        node = "/inaccessible/sock";
++                        break;
+ 
+                 case S_IFBLK:
+-                        if (access("/run/systemd/inaccessible/blk", F_OK) == 0)
+-                                return "/run/systemd/inaccessible/blk";
+-                        return "/run/systemd/inaccessible/sock";
++                        d = path_join(runtime_dir, "/inaccessible/blk");
++                        if (!d)
++                                return log_oom();
++
++                        if (access(d, F_OK) == 0) {
++                                *dest = TAKE_PTR(d);
++                                return 0;
++                        }
++
++                        node = "/inaccessible/sock";
++                        break;
+ 
+                 case S_IFIFO:
+-                        return "/run/systemd/inaccessible/fifo";
++                        node = "/inaccessible/fifo";
++                        break;
+ 
+                 case S_IFSOCK:
+-                        return "/run/systemd/inaccessible/sock";
++                        node = "/inaccessible/sock";
++                        break;
+         }
+-        return NULL;
++
++        if (!node)
++                return -EINVAL;
++
++        tmp = path_join(runtime_dir, node);
++        if (!tmp)
++                return log_oom();
++
++        *dest = tmp;
++        return 0;
+ }
+ 
+ #define FLAG(name) (flags & name ? STRINGIFY(name) "|" : "")
+diff --git a/src/shared/mount-util.h b/src/shared/mount-util.h
+index 8649fca..9a8d073 100644
+--- a/src/shared/mount-util.h
++++ b/src/shared/mount-util.h
+@@ -31,4 +31,4 @@ int mount_option_mangle(
+                 unsigned long *ret_mount_flags,
+                 char **ret_remaining_options);
+ 
+-const char* mode_to_inaccessible_node(mode_t mode);
++int mode_to_inaccessible_node(const char *runtime_dir, mode_t mode, char **dest);
+diff --git a/src/test/test-dev-setup.c b/src/test/test-dev-setup.c
+index 9414ea6..d991fe5 100644
+--- a/src/test/test-dev-setup.c
++++ b/src/test/test-dev-setup.c
+@@ -20,7 +20,8 @@ int main(int argc, char *argv[]) {
+         f = prefix_roota(p, "/run");
+         assert_se(mkdir(f, 0755) >= 0);
+ 
+-        assert_se(make_inaccessible_nodes(p, 1, 1) >= 0);
++        f = prefix_roota(p, "/run/systemd");
++        assert_se(make_inaccessible_nodes(f, 1, 1) >= 0);
+ 
+         f = prefix_roota(p, "/run/systemd/inaccessible/reg");
+         assert_se(stat(f, &st) >= 0);
+diff --git a/test/TEST-43-PRIVATEUSER-UNPRIV/test.sh b/test/TEST-43-PRIVATEUSER-UNPRIV/test.sh
+index 23904a3..49d61c6 100755
+--- a/test/TEST-43-PRIVATEUSER-UNPRIV/test.sh
++++ b/test/TEST-43-PRIVATEUSER-UNPRIV/test.sh
+@@ -11,6 +11,7 @@ test_setup() {
+         eval $(udevadm info --export --query=env --name=${LOOPDEV}p2)
+ 
+         setup_basic_environment
++        inst_binary stat
+ 
+         mask_supporting_services
+ 
+diff --git a/test/TEST-43-PRIVATEUSER-UNPRIV/testsuite.sh b/test/TEST-43-PRIVATEUSER-UNPRIV/testsuite.sh
+index 3cabd78..cd61dc9 100755
+--- a/test/TEST-43-PRIVATEUSER-UNPRIV/testsuite.sh
++++ b/test/TEST-43-PRIVATEUSER-UNPRIV/testsuite.sh
+@@ -46,6 +46,15 @@ runas nobody systemd-run --user --unit=test-protect-home-tmpfs \
+     -p PrivateUsers=yes -p ProtectHome=tmpfs \
+     -P test ! -e /home/nobody
+ 
++# Confirm that home, /root, and /run/user are inaccessible under "yes"
++runas nobody systemd-run --user --unit=test-protect-home-yes \
++    -p PrivateUsers=yes -p ProtectHome=yes \
++    -P bash -c '
++        test "$(stat -c %a /home)" = "0"
++        test "$(stat -c %a /root)" = "0"
++        test "$(stat -c %a /run/user)" = "0"
++    '
++
+ # Confirm we cannot change groups because we only have one mapping in the user
+ # namespace (no CAP_SETGID in the parent namespace to write the additional
+ # mapping of the user supplied group and thus cannot change groups to an
+-- 
+2.17.1
+
+
+From be70df456255276859c6a1e66f64041e22bec234 Mon Sep 17 00:00:00 2001
+From: Anita Zhang <the.anitazha@gmail.com>
+Date: Tue, 19 Nov 2019 17:25:23 -0800
+Subject: [PATCH 4/4] test: add test case for PrivateDevices=y and Group=daemon
+
+For root, group enforcement needs to come after PrivateDevices=y set up
+according to 096424d1230e0a0339735c51b43949809e972430. Add a test to
+verify this is the case.
+---
+ src/shared/dropin.c                           | 20 +++++++++----------
+ src/test/test-execute.c                       |  1 +
+ test/meson.build                              |  1 +
+ ...exec-privatedevices-yes-with-group.service | 16 +++++++++++++++
+ 4 files changed, 28 insertions(+), 10 deletions(-)
+ create mode 100644 test/test-execute/exec-privatedevices-yes-with-group.service
+
+diff --git a/src/shared/dropin.c b/src/shared/dropin.c
+index ca97285..fa26cfe 100644
+--- a/src/shared/dropin.c
++++ b/src/shared/dropin.c
+@@ -245,17 +245,17 @@ int unit_file_find_dropin_paths(
+                         return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+                                                "Failed to to derive unit type from unit name: %s",
+                                                name);
+-        }
+ 
+-        /* Special top level drop in for "<unit type>.<suffix>". Add this first as it's the most generic
+-         * and should be able to be overridden by more specific drop-ins. */
+-        STRV_FOREACH(p, lookup_path)
+-                (void) unit_file_find_dirs(original_root,
+-                                           unit_path_cache,
+-                                           *p,
+-                                           unit_type_to_string(type),
+-                                           dir_suffix,
+-                                           &dirs);
++                /* Special top level drop in for "<unit type>.<suffix>". Add this first as it's the most generic
++                 * and should be able to be overridden by more specific drop-ins. */
++                STRV_FOREACH(p, lookup_path)
++                        (void) unit_file_find_dirs(original_root,
++                                                   unit_path_cache,
++                                                   *p,
++                                                   unit_type_to_string(type),
++                                                   dir_suffix,
++                                                   &dirs);
++        }
+ 
+         SET_FOREACH(name, names, i)
+                 STRV_FOREACH(p, lookup_path)
+diff --git a/src/test/test-execute.c b/src/test/test-execute.c
+index 9d6aeed..b3f8cc8 100644
+--- a/src/test/test-execute.c
++++ b/src/test/test-execute.c
+@@ -313,6 +313,7 @@ static void test_exec_privatedevices(Manager *m) {
+         test(__func__, m, "exec-privatedevices-yes.service", can_unshare ? 0 : EXIT_FAILURE, CLD_EXITED);
+         test(__func__, m, "exec-privatedevices-no.service", 0, CLD_EXITED);
+         test(__func__, m, "exec-privatedevices-disabled-by-prefix.service", can_unshare ? 0 : EXIT_FAILURE, CLD_EXITED);
++        test(__func__, m, "exec-privatedevices-yes-with-group.service", can_unshare ? 0 : EXIT_FAILURE, CLD_EXITED);
+ 
+         /* We use capsh to test if the capabilities are
+          * properly set, so be sure that it exists */
+diff --git a/test/meson.build b/test/meson.build
+index eeb3c5f..237b4db 100644
+--- a/test/meson.build
++++ b/test/meson.build
+@@ -102,6 +102,7 @@ test_data_files = '''
+         test-execute/exec-privatedevices-no-capability-mknod.service
+         test-execute/exec-privatedevices-no-capability-sys-rawio.service
+         test-execute/exec-privatedevices-no.service
++        test-execute/exec-privatedevices-yes-with-group.service
+         test-execute/exec-privatedevices-yes-capability-mknod.service
+         test-execute/exec-privatedevices-yes-capability-sys-rawio.service
+         test-execute/exec-privatedevices-yes.service
+diff --git a/test/test-execute/exec-privatedevices-yes-with-group.service b/test/test-execute/exec-privatedevices-yes-with-group.service
+new file mode 100644
+index 0000000..70a7ed2
+--- /dev/null
++++ b/test/test-execute/exec-privatedevices-yes-with-group.service
+@@ -0,0 +1,16 @@
++[Unit]
++Description=Test Group=group is applied after PrivateDevices=yes
++
++[Service]
++PrivateDevices=yes
++Group=daemon
++Type=oneshot
++
++# Check the group applied
++ExecStart=/bin/sh -x -c 'test "$$(id -n -g)" = "daemon"'
++
++# Check that the namespace applied
++ExecStart=/bin/sh -c 'test ! -c /dev/kmsg'
++
++# Check that the owning group of a node is not daemon (should be the host root)
++ExecStart=/bin/sh -x -c 'test ! "$$(stat -c %%G /dev/stderr)" = "daemon"'
+-- 
+2.17.1
+
