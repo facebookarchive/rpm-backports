@@ -550,7 +550,7 @@ getent passwd systemd-resolve &>/dev/null || useradd -r -u 193 -l -g systemd-res
 
 %post
 systemd-machine-id-setup &>/dev/null || :
-systemctl daemon-reexec &>/dev/null || :
+systemctl daemon-reexec &>/dev/null || kill -TERM 1 &>/dev/null || :
 journalctl --update-catalog &>/dev/null || :
 systemd-tmpfiles --create &>/dev/null || :
 
