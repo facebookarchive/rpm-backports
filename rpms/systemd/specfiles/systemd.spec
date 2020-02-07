@@ -26,7 +26,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        244
-Release:        2.fb1
+Release:        2.fb2
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -71,6 +71,8 @@ Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.p
 Patch1001:      13823_unprivprivate.patch
 # PR 14441 - Fix type.d drop-in ordering
 Patch1002:      14441_topdropfix.patch
+# PR 14815 - Permissive syscall filtering through dbus-execute
+Patch1003:      14815_syscallsfix.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -744,6 +746,9 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Thu Feb  6 2020  Anita Zhang <anitazha@fb.com> - 244-2.fb2
+- Backport PR#14815 (Permissive syscall filtering in dbus-execute)
+
 * Thu Jan  9 2020  Anita Zhang <anitazha@fb.com> - 244-2.fb1
 - Facebook rebuild
 - Backport PR#13823 (PrivateUsers=true for unprivileged user managers)
