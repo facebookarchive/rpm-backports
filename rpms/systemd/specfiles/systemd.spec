@@ -26,7 +26,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        244
-Release:        2.fb2
+Release:        2.fb3
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -552,7 +552,11 @@ getent passwd systemd-resolve &>/dev/null || useradd -r -u 193 -l -g systemd-res
 
 %post
 systemd-machine-id-setup &>/dev/null || :
-systemctl daemon-reexec &>/dev/null || kill -TERM 1 &>/dev/null || :
+systemctl daemon-reexec &>/dev/null || {
+  if test -d /run/systemd/system ; then
+    kill -TERM 1 &>/dev/null || :
+  fi
+}
 journalctl --update-catalog &>/dev/null || :
 systemd-tmpfiles --create &>/dev/null || :
 
@@ -746,6 +750,9 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Thu Feb 20 2020 Filipe Brandenburger <filbranden@fb.com> - 244-2.fb3
+- Only kill -TERM 1 when systemd is actually running.
+
 * Thu Feb  6 2020  Anita Zhang <anitazha@fb.com> - 244-2.fb2
 - Backport PR#14815 (Permissive syscall filtering in dbus-execute)
 
