@@ -26,7 +26,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        244
-Release:        2.fb3
+Release:        2.fb4
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -73,6 +73,7 @@ Patch1001:      13823_unprivprivate.patch
 Patch1002:      14441_topdropfix.patch
 # PR 14815 - Permissive syscall filtering through dbus-execute
 Patch1003:      14815_syscallsfix.patch
+Patch1004:      FB--bump-high-rlimit-memlock-512M.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -750,6 +751,9 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Thu Mar 18 2020 Andrew Gallagher <agallagher@fb.com> - 244-2.fb4
+- Bump HIGH_RLIMIT_MEMLOCK to 512M
+
 * Thu Feb 20 2020 Filipe Brandenburger <filbranden@fb.com> - 244-2.fb3
 - Only kill -TERM 1 when systemd is actually running.
 
