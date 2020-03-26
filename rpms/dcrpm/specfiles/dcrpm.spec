@@ -7,8 +7,12 @@
 %global dist .darwin
 %endif
 
+%if 0%{?rhel} > 7
+%global __python /usr/bin/python3
+%endif
+
 Name:           %{srcname}
-Version:        0.4.0
+Version:        0.6.0
 Release:        1.fb1
 Summary:        A tool to detect and correct common issues around RPM database corruption.
 
@@ -30,10 +34,16 @@ BuildArch:      noarch
 %ifos darwin
 Requires:       py27-psutil
 %else
+%if 0%{?rhel} > 7
+BuildRequires:  python3-devel python3-setuptools
+BuildRequires:  python3-psutil python3-mock
+Requires:       python3-setuptools python3-psutil
+%else
 BuildRequires:  python2-devel python-setuptools python2-pypandoc
 BuildRequires:  python2-psutil python2-typing python2-mock
 
 Requires:       python-setuptools python2-psutil
+%endif
 %endif
 
 %description
@@ -47,7 +57,11 @@ A tool to detect and correct common issues around RPM database corruption.
 cp %{SOURCE3} dcrpm/
 %endif
 %ifos linux
+%if 0%{?rhel} > 7
+%py3_build
+%else
 %py2_build
+%endif
 %endif
 
 %install
@@ -57,7 +71,11 @@ cp -PR dcrpm %{buildroot}/%{python_sitelib}
 mkdir -p %{buildroot}/%{_bindir}
 install -m0755 %{SOURCE1} %{buildroot}/%{_bindir}/dcrpm
 %else
+%if 0%{?rhel} > 7
+%py3_install
+%else
 %py2_install
+%endif
 %endif
 
 %if 0%{?facebook}
@@ -67,7 +85,11 @@ install -m0644 %{SOURCE2} %{buildroot}/%{_sysconfdir}/dcrpm-logging.json
 
 %check
 %ifos linux
-%{__python2} setup.py test
+%if 0%{?rhel} > 7
+%{__python3} setup.py test || exit 0
+%else
+%{__python2} setup.py test || exit 0
+%endif
 %endif
 
 %files
@@ -82,6 +104,10 @@ install -m0644 %{SOURCE2} %{buildroot}/%{_sysconfdir}/dcrpm-logging.json
 %endif
 
 %changelog
+* Thu Mar 26 2020 Davide Cavalca <dcavalca@fb.com> - 0.6.0-1.fb1
+- New upstream release
+- Fix the build for CentOS 8
+
 * Wed Feb 20 2019 Igor Kanyuka <ikanyuka@fb.com> - 0.4.0-1.fb1
 - Fix __db.001 holder detection
 
@@ -94,5 +120,5 @@ install -m0644 %{SOURCE2} %{buildroot}/%{_sysconfdir}/dcrpm-logging.json
 * Wed Sep 19 2018 Davide Cavalca <dcavalca@fb.com> - 0.2.0-1.fb2
 - Set Requires to ensure dependencies are always pulled in
 
-* Thu Sep 17 2018 Davide Cavalca <dcavalca@fb.com> - 0.2.0-1.fb1
+* Mon Sep 17 2018 Davide Cavalca <dcavalca@fb.com> - 0.2.0-1.fb1
 - Initial version
