@@ -12,7 +12,7 @@
 %endif
 
 Name:           %{srcname}
-Version:        0.6.0
+Version:        0.6.1
 Release:        1.fb1
 Summary:        A tool to detect and correct common issues around RPM database corruption.
 
@@ -104,6 +104,10 @@ install -m0644 %{SOURCE2} %{buildroot}/%{_sysconfdir}/dcrpm-logging.json
 %endif
 
 %changelog
+* Mon Mar 30 2020 Davide Cavalca <dcavalca@fb.com> - 0.6.1-1.fb1
+- New upstream release
+- Scuba logger fixes
+
 * Thu Mar 26 2020 Davide Cavalca <dcavalca@fb.com> - 0.6.0-1.fb1
 - New upstream release
 - Fix the build for CentOS 8
