@@ -1,0 +1,23 @@
+From 364082a046a09810b646cc98f0a1daca706c85bf Mon Sep 17 00:00:00 2001
+From: Davide Cavalca <dcavalca@fb.com>
+Date: Tue, 31 Mar 2020 14:15:44 -0700
+Subject: [PATCH] Relax Requirename index check
+
+---
+ dcrpm/rpmutil.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/dcrpm/rpmutil.py b/dcrpm/rpmutil.py
+index f053042..233aa85 100644
+--- a/dcrpm/rpmutil.py
++++ b/dcrpm/rpmutil.py
+@@ -202,7 +202,8 @@ def check_rpmdb_indexes(self):
+                     lambda proc: proc.returncode != StatusCode.SEGFAULT,
+                     lambda proc: len(proc.stdout.splitlines()) >= 1,
+                     lambda proc: any(
+-                        line.startswith("rpm-") for line in proc.stdout.splitlines()
++                        line.startswith("rpm-") or line.startswith("yum-")
++                        for line in proc.stdout.splitlines()
+                     ),
+                 ],
+             },
