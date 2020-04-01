@@ -13,7 +13,7 @@
 
 Name:           %{srcname}
 Version:        0.6.1
-Release:        1.fb2
+Release:        1.fb3
 Summary:        A tool to detect and correct common issues around RPM database corruption.
 
 License:        GPL-2.0
@@ -107,6 +107,9 @@ install -m0644 %{SOURCE2} %{buildroot}/%{_sysconfdir}/dcrpm-logging.json
 %endif
 
 %changelog
+* Wed Apr 1 2020 Davide Cavalca <dcavalca@fb.com> - 0.6.1-1.fb3
+- More scuba logger fixes
+
 * Tue Mar 31 2020 Davide Cavalca <dcavalca@fb.com> - 0.6.1-1.fb2
 - Backport PR#35
 - More scuba logger fixes
