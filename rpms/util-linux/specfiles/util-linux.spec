@@ -2,7 +2,7 @@
 Summary: A collection of basic system utilities
 Name: util-linux
 Version: 2.32
-Release: 2%{?dist}.fb1
+Release: 2%{?dist}.fb3
 License: GPLv2 and GPLv2+ and LGPLv2+ and BSD with advertising and Public Domain
 Group: System Environment/Base
 URL: http://en.wikipedia.org/wiki/Util-linux
@@ -946,6 +946,9 @@ exit 0
 %{_libdir}/python*/site-packages/libmount/
 
 %changelog
+* Mon Apr 06 2020 Igor Kanyuka <ikanyuka@fb.com> - 2.32-2.fb3
+- Facebook rebuild, fb2 was built as experiment, published, but was never committed, we need fb3 to move forward to the prod fb1 version code, from experimental one.
+
 * Tue Apr 03 2018 Davide Cavalca <dcavalca@fb.com> - 2.32-2.fb1
 - Facebook rebuild
 
