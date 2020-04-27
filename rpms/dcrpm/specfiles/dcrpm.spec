@@ -12,17 +12,14 @@
 %endif
 
 Name:           %{srcname}
-Version:        0.6.1
-Release:        1.fb3
+Version:        0.6.2
+Release:        1.fb1
 Summary:        A tool to detect and correct common issues around RPM database corruption.
 
 License:        GPL-2.0
 URL:            https://pypi.python.org/pypi/%{srcname}
 Source0:        https://github.com/facebookincubator/dcrpm/archive/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
 Source1:        dcrpm.py
-
-# PR#35: Relax Requirename index check
-Patch0:         35.patch
 
 # Facebook-specific logging stuff
 %if 0%{?facebook}
@@ -53,7 +50,6 @@ A tool to detect and correct common issues around RPM database corruption.
 
 %prep
 %setup -n %{srcname}-%{version}
-%patch0 -p1
 
 %build
 %if 0%{?facebook}
@@ -107,6 +103,9 @@ install -m0644 %{SOURCE2} %{buildroot}/%{_sysconfdir}/dcrpm-logging.json
 %endif
 
 %changelog
+* Mon Apr 27 2020 Davide Cavalca <dcavalca@fb.com> - 0.6.2-1.fb1
+- New upstream release
+
 * Wed Apr 1 2020 Davide Cavalca <dcavalca@fb.com> - 0.6.1-1.fb3
 - More scuba logger fixes
 
