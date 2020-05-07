@@ -8,20 +8,26 @@
 %global __global_ldflags -Wl,-z,relro %{_hardened_ldflags}
 %global __meson_wrap_mode default
 
-#global commit 49ff0872ce34684617ee6a6ebe5ba3b07da316b5
-#global systemd_commit db9c5ae73e23d816e2df2a3e10a9a2a60b5b3ed7
+#global commit 8305c6042032310e819ed5ac5384c857bdd344b7 
+#global systemd_commit 9a506b7e9291d997a920af9ac299e7b834368119
 %{?commit:%global shortcommit %(c=%{commit}; echo ${c:0:7})}
 %{?commit:%global systemd_shortcommit %(c=%{systemd_commit}; echo ${c:0:7})}
 
 Name:           systemd-compat-libs
 Url:            https://github.com/facebookincubator/systemd-compat-libs
-Version:        244
-Release:        2.fb4
+Version:        245.5
+Release:        2.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+
 Summary:        Compatibility libraries for systemd
 
-%global github_version %(c=%{version}; echo ${c}|tr '~' '-')
+%global stable 1
+%global systemd_version %(c=%{version}; echo ${c}|tr '~' '-')
+
+# The systemd-stable versions don't follow the scheme we use for
+# systemd-compat-libs so define the actual github version here.
+# This is the same as systemd_version if we key off regular (not stable) systemd.
+%global github_version 245
 
 %if %{defined commit}
 Source0:        https://github.com/facebookincubator/systemd-compat-libs/archive/%{?commit}/%{name}-%{shortcommit}.tar.gz
@@ -29,9 +35,13 @@ Source0:        https://github.com/facebookincubator/systemd-compat-libs/archive
 Source0:        https://github.com/facebookincubator/systemd-compat-libs/archive/v%{github_version}/%{name}-%{github_version}.tar.gz
 %endif
 %if %{defined systemd_commit}
-Source1:        https://github.com/systemd/systemd/archive/%{?systemd_commit}/systemd-%{systemd_shortcommit}.tar.gz
+Source1:        https://github.com/systemd/systemd%{?stable:-stable}/archive/%{?systemd_commit}/systemd-%{systemd_shortcommit}.tar.gz
 %else
-Source1:        https://github.com/systemd/systemd/archive/v%{github_version}/systemd-%{github_version}.tar.gz
+%if 0%{?stable}
+Source1:        https://github.com/systemd/systemd-stable/archive/v%{systemd_version}/systemd-%{systemd_version}.tar.gz
+%else
+Source1:        https://github.com/systemd/systemd/archive/v%{systemd_version}/systemd-%{systemd_version}.tar.gz
+%endif
 %endif
 
 BuildRequires:  meson >= 0.47
@@ -44,12 +54,8 @@ BuildRequires:  gettext
 BuildRequires:  intltool
 BuildRequires:  libxslt
 BuildRequires:  docbook-style-xsl
-%if 0%{?el7}
-BuildRequires:  python34
-%else
 BuildRequires:  python3
-%endif
-%if %{defined systemd_commit}
+%if %{defined systemd_commit} || 0%{?stable}
 BuildRequires:  coreutils
 BuildRequires:  gawk
 %endif
@@ -73,19 +79,30 @@ Development headers and auxiliary files for developing applications linking
 to systemd-compat-libs.
 
 %prep
-%autosetup -n %{?commit:%{name}%{?stable:-stable}-%{commit}}%{!?commit:%{name}%{?stable:-stable}-%{github_version}} -p1 -Sgit
+%autosetup -n %{?commit:%{name}-%{commit}}%{!?commit:%{name}-%{github_version}} -p1 -Sgit
 mkdir -p subprojects/packagecache
 cp -p %SOURCE1 subprojects/packagecache/
 
 %if %{defined systemd_commit}
-sed -i meson.build -e "s/version : '[0-9]*'/version : '%{github_version}'/"
+sed -i meson.build -e "s/version : '[0-9]*'/version : '%{systemd_version}'/"
 cat > subprojects/systemd.wrap <<EOF
 [wrap-file]
 directory = systemd-%{systemd_commit}
-source_url = https://github.com/systemd/systemd/archive/%{?systemd_commit}.tar.gz
+source_url = https://github.com/systemd/systemd%{?stable:-stable}/archive/%{systemd_commit}/systemd-%{systemd_shortcommit}.tar.gz
 source_filename = systemd-%{systemd_shortcommit}.tar.gz
 source_hash = $(sha256sum %SOURCE1 | awk '{print $1}')
 EOF
+%else
+%if 0%{?stable}
+sed -i meson.build -e "s/version : '[0-9]*'/version : '%{systemd_version}'/"
+cat > subprojects/systemd.wrap <<EOF
+[wrap-file]
+directory = systemd-stable-%{systemd_version}
+source_url = https://github.com/systemd/systemd-stable/archive/v%{systemd_version}/systemd-%{systemd_version}.tar.gz
+source_filename = systemd-%{systemd_version}.tar.gz
+source_hash = $(sha256sum %SOURCE1 | awk '{print $1}')
+EOF
+%endif
 %endif
 
 %build
@@ -121,6 +138,9 @@ export LC_ALL=en_US.UTF-8
 %{_libdir}/pkgconfig/libsystemd-id128.pc
 
 %changelog
+* Thu Apr 30 2020 Anita Zhang <anitazha@fb.com> - 245.5-2.fb1
+- New upstream release
+
 * Thu Mar 26 2020 Andrew Gallagher <agallagher@fb.com> - 244-2.fb4
 - Bump version to match systemd packages
 

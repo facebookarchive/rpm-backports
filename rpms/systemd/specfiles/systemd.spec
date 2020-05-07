@@ -9,7 +9,7 @@
 
 %define _python_bytecompile_errors_terminate_build 0
 
-%global commit 639dc9f4bfd2c09535bee079ae9bc7006b520a66
+#global commit 9a506b7e9291d997a920af9ac299e7b834368119
 %{?commit:%global shortcommit %(c=%{commit}; echo ${c:0:7})}
 
 %global stable 1
@@ -23,10 +23,15 @@
 %global system_unit_dir %{pkgdir}/system
 %global user_unit_dir %{pkgdir}/user
 
+# Bootstrap may be needed to break intercircular dependencies with
+# cryptsetup, e.g. when re-building cryptsetup on a json-c SONAME-bump.
+%bcond_with    bootstrap
+%bcond_without tests
+
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
-Version:        244
-Release:        2.fb4
+Version:        245.5
+Release:        2.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -59,6 +64,11 @@ Source10:       systemd-udev-trigger-no-reload.conf
 Source11:       20-grubby.install
 Source12:       systemd-user
 
+Source21:       macros.sysusers
+Source22:       sysusers.attr
+Source23:       sysusers.prov
+Source24:       sysusers.generate-pre.sh
+
 %if 0
 GIT_DIR=../../src/systemd/.git git format-patch-ab --no-signature -M -N v235..v235-stable
 i=1; for j in 00*patch; do printf "Patch%04d:      %s\n" $i $j; i=$((i+1));done|xclip
@@ -66,14 +76,13 @@ GIT_DIR=../../src/systemd/.git git diffab -M v233..master@{2017-06-15} -- hwdb/[
 %endif
 
 Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
-Patch1000:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
-# PR 13823 - PrivateUsers=true for (unprivileged) user managers
-Patch1001:      13823_unprivprivate.patch
-# PR 14441 - Fix type.d drop-in ordering
-Patch1002:      14441_topdropfix.patch
-# PR 14815 - Permissive syscall filtering through dbus-execute
-Patch1003:      14815_syscallsfix.patch
-Patch1004:      FB--bump-high-rlimit-memlock-512M.patch
+
+# https://bugzilla.redhat.com/show_bug.cgi?id=1803293
+Patch1000:      0001-Revert-job-Don-t-mark-as-redundant-if-deps-are-relev.patch
+
+Patch1001:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
+Patch1002:      15544-fix-namespace-check.patch
+Patch1003:      15551-bump-rlimit_memlock.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -83,11 +92,17 @@ BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  libcap-devel
 BuildRequires:  libmount-devel
+BuildRequires:  libfdisk-devel
+BuildRequires:  libpwquality-devel
 BuildRequires:  pam-devel
 BuildRequires:  libselinux-devel
 BuildRequires:  audit-libs-devel
+%if %{without bootstrap}
 BuildRequires:  cryptsetup-devel
+%endif
 BuildRequires:  dbus-devel
+# /usr/bin/getfacl is needed by test-acl-util
+BuildRequires:  acl
 BuildRequires:  libacl-devel
 BuildRequires:  gobject-introspection-devel
 BuildRequires:  libblkid-devel
@@ -100,6 +115,7 @@ BuildRequires:  libidn2-devel
 BuildRequires:  libcurl-devel
 BuildRequires:  kmod-devel
 BuildRequires:  elfutils-devel
+BuildRequires:  openssl-devel
 BuildRequires:  libgcrypt-devel
 BuildRequires:  libgpg-error-devel
 BuildRequires:  gnutls-devel
@@ -117,13 +133,12 @@ BuildRequires:  hostname
 %if 0%{?el7}
 BuildRequires:  python34-devel
 BuildRequires:  python34-lxml
-BuildRequires:  python36
-%global __python3 python36
 %else
 BuildRequires:  python3-devel
 BuildRequires:  python3-lxml
-BuildRequires:  python3
 %endif
+BuildRequires:  python3
+%global __python3 /usr/bin/python3
 BuildRequires:  pcre2-devel
 %if 0%{?have_gnu_efi}
 BuildRequires:  gnu-efi gnu-efi-devel
@@ -134,6 +149,7 @@ BuildRequires:  meson >= 0.43
 BuildRequires:  gettext
 # We use RUNNING_ON_VALGRIND in tests, so the headers need to be available
 BuildRequires:  valgrind-devel
+BuildRequires:  pkgconfig(bash-completion)
 
 Requires(post): coreutils
 Requires(post): sed
@@ -168,10 +184,6 @@ Conflicts:      fedora-release < 23-0.12
 Obsoletes:      timedatex < 0.6-3
 Provides:       timedatex = 0.6-3
 
-# https://bugzilla.redhat.com/show_bug.cgi?id=1753381
-Provides:       u2f-hidraw-policy = 1.0.2-40
-Obsoletes:      u2f-hidraw-policy < 1.0.2-40
-
 %description
 systemd is a system and service manager that runs as PID 1 and starts
 the rest of the system. It provides aggressive parallelization
@@ -187,8 +199,7 @@ runtime directories and settings, and daemons to manage simple network
 configuration, network time synchronization, log forwarding, and name
 resolution.
 %if 0%{?stable}
-This package was built from the %{github_version}-stable branch of systemd,
-commit https://github.com/systemd/systemd-stable/commit/%{shortcommit}.
+This package was built from the %{version}-stable branch of systemd.
 %endif
 
 %package libs
@@ -243,6 +254,8 @@ to libudev or libsystemd.
 
 %package udev
 Summary: Rule-based device node and kernel event manager
+License:        LGPLv2+
+
 Requires:       %{name}%{?_isa} = %{version}-%{release}
 Requires(post):   systemd
 Requires(preun):  systemd
@@ -255,10 +268,13 @@ Provides:       udev = %{version}
 Provides:       udev%{_isa} = %{version}
 Obsoletes:      udev < 183
 # https://bugzilla.redhat.com/show_bug.cgi?id=1377733#c9
-Recommends:     systemd-bootchart
+Suggests:       systemd-bootchart
 # https://bugzilla.redhat.com/show_bug.cgi?id=1408878
-Recommends:     kbd
-License:        LGPLv2+
+Requires:       kbd
+
+# https://bugzilla.redhat.com/show_bug.cgi?id=1753381
+Provides:       u2f-hidraw-policy = 1.0.2-40
+Obsoletes:      u2f-hidraw-policy < 1.0.2-40
 
 %description udev
 This package contains systemd-udev and the rules and hardware database
@@ -328,6 +344,7 @@ CONFIGURE_OPTS=(
         -Dkmod=true
         -Dxkbcommon=true
         -Dblkid=true
+        -Dfdisk=true
         -Dseccomp=true
         -Dima=true
         -Dselinux=true
@@ -343,8 +360,13 @@ CONFIGURE_OPTS=(
         -Dgcrypt=true
         -Daudit=true
         -Delfutils=true
+%if %{without bootstrap}
         -Dlibcryptsetup=true
+%else
+        -Dlibcryptsetup=false
+%endif
         -Delfutils=true
+        -Dpwquality=true
         -Dqrencode=true
         -Dgnutls=true
         -Dmicrohttpd=true
@@ -365,7 +387,7 @@ CONFIGURE_OPTS=(
         -Dnobody-group=nobody
         -Dsplit-usr=false
         -Dsplit-bin=true
-        -Db_lto=false
+        -Db_lto=true
         -Db_ndebug=false
         -Dman=true
         -Dversion-tag=v%{version}-%{release}
@@ -384,6 +406,9 @@ CONFIGURE_OPTS+=(
         -Dsupport-url='https://www.facebook.com/groups/prodos.users/'
         -Ddefault-hierarchy=%{_hierarchy}
         -Dcontainer-uid-base-min=10485760
+        -Dp11kit=false
+        -Duserdb=false
+        -Dhomed=false
 )
 %endif
 
@@ -413,9 +438,9 @@ mkdir -p %{buildroot}%{system_unit_dir}/basic.target.wants
 mkdir -p %{buildroot}%{system_unit_dir}/default.target.wants
 mkdir -p %{buildroot}%{system_unit_dir}/dbus.target.wants
 mkdir -p %{buildroot}%{system_unit_dir}/syslog.target.wants
-mkdir -p %{buildroot}%{_localstatedir}/run
+mkdir -p %{buildroot}/run
 mkdir -p %{buildroot}%{_localstatedir}/log
-touch %{buildroot}%{_localstatedir}/run/utmp
+touch %{buildroot}/run/utmp
 touch %{buildroot}%{_localstatedir}/log/{w,b}tmp
 
 # Make sure the user generators dir exists too
@@ -480,9 +505,13 @@ install -Dm0755 -t %{buildroot}%{_prefix}/lib/kernel/install.d/ %{SOURCE11}
 
 install -D -t %{buildroot}/usr/lib/systemd/ %{SOURCE3}
 
-%if 0%{?el7}
-sed -i 's|#!/usr/bin/env python3|#!/usr/bin/env python36|' %{buildroot}/usr/lib/systemd/tests/run-unit-tests.py
-%endif
+sed -i 's|#!/usr/bin/env python3|#!%{__python3}|' %{buildroot}/usr/lib/systemd/tests/run-unit-tests.py
+
+install -m 0644 -D -t %{buildroot}%{_rpmconfigdir}/macros.d/ %{SOURCE21}
+mkdir -p %{buildroot}%{_rpmconfigdir}/fileattrs/
+install -m 0644 -D -t %{buildroot}%{_rpmconfigdir}/fileattrs/ %{SOURCE22}
+install -m 0755 -D -t %{buildroot}%{_rpmconfigdir}/ %{SOURCE23}
+install -m 0755 -D -t %{buildroot}%{_rpmconfigdir}/ %{SOURCE24}
 
 %find_lang %{name}
 
@@ -496,7 +525,7 @@ sed -i 's|#!/usr/bin/env python3|#!/usr/bin/env python36|' %{buildroot}/usr/lib/
 /usr/lib/systemd/purge-nobody-user
 %ghost %config(noreplace) /etc/vconsole.conf
 %ghost %config(noreplace) /etc/X11/xorg.conf.d/00-keyboard.conf
-%ghost %attr(0664,root,utmp) /var/run/utmp
+%ghost %attr(0664,root,utmp) /run/utmp
 %ghost %attr(0664,root,utmp) /var/log/wtmp
 %ghost %attr(0600,root,utmp) /var/log/btmp
 %ghost %config(noreplace) /etc/hostname
@@ -524,9 +553,11 @@ sed -i 's|#!/usr/bin/env python3|#!/usr/bin/env python36|' %{buildroot}/usr/lib/
 EOF
 
 %check
+%if %{with tests}
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
-%ninja_test -C %{_vpath_builddir}
+meson test -C %{_vpath_builddir} -t 6
+%endif
 
 #############################################################################################
 
@@ -553,11 +584,27 @@ getent passwd systemd-resolve &>/dev/null || useradd -r -u 193 -l -g systemd-res
 
 %post
 systemd-machine-id-setup &>/dev/null || :
+
 systemctl daemon-reexec &>/dev/null || {
-  if test -d /run/systemd/system ; then
+  # systemd v239 had bug #9553 in D-Bus authentication of the private socket,
+  # which was later fixed in v240 by #9625.
+  #
+  # The end result is that a `systemctl daemon-reexec` call as root will fail
+  # when upgrading from systemd v239, which means the system will not start
+  # running the new version of systemd after this post install script runs.
+  #
+  # To work around this issue, let's fall back to using a `kill -TERM 1` to
+  # re-execute the daemon when the `systemctl daemon-reexec` call fails.
+  #
+  # In order to prevent issues when the reason why the daemon-reexec failed is
+  # not the aforementioned bug, let's only use this fallback when:
+  #   - we're upgrading this RPM package; and
+  #   - we confirm that systemd is running as PID1 on this system.
+  if [ $1 -gt 1 ] && [ -d /run/systemd/system ] ; then
     kill -TERM 1 &>/dev/null || :
   fi
 }
+
 journalctl --update-catalog &>/dev/null || :
 systemd-tmpfiles --create &>/dev/null || :
 
@@ -579,9 +626,12 @@ setfacl -Rnm g:wheel:rx,d:g:wheel:rx,g:adm:rx,d:g:adm:rx /var/log/journal/ &>/de
 # https://bugzilla.redhat.com/show_bug.cgi?id=1118740#c23
 # This will fix up enablement of any preset services that got installed
 # before systemd due to rpm ordering problems:
-# https://bugzilla.redhat.com/show_bug.cgi?id=1647172
+# https://bugzilla.redhat.com/show_bug.cgi?id=1647172.
+# We also do this for user units, see
+# https://fedoraproject.org/wiki/Changes/Systemd_presets_for_user_units.
 if [ $1 -eq 1 ] ; then
         systemctl preset-all &>/dev/null || :
+        systemctl --global preset-all &>/dev/null || :
 fi
 
 %preun
@@ -751,16 +801,93 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
-* Thu Mar 18 2020 Andrew Gallagher <agallagher@fb.com> - 244-2.fb4
+* Thu Apr 30 2020 Anita Zhang <anitazha@fb.com> - 245.5-2.fb1
+- Facebook rebuild
+- Don't compile in systemd-homed, systemd-userdb, and p11kit
+- Backport PR #15544 and #15551 (drops FB rlimit_memlock patch)
+
+* Tue Apr 21 2020 Björn Esser <besser82@fedoraproject.org> - 245.5-2
+- Add explicit BuildRequires: acl
+- Bootstrapping for json-c SONAME bump
+
+* Fri Apr 17 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 245.5-1
+- Update to latest stable version (#1819313, #1815412, #1800875)
+
+* Thu Apr 16 2020 Björn Esser <besser82@fedoraproject.org> - 245.4-2
+- Add bootstrap option to break circular deps on cryptsetup
+
+* Wed Apr  1 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 245.4-1
+- Update to latest stable version (#1814454)
+
+* Thu Mar 26 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 245.3-1
+- Update to latest stable version (no issue that got reported in bugzilla)
+
+* Wed Mar 18 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 245.2-1
+- Update to latest stable version (a few bug fixes for random things) (#1798776)
+
+* Wed Mar 18 2020 Andrew Gallagher <agallagher@fb.com> - 244-2.fb4
 - Bump HIGH_RLIMIT_MEMLOCK to 512M
+
+* Fri Mar  6 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 245-1
+- Update to latest version (#1807485)
+
+* Wed Feb 26 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 245~rc2-1
+- Modify the downstream udev rule to use bfq to only apply to disks (#1803500)
+- "Upgrade" dependency on kbd package from Recommends to Requires (#1408878)
+- Move systemd-bless-boot.service and systemd-boot-system-token.service to
+  systemd-udev subpackage (#1807462)
+- Move a bunch of other services to systemd-udev:
+  systemd-pstore.service, all fsck-related functionality,
+  systemd-volatile-root.service, systemd-verity-setup.service, and a few
+  other related files.
+- Fix daemon-reload rule to not kill non-systemd pid1 (#1803240)
+- Fix namespace-related failure when starting systemd-homed (#1807465) and
+  group lookup failure in nss_systemd (#1809147)
+- Drop autogenerated BOOT_IMAGE= parameter from stored kernel command lines
+  (#1716164)
+- Don't require /proc to be mounted for systemd-sysusers to work (#1807768)
+
+* Fri Feb 21 2020 Filipe Brandenburger <filbranden@gmail.com> - 245~rc1-4
+- Update daemon-reexec fallback to check whether the system is booted with
+  systemd as PID 1 and check whether we're upgrading before using kill -TERM
+  on PID 1 (#1803240)
 
 * Thu Feb 20 2020 Filipe Brandenburger <filbranden@fb.com> - 244-2.fb3
 - Only kill -TERM 1 when systemd is actually running.
 
-* Thu Feb  6 2020  Anita Zhang <anitazha@fb.com> - 244-2.fb2
+* Tue Feb 18 2020 Adam Williamson <awilliam@redhat.com> - 245~rc1-3
+- Revert 097537f0 to fix plymouth etc. running when they shouldn't (#1803293)
+
+* Fri Feb  7 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 245~rc1-2
+- Add default 'disable *' preset for user units (#1792474, #1468501),
+  see https://fedoraproject.org/wiki/Changes/Systemd_presets_for_user_units.
+- Add macro to generate "compat" scriptlets based off sysusers.d format
+  and autogenerate user() and group() virtual provides (#1792462),
+  see https://fedoraproject.org/wiki/Changes/Adopting_sysusers.d_format.
+- Revert patch to udev rules causing regression with usb hubs (#1800820).
+
+* Thu Feb  6 2020 Anita Zhang <anitazha@fb.com> - 244-2.fb2
 - Backport PR#14815 (Permissive syscall filtering in dbus-execute)
 
-* Thu Jan  9 2020  Anita Zhang <anitazha@fb.com> - 244-2.fb1
+* Wed Feb  5 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 245~rc1-1
+- New upstream release, see
+  https://raw.githubusercontent.com/systemd/systemd/v245-rc1/NEWS.
+
+  This release includes completely new functionality: systemd-repart,
+  systemd-homed, user reconds in json, and multi-instantiable
+  journald, and a partial rework of internal communcation to use
+  varlink, and bunch of more incremental changes.
+
+  The "predictable" interface name naming scheme is changed,
+  net.naming-scheme= can be used to undo the change. The change applies
+  to container interface names on the host.
+
+- Fixes #1774242, #1787089, #1798414/CVE-2020-1712.
+
+* Fri Jan 31 2020 Fedora Release Engineering <releng@fedoraproject.org>
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_32_Mass_Rebuild
+
+* Thu Jan  9 2020 Anita Zhang <anitazha@fb.com> - 244-2.fb1
 - Facebook rebuild
 - Backport PR#13823 (PrivateUsers=true for unprivileged user managers)
 - Backport PR#14441 (Fix type.d drop-in ordering)
@@ -996,7 +1123,7 @@ fi
 - Remove link creation for rsyslog.service
 
 * Thu Nov  8 2018 Adam Williamson <awilliam@redhat.com> - 239-9.git9f3aed1
-- Go back to using systemctl preset-all in %post (#1647172, #1118740)
+- Go back to using systemctl preset-all in %%post (#1647172, #1118740)
 
 * Mon Nov  5 2018 Adam Williamson <awilliam@redhat.com> - 239-8.git9f3aed1
 - Requires(post) openssl-libs to fix live image build machine-id issue

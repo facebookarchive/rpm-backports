@@ -1,0 +1,28 @@
+#!/bin/bash
+
+parse() {
+    while read line; do
+        [ "${line:0:1}" = '#' -o "${line:0:1}" = ';' ] && continue
+        line="${line## *}"
+        [ -z "$line" ] && continue
+        set -- $line
+        case "$1" in
+            ('u')
+                echo "user($2)"
+                echo "group($2)"
+                # TODO: user:group support
+                ;;
+            ('g')
+                echo "group($2)"
+                ;;
+            ('m')
+                echo "user($2)"
+                echo "group($3)"
+                ;;
+        esac
+    done
+}
+
+while read fn; do
+    parse < "$fn"
+done

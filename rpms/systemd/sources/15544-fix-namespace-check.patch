@@ -1,0 +1,29 @@
+From 2b6df46d21abe8a8b7481e420588a9a129699cf9 Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Wed, 22 Apr 2020 19:48:48 +0200
+Subject: [PATCH 1/2] sd-journal: don't check namespaces if we have no
+ namespace to go by
+
+Fixes: #15528
+---
+ src/journal/sd-journal.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/src/journal/sd-journal.c b/src/journal/sd-journal.c
+index a739fa8aafc..5c13134b308 100644
+--- a/src/journal/sd-journal.c
++++ b/src/journal/sd-journal.c
+@@ -1626,9 +1626,10 @@ static int add_directory(
+             !((dirname && dirname_is_machine_id(dirname) > 0) || path_has_prefix(j, path, "/run")))
+                 return 0;
+ 
+-        if (!(FLAGS_SET(j->flags, SD_JOURNAL_ALL_NAMESPACES) ||
+-              dirname_has_namespace(dirname, j->namespace) > 0 ||
+-              (FLAGS_SET(j->flags, SD_JOURNAL_INCLUDE_DEFAULT_NAMESPACE) && dirname_has_namespace(dirname, NULL) > 0)))
++        if (dirname &&
++            (!(FLAGS_SET(j->flags, SD_JOURNAL_ALL_NAMESPACES) ||
++               dirname_has_namespace(dirname, j->namespace) > 0 ||
++               (FLAGS_SET(j->flags, SD_JOURNAL_INCLUDE_DEFAULT_NAMESPACE) && dirname_has_namespace(dirname, NULL) > 0))))
+                 return 0;
+ 
+         r = directory_open(j, path, &d);
