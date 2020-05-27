@@ -1,6 +1,6 @@
 Name:           mkosi
 Version:        5
-Release:        2.fb1%{?dist}
+Release:        2.fb2%{?dist}
 Summary:        Create legacy-free OS images
 
 License:        LGPLv2+
@@ -19,8 +19,8 @@ Source10:       RPM-GPG-KEY-fedora-32-x86_64
 
 BuildArch:      noarch
 
-BuildRequires:  python36
-Requires:       python36
+BuildRequires:  python3
+Requires:       python3
 # for subprocess.run
 
 Recommends:     dnf
@@ -35,7 +35,7 @@ Recommends:     dosfstools
 Recommends:     e2fsprogs
 Recommends:     squashfs-tools
 Recommends:     veritysetup
-Recommends:     python36-argcomplete
+Recommends:     python3-argcomplete
 
 %description
 A fancy wrapper around "dnf --installroot", "debootstrap" and
@@ -49,9 +49,6 @@ supported (not plain MBR/BIOS).
 
 %prep
 %autosetup -p1
-
-%build
-sed -i mkosi -e 's:/usr/bin/python3:/usr/bin/python36:'
 
 %install
 # It's just one file, and setup.py install would copy useless .egg-info
@@ -91,6 +88,9 @@ install -m 0644 %SOURCE7 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedo
 %buildroot/usr/bin/mkosi --help
 
 %changelog
+* Tue May 26 2020 Davide Cavalca <dcavalca@fb.com> - 5-2.fb2
+- Fix build after python package rename
+
 * Wed Oct 02 2019 Davide Cavalca <dcavalca@fb.com> - 5-2.fb1
 - Facebook rebuild
 - Add Fedora 30, 31, 32 keys
