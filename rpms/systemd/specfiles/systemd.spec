@@ -31,7 +31,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        245.5
-Release:        2.fb2
+Release:        2.fb3
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -83,7 +83,8 @@ Patch1000:      0001-Revert-job-Don-t-mark-as-redundant-if-deps-are-relev.patch
 Patch1001:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
 Patch1002:      15544-fix-namespace-check.patch
 Patch1003:      15551-bump-rlimit_memlock.patch
-Patch1004:      FB--revert-disable-reading-systemdoptions-efi-in-secure-boot
+Patch1004:      FB--revert-disable-reading-systemdoptions-efi-in-secure-boot.patch
+Patch1005:      156a5fd-always-base10-user-group-nums.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -802,6 +803,9 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Fri Jun  5 2020 Anita Zhang <anitazha@fb.com> - 245.5-2.fb3
+- Backport 156a5fd to mitigate CVE-2020-13776
+
 * Thu Jun  4 2020 Anita Zhang <anitazha@fb.com> - 245.5-2.fb2
 - Revert c7d26ac which is causing SMI count to go up leading to increased
   microstalls during Chef runs
