@@ -1,0 +1,225 @@
+From 22795ae1dfdc8a043db557811a413e234f6e1357 Mon Sep 17 00:00:00 2001
+From: Anita Zhang <the.anitazha@gmail.com>
+Date: Thu, 4 Jun 2020 16:29:03 -0700
+Subject: [PATCH] Revert "Disable reading SystemdOptions EFI Var when in
+ SecureBoot mode"
+
+This reverts commit c7d26acce6dcb0e72be6160873fac758e9b7c440.
+---
+ src/basic/efivars.c      | 36 ------------------------------------
+ src/basic/efivars.h      | 16 ----------------
+ src/basic/proc-cmdline.c | 16 ++--------------
+ src/shared/efi-loader.c  | 34 ++++++++++++++++++++++++++++++++++
+ src/shared/efi-loader.h  | 15 +++++++++++++++
+ 5 files changed, 51 insertions(+), 66 deletions(-)
+
+diff --git a/src/basic/efivars.c b/src/basic/efivars.c
+index 502c3a0c44..ea43abd7b3 100644
+--- a/src/basic/efivars.c
++++ b/src/basic/efivars.c
+@@ -20,7 +20,6 @@
+ #include "strv.h"
+ #include "time-util.h"
+ #include "utf8.h"
+-#include "virt.h"
+ 
+ #if ENABLE_EFI
+ 
+@@ -222,41 +221,6 @@ int efi_set_variable_string(sd_id128_t vendor, const char *name, const char *v)
+         return efi_set_variable(vendor, name, u16, (char16_strlen(u16) + 1) * sizeof(char16_t));
+ }
+ 
+-bool is_efi_boot(void) {
+-        if (detect_container() > 0)
+-                return false;
+-
+-        return access("/sys/firmware/efi/", F_OK) >= 0;
+-}
+-
+-static int read_flag(const char *varname) {
+-        _cleanup_free_ void *v = NULL;
+-        uint8_t b;
+-        size_t s;
+-        int r;
+-
+-        if (!is_efi_boot()) /* If this is not an EFI boot, assume the queried flags are zero */
+-                return 0;
+-
+-        r = efi_get_variable(EFI_VENDOR_GLOBAL, varname, NULL, &v, &s);
+-        if (r < 0)
+-                return r;
+-
+-        if (s != 1)
+-                return -EINVAL;
+-
+-        b = *(uint8_t *)v;
+-        return !!b;
+-}
+-
+-bool is_efi_secure_boot(void) {
+-        return read_flag("SecureBoot") > 0;
+-}
+-
+-bool is_efi_secure_boot_setup_mode(void) {
+-        return read_flag("SetupMode") > 0;
+-}
+-
+ int systemd_efi_options_variable(char **line) {
+         const char *e;
+         int r;
+diff --git a/src/basic/efivars.h b/src/basic/efivars.h
+index 13a33c6605..46ca58d0a5 100644
+--- a/src/basic/efivars.h
++++ b/src/basic/efivars.h
+@@ -28,10 +28,6 @@ int efi_get_variable_string(sd_id128_t vendor, const char *name, char **p);
+ int efi_set_variable(sd_id128_t vendor, const char *name, const void *value, size_t size);
+ int efi_set_variable_string(sd_id128_t vendor, const char *name, const char *p);
+ 
+-bool is_efi_boot(void);
+-bool is_efi_secure_boot(void);
+-bool is_efi_secure_boot_setup_mode(void);
+-
+ int systemd_efi_options_variable(char **line);
+ 
+ #else
+@@ -56,18 +52,6 @@ static inline int efi_set_variable_string(sd_id128_t vendor, const char *name, c
+         return -EOPNOTSUPP;
+ }
+ 
+-static inline bool is_efi_boot(void) {
+-        return false;
+-}
+-
+-static inline bool is_efi_secure_boot(void) {
+-        return false;
+-}
+-
+-static inline bool is_efi_secure_boot_setup_mode(void) {
+-        return false;
+-}
+-
+ static inline int systemd_efi_options_variable(char **line) {
+         return -ENODATA;
+ }
+diff --git a/src/basic/proc-cmdline.c b/src/basic/proc-cmdline.c
+index 1af58717c6..d3d99d9a7f 100644
+--- a/src/basic/proc-cmdline.c
++++ b/src/basic/proc-cmdline.c
+@@ -39,18 +39,6 @@ int proc_cmdline(char **ret) {
+                 return read_one_line_file("/proc/cmdline", ret);
+ }
+ 
+-/* In SecureBoot mode this is probably not what you want. As your cmdline is
+- * cryptographically signed like when using Type #2 EFI Unified Kernel Images
+- * (https://systemd.io/BOOT_LOADER_SPECIFICATION/) The user's intention is then
+- * that the cmdline should not be modified.  You want to make sure that the
+- * system starts up as exactly specified in the signed artifact. */
+-static int systemd_options_variable(char **line) {
+-        if (is_efi_secure_boot())
+-                return -ENODATA;
+-
+-        return systemd_efi_options_variable(line);
+-}
+-
+ static int proc_cmdline_extract_first(const char **p, char **ret_word, ProcCmdlineFlags flags) {
+         const char *q = *p;
+         int r;
+@@ -131,7 +119,7 @@ int proc_cmdline_parse(proc_cmdline_parse_t parse_item, void *data, ProcCmdlineF
+ 
+         /* We parse the EFI variable first, because later settings have higher priority. */
+ 
+-        r = systemd_options_variable(&line);
++        r = systemd_efi_options_variable(&line);
+         if (r < 0 && r != -ENODATA)
+                 log_debug_errno(r, "Failed to get SystemdOptions EFI variable, ignoring: %m");
+ 
+@@ -262,7 +250,7 @@ int proc_cmdline_get_key(const char *key, ProcCmdlineFlags flags, char **ret_val
+                 return r;
+ 
+         line = mfree(line);
+-        r = systemd_options_variable(&line);
++        r = systemd_efi_options_variable(&line);
+         if (r == -ENODATA)
+                 return false; /* Not found */
+         if (r < 0)
+diff --git a/src/shared/efi-loader.c b/src/shared/efi-loader.c
+index b05dc91ecf..108f31d502 100644
+--- a/src/shared/efi-loader.c
++++ b/src/shared/efi-loader.c
+@@ -63,6 +63,40 @@ struct device_path device_path__contents;
+ struct device_path__packed device_path__contents _packed_;
+ assert_cc(sizeof(struct device_path) == sizeof(struct device_path__packed));
+ 
++bool is_efi_boot(void) {
++        if (detect_container() > 0)
++                return false;
++
++        return access("/sys/firmware/efi/", F_OK) >= 0;
++}
++
++static int read_flag(const char *varname) {
++        _cleanup_free_ void *v = NULL;
++        uint8_t b;
++        size_t s;
++        int r;
++
++        if (!is_efi_boot()) /* If this is not an EFI boot, assume the queried flags are zero */
++                return 0;
++
++        r = efi_get_variable(EFI_VENDOR_GLOBAL, varname, NULL, &v, &s);
++        if (r < 0)
++                return r;
++
++        if (s != 1)
++                return -EINVAL;
++
++        b = *(uint8_t *)v;
++        return !!b;
++}
++
++bool is_efi_secure_boot(void) {
++        return read_flag("SecureBoot") > 0;
++}
++
++bool is_efi_secure_boot_setup_mode(void) {
++        return read_flag("SetupMode") > 0;
++}
+ 
+ int efi_reboot_to_firmware_supported(void) {
+         _cleanup_free_ void *v = NULL;
+diff --git a/src/shared/efi-loader.h b/src/shared/efi-loader.h
+index 96208d25bf..7d41fbb359 100644
+--- a/src/shared/efi-loader.h
++++ b/src/shared/efi-loader.h
+@@ -5,6 +5,9 @@
+ 
+ #if ENABLE_EFI
+ 
++bool is_efi_boot(void);
++bool is_efi_secure_boot(void);
++bool is_efi_secure_boot_setup_mode(void);
+ int efi_reboot_to_firmware_supported(void);
+ int efi_get_reboot_to_firmware(void);
+ int efi_set_reboot_to_firmware(bool value);
+@@ -25,6 +28,18 @@ int efi_loader_get_features(uint64_t *ret);
+ 
+ #else
+ 
++static inline bool is_efi_boot(void) {
++        return false;
++}
++
++static inline bool is_efi_secure_boot(void) {
++        return false;
++}
++
++static inline bool is_efi_secure_boot_setup_mode(void) {
++        return false;
++}
++
+ static inline int efi_reboot_to_firmware_supported(void) {
+         return -EOPNOTSUPP;
+ }
+-- 
+2.24.1
+
