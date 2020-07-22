@@ -2,7 +2,7 @@
 Summary: A collection of basic system utilities
 Name: util-linux
 Version: 2.32
-Release: 2%{?dist}.fb3
+Release: 2%{?dist}.fb4
 License: GPLv2 and GPLv2+ and LGPLv2+ and BSD with advertising and Public Domain
 Group: System Environment/Base
 URL: http://en.wikipedia.org/wiki/Util-linux
@@ -37,6 +37,9 @@ Buildrequires: libuser-devel
 BuildRequires: libcap-ng-devel
 BuildRequires: %{pypkg}-devel
 BuildRequires: gcc
+%if 0%{?facebook}
+BuildRequires: kernel-headers >= 5.6.13
+%endif
 
 ### Sources
 Source0: ftp://ftp.kernel.org/pub/linux/utils/util-linux/v%{upstream_major}/util-linux-%{upstream_version}.tar.xz
@@ -946,6 +949,10 @@ exit 0
 %{_libdir}/python*/site-packages/libmount/
 
 %changelog
+* Wed Jul 22 2020 Davide Cavalca <dcavalca@fb.com> - 2.32-2.fb4
+- Rebuild against more recent kernel headers to properly support new
+  BPF capabilities
+
 * Mon Apr 06 2020 Igor Kanyuka <ikanyuka@fb.com> - 2.32-2.fb3
 - Facebook rebuild, fb2 was built as experiment, published, but was never committed, we need fb3 to move forward to the prod fb1 version code, from experimental one.
 
