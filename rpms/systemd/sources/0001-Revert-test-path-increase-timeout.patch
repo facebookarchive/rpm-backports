@@ -1,0 +1,30 @@
+From a73d30081a13eaeffce87f997726a179ec44d817 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Zbigniew=20J=C4=99drzejewski-Szmek?= <zbyszek@in.waw.pl>
+Date: Fri, 31 Jul 2020 10:50:37 +0200
+Subject: [PATCH 1/2] Revert "test-path: increase timeout"
+
+This partially reverts commit 500727c220354b81b68ed6667d9a6f0fafe3ba19.
+
+I was confused by the error message: the test says it timed out, but that's
+because it's waiting for a failed unit to come back to life. There is no actual
+timeout.
+
+So let's keep the minor refactoring that was done, but revert to the old short
+timeout.
+---
+ src/test/test-path.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/test/test-path.c b/src/test/test-path.c
+index 1075f31bc6..63b709c8da 100644
+--- a/src/test/test-path.c
++++ b/src/test/test-path.c
+@@ -82,7 +82,7 @@ static void check_states(Manager *m, Path *path, Service *service, PathState pat
+         assert_se(m);
+         assert_se(service);
+ 
+-        usec_t end = now(CLOCK_MONOTONIC) + 30 * USEC_PER_SEC;
++        usec_t end = now(CLOCK_MONOTONIC) + 2 * USEC_PER_SEC;
+ 
+         while (path->result != PATH_SUCCESS || service->result != SERVICE_SUCCESS ||
+                path->state != path_state || service->state != service_state) {

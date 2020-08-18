@@ -91,6 +91,7 @@ for file in files(buildroot):
                        cryptsetup|
                        kmod|
                        quota|
+                       pstore|
                        sleep|suspend|hibernate|
                        systemd-tmpfiles-setup-dev|
                        network/99-default.link|

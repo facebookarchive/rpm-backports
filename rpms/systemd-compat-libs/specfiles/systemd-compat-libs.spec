@@ -8,15 +8,15 @@
 %global __global_ldflags -Wl,-z,relro %{_hardened_ldflags}
 %global __meson_wrap_mode default
 
-#global commit 8305c6042032310e819ed5ac5384c857bdd344b7 
-#global systemd_commit 9a506b7e9291d997a920af9ac299e7b834368119
+#global commit d9b85f3d1a1954598414cce83e41b5aa9222ad6f
+#global systemd_commit 7f56c26d1041e686efa72b339250a98fb6ee8f00
 %{?commit:%global shortcommit %(c=%{commit}; echo ${c:0:7})}
 %{?commit:%global systemd_shortcommit %(c=%{systemd_commit}; echo ${c:0:7})}
 
 Name:           systemd-compat-libs
 Url:            https://github.com/facebookincubator/systemd-compat-libs
-Version:        245.5
-Release:        2.fb3
+Version:        246.1
+Release:        1.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+
 Summary:        Compatibility libraries for systemd
@@ -27,7 +27,7 @@ Summary:        Compatibility libraries for systemd
 # The systemd-stable versions don't follow the scheme we use for
 # systemd-compat-libs so define the actual github version here.
 # This is the same as systemd_version if we key off regular (not stable) systemd.
-%global github_version 245
+%global github_version 246
 
 %if %{defined commit}
 Source0:        https://github.com/facebookincubator/systemd-compat-libs/archive/%{?commit}/%{name}-%{shortcommit}.tar.gz
@@ -138,6 +138,9 @@ export LC_ALL=en_US.UTF-8
 %{_libdir}/pkgconfig/libsystemd-id128.pc
 
 %changelog
+* Mon Aug  17 2020 Anita Zhang <anitazha@fb.com> - 246.1-1.fb1
+- New upstream release
+
 * Fri Jun  5 2020 Anita Zhang <anitazha@fb.com> - 245.5-2.fb3
 - Bump version to match systemd packages
 

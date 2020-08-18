@@ -9,7 +9,7 @@
 
 %define _python_bytecompile_errors_terminate_build 0
 
-#global commit 9a506b7e9291d997a920af9ac299e7b834368119
+#global commit 7f56c26d1041e686efa72b339250a98fb6ee8f00
 %{?commit:%global shortcommit %(c=%{commit}; echo ${c:0:7})}
 
 %global stable 1
@@ -30,8 +30,8 @@
 
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
-Version:        245.5
-Release:        2.fb3
+Version:        246.1
+Release:        1.fb1
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -57,8 +57,6 @@ Source3:        purge-nobody-user
 # Prevent accidental removal of the systemd package
 Source4:        yum-protect-systemd.conf
 
-Source7:        systemd-journal-remote.xml
-Source8:        systemd-journal-gatewayd.xml
 Source9:        20-yama-ptrace.conf
 Source10:       systemd-udev-trigger-no-reload.conf
 Source11:       20-grubby.install
@@ -75,16 +73,13 @@ i=1; for j in 00*patch; do printf "Patch%04d:      %s\n" $i $j; i=$((i+1));done|
 GIT_DIR=../../src/systemd/.git git diffab -M v233..master@{2017-06-15} -- hwdb/[67]* hwdb/parse_hwdb.py > hwdb.patch
 %endif
 
-Patch0998:      0998-resolved-create-etc-resolv.conf-symlink-at-runtime.patch
+Patch0002:      0001-Revert-test-path-increase-timeout.patch
+Patch0003:      0002-test-path-do-not-fail-the-test-if-we-fail-to-start-s.patch
 
-# https://bugzilla.redhat.com/show_bug.cgi?id=1803293
-Patch1000:      0001-Revert-job-Don-t-mark-as-redundant-if-deps-are-relev.patch
+Patch0004:      0001-test-acl-util-output-more-debug-info.patch
+Patch0005:      0001-Do-not-assert-in-test_add_acls_for_user.patch
 
 Patch1001:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
-Patch1002:      15544-fix-namespace-check.patch
-Patch1003:      15551-bump-rlimit_memlock.patch
-Patch1004:      FB--revert-disable-reading-systemdoptions-efi-in-secure-boot.patch
-Patch1005:      156a5fd-always-base10-user-group-nums.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -92,6 +87,7 @@ Patch1005:      156a5fd-always-base10-user-group-nums.patch
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
+BuildRequires:  coreutils
 BuildRequires:  libcap-devel
 BuildRequires:  libmount-devel
 BuildRequires:  libfdisk-devel
@@ -113,6 +109,7 @@ BuildRequires:  xz
 BuildRequires:  lz4-devel
 BuildRequires:  lz4
 BuildRequires:  bzip2-devel
+BuildRequires:  libzstd-devel
 BuildRequires:  libidn2-devel
 BuildRequires:  libcurl-devel
 BuildRequires:  kmod-devel
@@ -141,12 +138,10 @@ BuildRequires:  python3-lxml
 %endif
 BuildRequires:  python3
 %global __python3 /usr/bin/python3
-BuildRequires:  pcre2-devel
 %if 0%{?have_gnu_efi}
 BuildRequires:  gnu-efi gnu-efi-devel
 %endif
 BuildRequires:  libseccomp-devel
-BuildRequires:  git
 BuildRequires:  meson >= 0.43
 BuildRequires:  gettext
 # We use RUNNING_ON_VALGRIND in tests, so the headers need to be available
@@ -258,14 +253,14 @@ to libudev or libsystemd.
 Summary: Rule-based device node and kernel event manager
 License:        LGPLv2+
 
-Requires:       %{name}%{?_isa} = %{version}-%{release}
+Requires:       systemd%{?_isa} = %{version}-%{release}
 Requires(post):   systemd
 Requires(preun):  systemd
 Requires(postun): systemd
 Requires(post): grep
 Requires:       kmod >= 18-4
-# obsolete parent package so that dnf will install new subpackage on upgrade (#1260394)
-Obsoletes:      %{name} < 229-5
+# https://bodhi.fedoraproject.org/updates/FEDORA-2020-dd43dd05b1
+Obsoletes:      systemd < 245.6-1
 Provides:       udev = %{version}
 Provides:       udev%{_isa} = %{version}
 Obsoletes:      udev < 183
@@ -330,7 +325,7 @@ License:       LGPLv2+
 They can be useful to test systemd internals.
 
 %prep
-%autosetup -n %{?commit:%{name}%{?stable:-stable}-%{commit}}%{!?commit:%{name}%{?stable:-stable}-%{github_version}} -p1 -Sgit
+%autosetup -n %{?commit:%{name}%{?stable:-stable}-%{commit}}%{!?commit:%{name}%{?stable:-stable}-%{github_version}} -p1
 
 %build
 %define ntpvendor %(source /etc/os-release; echo ${ID})
@@ -356,6 +351,7 @@ CONFIGURE_OPTS=(
         -Dzlib=true
         -Dbzip2=true
         -Dlz4=true
+        -Dzstd=true
         -Dpam=true
         -Dacl=true
         -Dsmack=true
@@ -411,6 +407,7 @@ CONFIGURE_OPTS+=(
         -Dp11kit=false
         -Duserdb=false
         -Dhomed=false
+        -Drepart=false
 )
 %endif
 
@@ -558,7 +555,7 @@ EOF
 %if %{with tests}
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
-meson test -C %{_vpath_builddir} -t 6
+meson test -C %{_vpath_builddir} -t 6 --print-errorlogs
 %endif
 
 #############################################################################################
@@ -647,7 +644,20 @@ if [ $1 -eq 0 ] ; then
                 systemd-networkd.service \
                 systemd-networkd-wait-online.service \
                 systemd-resolved.service \
+                systemd-homed.service \
                 >/dev/null || :
+fi
+
+%triggerun -- systemd < 246.1-1
+# This is for upgrades from previous versions before systemd-resolved became the default.
+systemctl --no-reload preset systemd-resolved.service &>/dev/null || :
+
+if systemctl is-enabled systemd-resolved.service &>/dev/null; then
+  grep -q 'Generated by NetworkManager' /etc/resolv.conf 2>/dev/null && \
+  echo -e '/etc/resolv.conf was generated by NetworkManager.\nRemoving it to let systemd-resolved manage this file.' && \
+  mv -v /etc/resolv.conf /etc/resolv.conf.orig-with-nm || :
+
+  systemctl start systemd-resolved.service &>/dev/null || :
 fi
 
 %post libs
@@ -655,18 +665,16 @@ fi
 
 function mod_nss() {
     if [ -f "$1" ] ; then
-        # sed-fu to add myhostname to hosts line
-        grep -E -q '^hosts:.* myhostname' "$1" ||
-        sed -i.bak -e '
-                /^hosts:/ !b
-                /\<myhostname\>/ b
-                s/[[:blank:]]*$/ myhostname/
-                ' "$1" &>/dev/null || :
-
         # Add nss-systemd to passwd and group
         grep -E -q '^(passwd|group):.* systemd' "$1" ||
         sed -i.bak -r -e '
-                s/^(passwd|group):(.*)/\1: \2 systemd/
+                s/^(passwd|group):(.*)/\1:\2 systemd/
+                ' "$1" &>/dev/null || :
+
+        # Add nss-resolve to hosts
+        grep -E -q '^hosts:.* resolve' "$1" ||
+        sed -i.bak -r -e '
+                s/^(hosts):(.*) files( mdns4_minimal .NOTFOUND=return.)? dns myhostname/\1:\2 resolve [!UNAVAIL=return] myhostname files\3 dns/
                 ' "$1" &>/dev/null || :
     fi
 }
@@ -803,12 +811,65 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Mon Aug 17 2020 Anita Zhang <anitazha@fb.com> - 246.1-1.fb1
+- Facebook rebuild
+- Don't compile in systemd-repart (needs libfdisk >= 2.33 and C8 has 2.32)
+- Remove unused systemd-journal-remote.xml and systemd-journal-gatewayd.xml
+  files since we never used firewalld
+
+* Fri Aug  7 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 246.1-1
+- A few minor bugfixes
+- Remove /etc/resolv.conf on upgrades (if managed by NetworkManager), so
+  that systemd-resolved can take over the management of the symlink.
+
+* Thu Jul 30 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 246-1
+- Update to released version. Only some minor bugfixes since the pre-release.
+
+* Sun Jul 26 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 246~rc2-2
+- Make /tmp be 50% of RAM again (#1856514)
+- Re-run 'systemctl preset systemd-resolved' on upgrades.
+  /etc/resolv.conf is not modified, by a hint is emitted if it is
+  managed by NetworkManager.
+
+* Fri Jul 24 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 246~rc2-1
+- New pre-release with incremental fixes
+  (#1856037, #1858845, #1856122, #1857783)
+- Enable systemd-resolved (with DNSSEC disabled by default, and LLMNR
+  and mDNS support in resolve-only mode by default).
+  See https://fedoraproject.org/wiki/Changes/systemd-resolved.
+
+* Thu Jul  9 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 246~rc1-1
+- New upstream release, see
+  https://raw.githubusercontent.com/systemd/systemd/v246-rc1/NEWS.
+
+  This release includes many new unit settings, related inter alia to
+  cgroupsv2 freezer support and cpu affinity, encryption and verification.
+  systemd-networkd has a ton of new functionality and many other tools gained
+  smaller enhancements. systemd-homed gained FIDO2 support.
+
+  Documentation has been significantly improved: sd-bus and sd-hwdb
+  libraries are now fully documented; man pages have been added for
+  the D-BUS APIs of systemd daemons and various new interfaces.
+
+  Closes #1392925, #1790972, #1197886, #1525593.
+
+* Wed Jun 24 2020 Bastien Nocera <bnocera@redhat.com> - 245.6-3
+- Set fallback-hostname to fedora so that unset hostnames are still
+  recognisable (#1392925)
+
 * Fri Jun  5 2020 Anita Zhang <anitazha@fb.com> - 245.5-2.fb3
 - Backport 156a5fd to mitigate CVE-2020-13776
 
 * Thu Jun  4 2020 Anita Zhang <anitazha@fb.com> - 245.5-2.fb2
 - Revert c7d26ac which is causing SMI count to go up leading to increased
   microstalls during Chef runs
+
+* Tue Jun  2 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 245.6-2
+- Add self-obsoletes to fix upgrades from F31
+
+* Sun May 31 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 245.6-1
+- Update to latest stable version (some documentation updates, minor
+  memory correctness issues) (#1815605, #1827467, #1842067)
 
 * Thu Apr 30 2020 Anita Zhang <anitazha@fb.com> - 245.5-2.fb1
 - Facebook rebuild
@@ -979,7 +1040,7 @@ fi
 - Update to latest pre-release. Fixes #1740113, #1717712.
 - The default scheduler for disks is set to BFQ (1738828)
 - The default cgroup hierarchy is set to unified (cgroups v2) (#1732114).
-  Use systemd.unified-cgroup-hierachy=0 on the kernel command line to revert.
+  Use systemd.unified-cgroup-hierarchy=0 on the kernel command line to revert.
   See https://fedoraproject.org/wiki/Changes/CGroupsV2.
 
 * Wed Aug 07 2019 Adam Williamson <awilliam@redhat.com> - 243~rc1-2

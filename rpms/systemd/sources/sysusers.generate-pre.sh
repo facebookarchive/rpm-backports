@@ -50,7 +50,7 @@ fi
 }
 
 parse() {
-    while read line; do
+    while read line || [ "$line" ]; do
         [ "${line:0:1}" = '#' -o "${line:0:1}" = ';' ] && continue
         line="${line## *}"
         [ -z "$line" ] && continue
