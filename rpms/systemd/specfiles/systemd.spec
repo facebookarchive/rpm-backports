@@ -31,7 +31,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        246.1
-Release:        1.fb1
+Release:        1.fb2
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -259,8 +259,13 @@ Requires(preun):  systemd
 Requires(postun): systemd
 Requires(post): grep
 Requires:       kmod >= 18-4
+%if 0%{?facebook}
+# obsolete parent package so that dnf will install new subpackage on upgrade (#1260394)
+Obsoletes:      %{name} < 229-5
+%else
 # https://bodhi.fedoraproject.org/updates/FEDORA-2020-dd43dd05b1
 Obsoletes:      systemd < 245.6-1
+%endif
 Provides:       udev = %{version}
 Provides:       udev%{_isa} = %{version}
 Obsoletes:      udev < 183
@@ -811,6 +816,10 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Tue Aug 18 2020 Anita Zhang <anitazha@fb.com> - 246.1-1.fb2
+- Gate "Obsoletes: systemd < 245.6-1" out due to dependency issues on Facebook
+  systems
+
 * Mon Aug 17 2020 Anita Zhang <anitazha@fb.com> - 246.1-1.fb1
 - Facebook rebuild
 - Don't compile in systemd-repart (needs libfdisk >= 2.33 and C8 has 2.32)
