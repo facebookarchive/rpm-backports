@@ -1,0 +1,32 @@
+Tests to validate:
+
+# install ant on your dev server. Pulls in a bunch of dependencies including
+# alsa-lib for some reason.
+dnf -y install ant
+
+# install plugin
+
+# This should fail. It's the purpose of the plugin.
+dnf -y remove alsa-lib
+
+# verify non-zero return status
+echo $?
+
+# This should succeed and remove all the packages that were installed with
+# ant
+dnf -y remove ant
+
+# verify zero return status
+echo $?
+
+
+dnf -y install ant
+
+# This should succeed, remove ant and everything installed as a result
+# of installing ant. 
+dnf -y --disableplugin flunk_dependent_remove remove alsa-lib
+
+# verify zero return status
+echo $?
+
+
