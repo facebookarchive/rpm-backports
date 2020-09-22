@@ -31,7 +31,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        246.1
-Release:        1.fb2
+Release:        1.fb3
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -80,6 +80,11 @@ Patch0004:      0001-test-acl-util-output-more-debug-info.patch
 Patch0005:      0001-Do-not-assert-in-test_add_acls_for_user.patch
 
 Patch1001:      FB--Add-FusionIO-device--dev-fio-persistante-storage-udev-rule.patch
+
+Patch1002:      16838_16857_improve_path_search.patch
+Patch1003:      16940_cleanup_socket_econn_handling.patch
+Patch1004:      17031_propagate_start_limit_hit.patch
+Patch1005:      17082_nspawn_tty_tweaks.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -816,6 +821,12 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Fri Sep 18 2020 Anita Zhang <anitazha@fb.com> - 246.1-1.fb3
+- Backport PR #16838 and #16857 to improve $PATH handling
+- Backport PR #16940 to fix ECONN handling in sockets
+- Backport PR #17031 to fix rate limiting on units in restart loop
+- Backport PR #17082 to get nspawn TTY tweaks
+
 * Tue Aug 18 2020 Anita Zhang <anitazha@fb.com> - 246.1-1.fb2
 - Gate "Obsoletes: systemd < 245.6-1" out due to dependency issues on Facebook
   systems

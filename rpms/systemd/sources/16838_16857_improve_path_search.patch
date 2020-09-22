@@ -1,0 +1,108 @@
+From 3335de91437bc983c95cfab86489ceb3a0b0a6aa Mon Sep 17 00:00:00 2001
+From: Chris Down <chris@chrisdown.name>
+Date: Tue, 25 Aug 2020 21:59:11 +0100
+Subject: [PATCH 1/2] path: Skip directories when finalising $PATH search
+
+Imagine $PATH /a:/b. There is an echo command at /b/echo. Under this
+configuration, this works fine:
+
+    % systemd-run --user --scope echo .
+    Running scope as unit: run-rfe98e0574b424d63a641644af511ff30.scope
+    .
+
+However, if I do `mkdir /a/echo`, this happens:
+
+    % systemd-run --user --scope echo .
+    Running scope as unit: run-rcbe9369537ed47f282ee12ce9f692046.scope
+    Failed to execute: Permission denied
+
+We check whether the resulting file is executable for the performing
+user, but of course, most directories are anyway, since that's needed to
+list within it. As such, another is_dir() check is needed prior to
+considering the search result final.
+
+Another approach might be to check S_ISREG, but there may be more gnarly
+edge cases there than just eliminating this obviously pathological
+example, so let's just do this for now.
+---
+ src/basic/path-util.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/basic/path-util.c b/src/basic/path-util.c
+index c4e022b3a1..d3b4978239 100644
+--- a/src/basic/path-util.c
++++ b/src/basic/path-util.c
+@@ -637,6 +637,9 @@ int find_binary(const char *name, char **ret) {
+                 if (!j)
+                         return -ENOMEM;
+ 
++                if (is_dir(j, true))
++                        continue;
++
+                 if (access(j, X_OK) >= 0) {
+                         /* Found it! */
+ 
+-- 
+2.26.2
+
+
+From 2f94890f37c13dcd680a63876ed6d34f8e66d0a3 Mon Sep 17 00:00:00 2001
+From: Chris Down <chris@chrisdown.name>
+Date: Wed, 26 Aug 2020 18:49:27 +0100
+Subject: [PATCH 2/2] path: Improve $PATH search directory case
+
+Previously:
+
+1. last_error wouldn't be updated with errors from is_dir;
+2. We'd always issue a stat(), even for binaries without execute;
+3. We used stat() instead of access(), which is cheaper.
+
+This change avoids all of those, by only checking inside X_OK-positive
+case whether access() works on the path with an extra slash appended.
+Thanks to Lennart for the suggestion.
+---
+ src/basic/path-util.c | 25 ++++++++++++++++++-------
+ 1 file changed, 18 insertions(+), 7 deletions(-)
+
+diff --git a/src/basic/path-util.c b/src/basic/path-util.c
+index d3b4978239..7b0863f749 100644
+--- a/src/basic/path-util.c
++++ b/src/basic/path-util.c
+@@ -637,16 +637,27 @@ int find_binary(const char *name, char **ret) {
+                 if (!j)
+                         return -ENOMEM;
+ 
+-                if (is_dir(j, true))
+-                        continue;
+-
+                 if (access(j, X_OK) >= 0) {
+-                        /* Found it! */
++                        _cleanup_free_ char *with_dash;
+ 
+-                        if (ret)
+-                                *ret = path_simplify(TAKE_PTR(j), false);
++                        with_dash = strjoin(j, "/");
++                        if (!with_dash)
++                                return -ENOMEM;
+ 
+-                        return 0;
++                        /* If this passes, it must be a directory, and so should be skipped. */
++                        if (access(with_dash, X_OK) >= 0)
++                                continue;
++
++                        /**
++                         * We can't just `continue` inverting this case, since we need to update last_error.
++                         */
++                        if (errno == ENOTDIR) {
++                                /* Found it! */
++                                if (ret)
++                                        *ret = path_simplify(TAKE_PTR(j), false);
++
++                                return 0;
++                        }
+                 }
+ 
+                 /* PATH entries which we don't have access to are ignored, as per tradition. */
+-- 
+2.26.2
+

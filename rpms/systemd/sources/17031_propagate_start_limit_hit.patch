@@ -1,0 +1,233 @@
+From 7a481a17ad01c7be526829a835f7da3d6b71577f Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Fri, 11 Sep 2020 19:49:33 +0200
+Subject: [PATCH 1/3] core: propagate triggered unit in more load states
+
+In 4c2ef3276735ad9f7fccf33f5bdcbe7d8751e7ec we enabled propagating
+triggered unit state to the triggering unit for service units in more
+load states, so that we don't accidentally stop tracking state
+correctly.
+
+Do the same for our other triggering unit states: automounts, paths, and
+timers.
+
+Also, make this an assertion rather than a simple test. After all it
+should never happen that we get called for half-loaded units or units of
+the wrong type. The load routines should already have made this
+impossible.
+---
+ src/core/automount.c   | 4 ++--
+ src/core/path.c        | 7 +++----
+ src/core/socket.c      | 9 ++-------
+ src/core/timer.c       | 4 ++--
+ src/core/transaction.c | 2 +-
+ src/core/unit.h        | 4 ++++
+ 6 files changed, 14 insertions(+), 16 deletions(-)
+
+diff --git a/src/core/automount.c b/src/core/automount.c
+index 1f05198766..73f0fb8c71 100644
+--- a/src/core/automount.c
++++ b/src/core/automount.c
+@@ -507,8 +507,8 @@ static void automount_trigger_notify(Unit *u, Unit *other) {
+         assert(other);
+ 
+         /* Filter out invocations with bogus state */
+-        if (other->load_state != UNIT_LOADED || other->type != UNIT_MOUNT)
+-                return;
++        assert(UNIT_IS_LOAD_COMPLETE(other->load_state));
++        assert(other->type == UNIT_MOUNT);
+ 
+         /* Don't propagate state changes from the mount if we are already down */
+         if (!IN_SET(a->state, AUTOMOUNT_WAITING, AUTOMOUNT_RUNNING))
+diff --git a/src/core/path.c b/src/core/path.c
+index 1c3c28e341..8ffec72ede 100644
+--- a/src/core/path.c
++++ b/src/core/path.c
+@@ -748,11 +748,10 @@ static void path_trigger_notify(Unit *u, Unit *other) {
+         assert(u);
+         assert(other);
+ 
+-        /* Invoked whenever the unit we trigger changes state or gains
+-         * or loses a job */
++        /* Invoked whenever the unit we trigger changes state or gains or loses a job */
+ 
+-        if (other->load_state != UNIT_LOADED)
+-                return;
++        /* Filter out invocations with bogus state */
++        assert(UNIT_IS_LOAD_COMPLETE(other->load_state));
+ 
+         if (p->state == PATH_RUNNING &&
+             UNIT_IS_INACTIVE_OR_FAILED(unit_active_state(other))) {
+diff --git a/src/core/socket.c b/src/core/socket.c
+index 127195c9fe..ebf5ce3b16 100644
+--- a/src/core/socket.c
++++ b/src/core/socket.c
+@@ -3274,13 +3274,8 @@ static void socket_trigger_notify(Unit *u, Unit *other) {
+         assert(other);
+ 
+         /* Filter out invocations with bogus state */
+-        if (!IN_SET(other->load_state,
+-                    UNIT_LOADED,
+-                    UNIT_NOT_FOUND,
+-                    UNIT_BAD_SETTING,
+-                    UNIT_ERROR,
+-                    UNIT_MASKED) || other->type != UNIT_SERVICE)
+-                return;
++        assert(UNIT_IS_LOAD_COMPLETE(other->load_state));
++        assert(other->type == UNIT_SERVICE);
+ 
+         /* Don't propagate state changes from the service if we are already down */
+         if (!IN_SET(s->state, SOCKET_RUNNING, SOCKET_LISTENING))
+diff --git a/src/core/timer.c b/src/core/timer.c
+index 03a9c14f76..94388f0727 100644
+--- a/src/core/timer.c
++++ b/src/core/timer.c
+@@ -746,8 +746,8 @@ static void timer_trigger_notify(Unit *u, Unit *other) {
+         assert(u);
+         assert(other);
+ 
+-        if (other->load_state != UNIT_LOADED)
+-                return;
++        /* Filter out invocations with bogus state */
++        assert(UNIT_IS_LOAD_COMPLETE(other->load_state));
+ 
+         /* Reenable all timers that depend on unit state */
+         LIST_FOREACH(value, v, t->values)
+diff --git a/src/core/transaction.c b/src/core/transaction.c
+index 0fa419787e..befac19788 100644
+--- a/src/core/transaction.c
++++ b/src/core/transaction.c
+@@ -949,7 +949,7 @@ int transaction_add_job_and_dependencies(
+ 
+         /* Safety check that the unit is a valid state, i.e. not in UNIT_STUB or UNIT_MERGED which should only be set
+          * temporarily. */
+-        if (!IN_SET(unit->load_state, UNIT_LOADED, UNIT_ERROR, UNIT_NOT_FOUND, UNIT_BAD_SETTING, UNIT_MASKED))
++        if (!UNIT_IS_LOAD_COMPLETE(unit->load_state))
+                 return sd_bus_error_setf(e, BUS_ERROR_LOAD_FAILED, "Unit %s is not loaded properly.", unit->id);
+ 
+         if (type != JOB_STOP) {
+diff --git a/src/core/unit.h b/src/core/unit.h
+index 4130cd50a9..ae2ce74243 100644
+--- a/src/core/unit.h
++++ b/src/core/unit.h
+@@ -49,6 +49,10 @@ static inline bool UNIT_IS_INACTIVE_OR_FAILED(UnitActiveState t) {
+         return IN_SET(t, UNIT_INACTIVE, UNIT_FAILED);
+ }
+ 
++static inline bool UNIT_IS_LOAD_COMPLETE(UnitLoadState t) {
++        return t >= 0 && t < _UNIT_LOAD_STATE_MAX && t != UNIT_STUB && t != UNIT_MERGED;
++}
++
+ /* Stores the 'reason' a dependency was created as a bit mask, i.e. due to which configuration source it came to be. We
+  * use this so that we can selectively flush out parts of dependencies again. Note that the same dependency might be
+  * created as a result of multiple "reasons", hence the bitmask. */
+-- 
+2.26.2
+
+
+From 6b083e21c2bfdba79d43d5d56f02dc795dae9368 Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Fri, 11 Sep 2020 19:57:09 +0200
+Subject: [PATCH 2/3] core: propagate unit start limit hit state to triggering
+ path unit
+
+We already do this for socket and automount units, do it for path units
+too: if the triggered service keeps hitting the start limit, then fail
+the triggering unit too, so that we don#t busy loop forever.
+
+(Note that this leaves only timer units out in the cold for this kind of
+protection, but it shouldn't matter there, as they are naturally
+protected against busy loops: they are scheduled by time anyway).
+
+Fixes: #16669
+---
+ src/core/path.c | 15 +++++++++++++++
+ src/core/path.h |  1 +
+ 2 files changed, 16 insertions(+)
+
+diff --git a/src/core/path.c b/src/core/path.c
+index 8ffec72ede..4f4e7100cf 100644
+--- a/src/core/path.c
++++ b/src/core/path.c
+@@ -753,6 +753,20 @@ static void path_trigger_notify(Unit *u, Unit *other) {
+         /* Filter out invocations with bogus state */
+         assert(UNIT_IS_LOAD_COMPLETE(other->load_state));
+ 
++        /* Don't propagate state changes from the triggered unit if we are already down */
++        if (!IN_SET(p->state, PATH_WAITING, PATH_RUNNING))
++                return;
++
++        /* Propagate start limit hit state */
++        if (other->start_limit_hit) {
++                path_enter_dead(p, PATH_FAILURE_UNIT_START_LIMIT_HIT);
++                return;
++        }
++
++        /* Don't propagate anything if there's still a job queued */
++        if (other->job)
++                return;
++
+         if (p->state == PATH_RUNNING &&
+             UNIT_IS_INACTIVE_OR_FAILED(unit_active_state(other))) {
+                 log_unit_debug(UNIT(p), "Got notified about unit deactivation.");
+@@ -789,6 +803,7 @@ static const char* const path_result_table[_PATH_RESULT_MAX] = {
+         [PATH_SUCCESS] = "success",
+         [PATH_FAILURE_RESOURCES] = "resources",
+         [PATH_FAILURE_START_LIMIT_HIT] = "start-limit-hit",
++        [PATH_FAILURE_UNIT_START_LIMIT_HIT] = "unit-start-limit-hit",
+ };
+ 
+ DEFINE_STRING_TABLE_LOOKUP(path_result, PathResult);
+diff --git a/src/core/path.h b/src/core/path.h
+index 9e2836535a..4043650fe0 100644
+--- a/src/core/path.h
++++ b/src/core/path.h
+@@ -45,6 +45,7 @@ typedef enum PathResult {
+         PATH_SUCCESS,
+         PATH_FAILURE_RESOURCES,
+         PATH_FAILURE_START_LIMIT_HIT,
++        PATH_FAILURE_UNIT_START_LIMIT_HIT,
+         _PATH_RESULT_MAX,
+         _PATH_RESULT_INVALID = -1
+ } PathResult;
+-- 
+2.26.2
+
+
+From 32c556c612ff38b09fe7d14d1840aceb2d76360d Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Mon, 14 Sep 2020 12:59:38 +0200
+Subject: [PATCH 3/3] unit-def: drop pointless 0 initialization of first enum
+ value
+
+This is implied in C and we generally don't bother with this, so don't
+bother with this here either.
+---
+ src/basic/unit-def.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/basic/unit-def.h b/src/basic/unit-def.h
+index 53419ecd8a..1fab6c78ab 100644
+--- a/src/basic/unit-def.h
++++ b/src/basic/unit-def.h
+@@ -9,7 +9,7 @@
+  * when other criteria (cpu weight, nice level) are identical.
+  * In this case service units have the highest priority. */
+ typedef enum UnitType {
+-        UNIT_SERVICE = 0,
++        UNIT_SERVICE,
+         UNIT_MOUNT,
+         UNIT_SWAP,
+         UNIT_SOCKET,
+@@ -25,7 +25,7 @@ typedef enum UnitType {
+ } UnitType;
+ 
+ typedef enum UnitLoadState {
+-        UNIT_STUB = 0,
++        UNIT_STUB,
+         UNIT_LOADED,
+         UNIT_NOT_FOUND,    /* error condition #1: unit file not found */
+         UNIT_BAD_SETTING,  /* error condition #2: we couldn't parse some essential unit file setting */
+-- 
+2.26.2
+

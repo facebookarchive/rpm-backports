@@ -1,0 +1,316 @@
+From 0ead15331dc9414e7d4b3f0b96ed1908ceaf8f8b Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Wed, 16 Sep 2020 22:11:48 +0200
+Subject: [PATCH 1/5] nspawn: check return of setsid()
+
+Let's verify that everything works the way we expect it to work, hence
+check setsid() return code.
+---
+ src/nspawn/nspawn-stub-pid1.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/nspawn/nspawn-stub-pid1.c b/src/nspawn/nspawn-stub-pid1.c
+index d86dd23185..f785a3b248 100644
+--- a/src/nspawn/nspawn-stub-pid1.c
++++ b/src/nspawn/nspawn-stub-pid1.c
+@@ -66,7 +66,10 @@ int stub_pid1(sd_id128_t uuid) {
+         if (pid == 0) {
+                 /* Return in the child */
+                 assert_se(sigprocmask(SIG_SETMASK, &oldmask, NULL) >= 0);
+-                setsid();
++
++                if (setsid() < 0)
++                        return log_error_errno(errno, "Failed to become session leader in payload process: %m");
++
+                 return 0;
+         }
+ 
+-- 
+2.26.2
+
+
+From b4fa908fbdcbcf01c96e983460689800b8bb76af Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Wed, 16 Sep 2020 22:12:29 +0200
+Subject: [PATCH 2/5] nspawn: print log notice when we are invoked from a tty
+ but in "pipe" mode
+
+If people do this then things are weird, and they should probably use
+--console=interactive (i.e. the default) instead.
+
+Prompted-by: #17070
+---
+ src/nspawn/nspawn.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/nspawn/nspawn.c b/src/nspawn/nspawn.c
+index 3b9493f232..efc541f512 100644
+--- a/src/nspawn/nspawn.c
++++ b/src/nspawn/nspawn.c
+@@ -272,9 +272,15 @@ static int handle_arg_console(const char *arg) {
+                 arg_console_mode = CONSOLE_READ_ONLY;
+         else if (streq(arg, "passive"))
+                 arg_console_mode = CONSOLE_PASSIVE;
+-        else if (streq(arg, "pipe"))
++        else if (streq(arg, "pipe")) {
++                if (isatty(STDIN_FILENO) > 0 && isatty(STDOUT_FILENO) > 0)
++                        log_full(arg_quiet ? LOG_DEBUG : LOG_NOTICE,
++                                 "Console mode 'pipe' selected, but standard input/output are connected to an interactive TTY. "
++                                 "Most likely you want to use 'interactive' console mode for proper interactivity and shell job control. "
++                                 "Proceeding anyway.");
++
+                 arg_console_mode = CONSOLE_PIPE;
+-        else
++        } else
+                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Unknown console mode: %s", optarg);
+ 
+         arg_settings_mask |= SETTING_CONSOLE_MODE;
+-- 
+2.26.2
+
+
+From 19db1706dadcec4f4c44f9abf8dc33a336f93326 Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Wed, 16 Sep 2020 22:16:10 +0200
+Subject: [PATCH 3/5] nspawn: fix fd leak on failure path
+
+---
+ src/nspawn/nspawn.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/nspawn/nspawn.c b/src/nspawn/nspawn.c
+index efc541f512..15dbdbe738 100644
+--- a/src/nspawn/nspawn.c
++++ b/src/nspawn/nspawn.c
+@@ -2178,7 +2178,7 @@ static int setup_pts(const char *dest) {
+ }
+ 
+ static int setup_stdio_as_dev_console(void) {
+-        int terminal;
++        _cleanup_close_ int terminal = -1;
+         int r;
+ 
+         terminal = open_terminal("/dev/console", O_RDWR);
+@@ -2193,6 +2193,7 @@ static int setup_stdio_as_dev_console(void) {
+ 
+         /* invalidates 'terminal' on success and failure */
+         r = rearrange_stdio(terminal, terminal, terminal);
++        TAKE_FD(terminal);
+         if (r < 0)
+                 return log_error_errno(r, "Failed to move console to stdin/stdout/stderr: %m");
+ 
+-- 
+2.26.2
+
+
+From d297a871ef720227af845fe8b0f1e0fe7560b433 Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Wed, 16 Sep 2020 22:34:43 +0200
+Subject: [PATCH 4/5] nspawn: don't become TTY controller just to undo it later
+ again
+
+Instead of first becoming a controlling process of the payload pty
+as side effect of opening it (without O_NOCTTY), and then possibly
+dropping it again, let's do it cleanly an reverse the logic: let's open
+the pty without becoming its controller first. Only after everything
+went the way we wanted it to go become the controller explicitly.
+
+This has the benefit that the PID 1 stub process we run (as effect of
+--as-pid2) doesn't have to lose the tty explicitly, but can just
+continue running with things. And we explicitly make the tty controlling
+right before invoking actual payload.
+
+In order to make sure everything works as expected validate that the
+stub PID 1 in the container really has no conrolling tty by issuing the
+TIOCNOTTY tty and expecting ENOTTY, and log about it.
+
+This shouldn't change behaviour much, it just makes thins a bit cleaner,
+in particular as we'll not trigger SIGHUP on ourselves (since we are
+controller and session leader) due to TIOCNOTTY which we then have to
+explicitly ignore.
+---
+ src/nspawn/nspawn-stub-pid1.c | 12 ++++++------
+ src/nspawn/nspawn.c           | 16 +++++++++++++---
+ 2 files changed, 19 insertions(+), 9 deletions(-)
+
+diff --git a/src/nspawn/nspawn-stub-pid1.c b/src/nspawn/nspawn-stub-pid1.c
+index f785a3b248..60d7439fb1 100644
+--- a/src/nspawn/nspawn-stub-pid1.c
++++ b/src/nspawn/nspawn-stub-pid1.c
+@@ -53,12 +53,6 @@ int stub_pid1(sd_id128_t uuid) {
+         assert_se(sigfillset(&fullmask) >= 0);
+         assert_se(sigprocmask(SIG_BLOCK, &fullmask, &oldmask) >= 0);
+ 
+-        /* Surrender the terminal this stub may control so that child processes can have a controlling terminal
+-         * without resorting to setsid hacks. */
+-        r = ioctl(STDIN_FILENO, TIOCNOTTY);
+-        if (r < 0 && errno != ENOTTY)
+-                return log_error_errno(errno, "Failed to surrender controlling terminal: %m");
+-
+         pid = fork();
+         if (pid < 0)
+                 return log_error_errno(errno, "Failed to fork child pid: %m");
+@@ -79,6 +73,12 @@ int stub_pid1(sd_id128_t uuid) {
+         (void) close_all_fds(NULL, 0);
+         log_open();
+ 
++        if (ioctl(STDIN_FILENO, TIOCNOTTY) < 0) {
++                if (errno != ENOTTY)
++                        log_warning_errno(errno, "Unexpected error from TIOCNOTTY ioctl in init stub process, ignoring: %m");
++        } else
++                log_warning("Expected TIOCNOTTY to fail, but it succeeded in init stub process, ignoring.");
++
+         /* Flush out /proc/self/environ, so that we don't leak the environment from the host into the container. Also,
+          * set $container= and $container_uuid= so that clients in the container that query it from /proc/1/environ
+          * find them set. */
+diff --git a/src/nspawn/nspawn.c b/src/nspawn/nspawn.c
+index 15dbdbe738..783147f122 100644
+--- a/src/nspawn/nspawn.c
++++ b/src/nspawn/nspawn.c
+@@ -11,10 +11,12 @@
+ #endif
+ #include <stdlib.h>
+ #include <sys/file.h>
++#include <sys/ioctl.h>
+ #include <sys/personality.h>
+ #include <sys/prctl.h>
+ #include <sys/types.h>
+ #include <sys/wait.h>
++#include <termios.h>
+ #include <unistd.h>
+ 
+ #include "sd-bus.h"
+@@ -2181,7 +2183,9 @@ static int setup_stdio_as_dev_console(void) {
+         _cleanup_close_ int terminal = -1;
+         int r;
+ 
+-        terminal = open_terminal("/dev/console", O_RDWR);
++        /* We open the TTY in O_NOCTTY mode, so that we do not become controller yet. We'll do that later
++         * explicitly, if we are configured to. */
++        terminal = open_terminal("/dev/console", O_RDWR|O_NOCTTY);
+         if (terminal < 0)
+                 return log_error_errno(terminal, "Failed to open console: %m");
+ 
+@@ -3213,8 +3217,7 @@ static int inner_child(
+          * wait until the parent is ready with the
+          * setup, too... */
+         if (!barrier_place_and_sync(barrier)) /* #5 */
+-                return log_error_errno(SYNTHETIC_ERRNO(ESRCH),
+-                                       "Parent died too early");
++                return log_error_errno(SYNTHETIC_ERRNO(ESRCH), "Parent died too early");
+ 
+         if (arg_chdir)
+                 if (chdir(arg_chdir) < 0)
+@@ -3226,6 +3229,13 @@ static int inner_child(
+                         return r;
+         }
+ 
++        if (arg_console_mode != CONSOLE_PIPE) {
++                /* So far our pty wasn't controlled by any process. Finally, it's time to change that, if we
++                 * are configured for that. Acquire it as controlling tty. */
++                if (ioctl(STDIN_FILENO, TIOCSCTTY) < 0)
++                        return log_error_errno(errno, "Failed to acquire controlling TTY: %m");
++        }
++
+         log_debug("Inner child completed, invoking payload.");
+ 
+         /* Now, explicitly close the log, so that we then can close all remaining fds. Closing the log explicitly first
+-- 
+2.26.2
+
+
+From 196b94c2db3f0b763480e98df98f288bcd044a6e Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Thu, 17 Sep 2020 16:26:14 +0200
+Subject: [PATCH 5/5] nspawn: add --console=autopipe mode
+
+By default we'll run a container in --console=interactive and
+--console=read-only mode depending if we are invoked on a tty or not so
+that the container always gets a /dev/console allocated, i.e is always
+suitable to run a full init system /as those typically expect a
+/dev/console to exist).
+
+With the new --console=autopipe mode we do something similar, but
+slightly different: when not invoked on a tty we'll use --console=pipe.
+This means, if you invoke some tool in a container with this you'll get
+full inetractivity if you invoke it on a tty but things will also be
+very nicely pipeable. OTOH you cannot invoke a full init system like
+this, because you might or might not become a /dev/console this way...
+
+Prompted-by: #17070
+
+(I named this "autopipe" rather than "auto" or so, since the default
+mode probably should be named "auto" one day if we add a name for it,
+and this is so similar to "auto" except that it uses pipes in the
+non-tty case).
+---
+ man/systemd-nspawn.xml | 21 ++++++++++++---------
+ src/nspawn/nspawn.c    | 12 +++++++++---
+ 2 files changed, 21 insertions(+), 12 deletions(-)
+
+diff --git a/man/systemd-nspawn.xml b/man/systemd-nspawn.xml
+index 69558ac85c..b2c2a5006c 100644
+--- a/man/systemd-nspawn.xml
++++ b/man/systemd-nspawn.xml
+@@ -1370,15 +1370,18 @@
+ 
+         <listitem><para>Configures how to set up standard input, output and error output for the container
+         payload, as well as the <filename>/dev/console</filename> device for the container. Takes one of
+-        <option>interactive</option>, <option>read-only</option>, <option>passive</option>, or
+-        <option>pipe</option>. If <option>interactive</option>, a pseudo-TTY is allocated and made available
+-        as <filename>/dev/console</filename> in the container. It is then bi-directionally connected to the
+-        standard input and output passed to <command>systemd-nspawn</command>. <option>read-only</option> is
+-        similar but only the output of the container is propagated and no input from the caller is read. If
+-        <option>passive</option>, a pseudo TTY is allocated, but it is not connected anywhere. Finally, in
+-        <option>pipe</option> mode no pseudo TTY is allocated, but the standard input, output and error
+-        output file descriptors passed to <command>systemd-nspawn</command> are passed on — as they are — to
+-        the container payload, see the following paragraph. Defaults to <option>interactive</option> if
++        <option>interactive</option>, <option>read-only</option>, <option>passive</option>,
++        <option>pipe</option> or <option>autopipe</option>. If <option>interactive</option>, a pseudo-TTY is
++        allocated and made available as <filename>/dev/console</filename> in the container. It is then
++        bi-directionally connected to the standard input and output passed to
++        <command>systemd-nspawn</command>. <option>read-only</option> is similar but only the output of the
++        container is propagated and no input from the caller is read. If <option>passive</option>, a pseudo
++        TTY is allocated, but it is not connected anywhere. In <option>pipe</option> mode no pseudo TTY is
++        allocated, but the standard input, output and error output file descriptors passed to
++        <command>systemd-nspawn</command> are passed on — as they are — to the container payload, see the
++        following paragraph. Finally, <option>autopipe</option> mode operates like
++        <option>interactive</option> when <command>systemd-nspawn</command> is invoked on a terminal, and
++        like <option>pipe</option> otherwise. Defaults to <option>interactive</option> if
+         <command>systemd-nspawn</command> is invoked from a terminal, and <option>read-only</option>
+         otherwise.</para>
+ 
+diff --git a/src/nspawn/nspawn.c b/src/nspawn/nspawn.c
+index 783147f122..8837371232 100644
+--- a/src/nspawn/nspawn.c
++++ b/src/nspawn/nspawn.c
+@@ -261,10 +261,11 @@ STATIC_DESTRUCTOR_REGISTER(arg_sysctl, strv_freep);
+ 
+ static int handle_arg_console(const char *arg) {
+         if (streq(arg, "help")) {
+-                puts("interactive\n"
+-                     "read-only\n"
++                puts("autopipe\n"
++                     "interactive\n"
+                      "passive\n"
+-                     "pipe");
++                     "pipe\n"
++                     "read-only");
+                 return 0;
+         }
+ 
+@@ -282,6 +283,11 @@ static int handle_arg_console(const char *arg) {
+                                  "Proceeding anyway.");
+ 
+                 arg_console_mode = CONSOLE_PIPE;
++        } else if (streq(arg, "autopipe")) {
++                if (isatty(STDIN_FILENO) > 0 && isatty(STDOUT_FILENO) > 0)
++                        arg_console_mode = CONSOLE_INTERACTIVE;
++                else
++                        arg_console_mode = CONSOLE_PIPE;
+         } else
+                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Unknown console mode: %s", optarg);
+ 
+-- 
+2.26.2
+
