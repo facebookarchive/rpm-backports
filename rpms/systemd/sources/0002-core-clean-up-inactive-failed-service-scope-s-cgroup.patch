@@ -1,0 +1,124 @@
+From fe3adc116bb7645a18e31027f9fd153756ffbc7b Mon Sep 17 00:00:00 2001
+From: Anita Zhang <the.anitazha@gmail.com>
+Date: Thu, 22 Oct 2020 22:44:22 -0700
+Subject: [PATCH 2/3] core: clean up inactive/failed {service|scope}'s cgroups
+ when the last process exits
+
+If processes remain in the unit's cgroup after the final SIGKILL is
+sent and the unit has exceeded stop timeout, don't release the unit's
+cgroup information. Pid1 will have failed to `rmdir` the cgroup path due
+to processes remaining in the cgroup and releasing would leave the cgroup
+path on the file system with no tracking for pid1 to clean it up.
+
+Instead, keep the information around until the last process exits and pid1
+sends the cgroup empty notification. The service/scope can then prune
+the cgroup if the unit is inactive/failed.
+---
+ src/core/cgroup.c  | 26 +++++++++++++++++++++++++-
+ src/core/cgroup.h  |  6 +++++-
+ src/core/scope.c   |  5 +++++
+ src/core/service.c |  7 +++++++
+ 4 files changed, 42 insertions(+), 2 deletions(-)
+
+diff --git a/src/core/cgroup.c b/src/core/cgroup.c
+index 031b28a684..bce5f44e78 100644
+--- a/src/core/cgroup.c
++++ b/src/core/cgroup.c
+@@ -2414,6 +2414,29 @@ void unit_release_cgroup(Unit *u) {
+         }
+ }
+ 
++bool unit_maybe_release_cgroup(Unit *u) {
++        int r;
++
++        assert(u);
++
++        if (!u->cgroup_path)
++                return true;
++
++        /* Don't release the cgroup if there are still processes under it. If we get notified later when all the
++         * processes exit (e.g. the processes were in D-state and exited after the unit was marked as failed)
++         * we need the cgroup paths to continue to be tracked by the manager so they can be looked up and cleaned
++         * up later. */
++        r = cg_is_empty_recursive(SYSTEMD_CGROUP_CONTROLLER, u->cgroup_path);
++        if (r < 0)
++                log_unit_debug_errno(u, r, "Error checking if the cgroup is recursively empty, ignoring: %m");
++        else if (r == 1) {
++                unit_release_cgroup(u);
++                return true;
++        }
++
++        return false;
++}
++
+ void unit_prune_cgroup(Unit *u) {
+         int r;
+         bool is_root_slice;
+@@ -2441,7 +2464,8 @@ void unit_prune_cgroup(Unit *u) {
+         if (is_root_slice)
+                 return;
+ 
+-        unit_release_cgroup(u);
++        if (!unit_maybe_release_cgroup(u)) /* Returns true if the cgroup was released */
++                return;
+ 
+         u->cgroup_realized = false;
+         u->cgroup_realized_mask = 0;
+diff --git a/src/core/cgroup.h b/src/core/cgroup.h
+index 52d028e740..be6856c20c 100644
+--- a/src/core/cgroup.h
++++ b/src/core/cgroup.h
+@@ -220,11 +220,15 @@ int unit_set_cgroup_path(Unit *u, const char *path);
+ int unit_pick_cgroup_path(Unit *u);
+ 
+ int unit_realize_cgroup(Unit *u);
+-void unit_release_cgroup(Unit *u);
+ void unit_prune_cgroup(Unit *u);
+ int unit_watch_cgroup(Unit *u);
+ int unit_watch_cgroup_memory(Unit *u);
+ 
++void unit_release_cgroup(Unit *u);
++/* Releases the cgroup only if it is recursively empty.
++ * Returns true if the cgroup was released, false otherwise. */
++bool unit_maybe_release_cgroup(Unit *u);
++
+ void unit_add_to_cgroup_empty_queue(Unit *u);
+ int unit_check_oom(Unit *u);
+ 
+diff --git a/src/core/scope.c b/src/core/scope.c
+index 42c51b0865..ffee783a4c 100644
+--- a/src/core/scope.c
++++ b/src/core/scope.c
+@@ -487,6 +487,11 @@ static void scope_notify_cgroup_empty_event(Unit *u) {
+ 
+         if (IN_SET(s->state, SCOPE_RUNNING, SCOPE_ABANDONED, SCOPE_STOP_SIGTERM, SCOPE_STOP_SIGKILL))
+                 scope_enter_dead(s, SCOPE_SUCCESS);
++
++        /* If the cgroup empty notification comes when the unit is not active, we must have failed to clean
++         * up the cgroup earlier and should do it now. */
++        if (IN_SET(s->state, SCOPE_DEAD, SCOPE_FAILED))
++                unit_prune_cgroup(u);
+ }
+ 
+ static void scope_sigchld_event(Unit *u, pid_t pid, int code, int status) {
+diff --git a/src/core/service.c b/src/core/service.c
+index 00e61945ba..db8f596ca6 100644
+--- a/src/core/service.c
++++ b/src/core/service.c
+@@ -3334,6 +3334,13 @@ static void service_notify_cgroup_empty_event(Unit *u) {
+ 
+                 break;
+ 
++        /* If the cgroup empty notification comes when the unit is not active, we must have failed to clean
++         * up the cgroup earlier and should do it now. */
++        case SERVICE_DEAD:
++        case SERVICE_FAILED:
++                unit_prune_cgroup(u);
++                break;
++
+         default:
+                 ;
+         }
+-- 
+2.24.1
+

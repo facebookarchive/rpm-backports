@@ -31,7 +31,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        246.1
-Release:        1.fb3
+Release:        1.fb4
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -85,6 +85,10 @@ Patch1002:      16838_16857_improve_path_search.patch
 Patch1003:      16940_cleanup_socket_econn_handling.patch
 Patch1004:      17031_propagate_start_limit_hit.patch
 Patch1005:      17082_nspawn_tty_tweaks.patch
+
+Patch1006:      0001-bpf-pid1-Pin-reference-to-BPF-programs-for-post-cold.patch
+Patch1007:      0002-core-clean-up-inactive-failed-service-scope-s-cgroup.patch
+Patch1008:      0003-timer-add-new-feature-FixedRandomDelay.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -821,6 +825,11 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Thu Nov 19 2020 Chris Down <cdown@fb.com> - 246.1-1.fb4
+- Backport PR #17495 to fix BPF program lifecycle
+- Backport PR #17422 to clean up cgroups more reliably after exit
+- Backport PR #17497 to add FixedRandomDelay= support
+
 * Fri Sep 18 2020 Anita Zhang <anitazha@fb.com> - 246.1-1.fb3
 - Backport PR #16838 and #16857 to improve $PATH handling
 - Backport PR #16940 to fix ECONN handling in sockets
