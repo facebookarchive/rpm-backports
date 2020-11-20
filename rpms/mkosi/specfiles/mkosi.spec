@@ -1,27 +1,19 @@
 Name:           mkosi
-Version:        5
-Release:        2.fb2%{?dist}
+Version:        6
+Release:        1.fb1%{?dist}
 Summary:        Create legacy-free OS images
 
 License:        LGPLv2+
 URL:            https://github.com/systemd/mkosi
 Source0:        https://github.com/systemd/mkosi/archive/v%{version}/%{name}-%{version}.tar.gz
-Source1:        RPM-GPG-KEY-fedora-23-x86_64
-Source2:        RPM-GPG-KEY-fedora-24-x86_64
-Source3:        RPM-GPG-KEY-fedora-25-x86_64
-Source4:        RPM-GPG-KEY-fedora-26-x86_64
-Source5:        RPM-GPG-KEY-fedora-27-x86_64
-Source6:        RPM-GPG-KEY-fedora-28-x86_64
-Source7:        RPM-GPG-KEY-fedora-29-x86_64
-Source8:        RPM-GPG-KEY-fedora-30-x86_64
-Source9:        RPM-GPG-KEY-fedora-31-x86_64
-Source10:       RPM-GPG-KEY-fedora-32-x86_64
 
 BuildArch:      noarch
 
-BuildRequires:  python3
-Requires:       python3
-# for subprocess.run
+BuildRequires:  python3-devel
+BuildRequires:  python3-setuptools
+%if ! 0%{?facebook}
+BuildRequires:  pip
+%endif
 
 Recommends:     dnf
 Recommends:     debootstrap
@@ -35,7 +27,7 @@ Recommends:     dosfstools
 Recommends:     e2fsprogs
 Recommends:     squashfs-tools
 Recommends:     veritysetup
-Recommends:     python3-argcomplete
+Recommends:     python3dist(argcomplete)
 
 %description
 A fancy wrapper around "dnf --installroot", "debootstrap" and
@@ -50,44 +42,35 @@ supported (not plain MBR/BIOS).
 %prep
 %autosetup -p1
 
+%build
+# no build required
+
 %install
-# It's just one file, and setup.py install would copy useless .egg-info
-install -d -m 0755 %{buildroot}%{_bindir}
-install -Dpt %{buildroot}%{_bindir}/ mkosi
+python3 -m pip install --root=%{buildroot} .
 
 # Also install Fedora GPG keys
 install -d -m 0755 %{buildroot}%{_sysconfdir}/pki/rpm-gpg
-install -m 0644 %SOURCE1 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-23-x86_64
-install -m 0644 %SOURCE2 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-24-x86_64
-install -m 0644 %SOURCE3 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-25-x86_64
-install -m 0644 %SOURCE4 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-26-x86_64
-install -m 0644 %SOURCE5 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-27-x86_64
-install -m 0644 %SOURCE6 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-28-x86_64
-install -m 0644 %SOURCE7 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-29-x86_64
-install -m 0644 %SOURCE7 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-30-x86_64
-install -m 0644 %SOURCE7 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-31-x86_64
-install -m 0644 %SOURCE7 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-32-x86_64
 
 %files
 %license LICENSE
 %doc README.md
 %_bindir/mkosi
-%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-23-x86_64
-%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-24-x86_64
-%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-25-x86_64
-%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-26-x86_64
-%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-27-x86_64
-%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-28-x86_64
-%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-29-x86_64
-%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-30-x86_64
-%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-31-x86_64
-%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedora-32-x86_64
+%{python3_sitelib}/mkosi/
+%{python3_sitelib}/mkosi-%{version}-py*.egg-info/
+%_mandir/man1/mkosi.1*
 
 %check
 # just a smoke test for syntax or import errors
 %buildroot/usr/bin/mkosi --help
 
 %changelog
+* Thu Nov 19 2020 Anita Zhang <anitazha@fb.com> - 6-1.fb1
+- Facebook rebuild
+- Remove GPG keys
+
+* Sat Oct  3 2020 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 6-1
+- Update to latest version (#1884879)
+
 * Tue May 26 2020 Davide Cavalca <dcavalca@fb.com> - 5-2.fb2
 - Fix build after python package rename
 
@@ -98,7 +81,7 @@ install -m 0644 %SOURCE7 %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-fedo
 * Thu Jul 25 2019 Fedora Release Engineering <releng@fedoraproject.org> - 5-2
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_31_Mass_Rebuild
 
-* Tue Apr 30 2019 Zbigniew J\x119drzejewski-Szmek <zbyszek@in.waw.pl> - 5-1
+* Tue Apr 30 2019 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 5-1
 - Update to latest version
 
 * Fri Feb 01 2019 Fedora Release Engineering <releng@fedoraproject.org> - 4-4
