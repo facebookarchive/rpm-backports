@@ -31,7 +31,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        246.1
-Release:        1.fb4
+Release:        1.fb5
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -825,6 +825,9 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Thu Nov 19 2020 Chris Down <cdown@fb.com> - 246.1-1.fb5
+- Updated version of PR #17495 to fix program leak
+
 * Thu Nov 19 2020 Chris Down <cdown@fb.com> - 246.1-1.fb4
 - Backport PR #17495 to fix BPF program lifecycle
 - Backport PR #17422 to clean up cgroups more reliably after exit

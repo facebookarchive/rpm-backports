@@ -1,4 +1,4 @@
-From 93388a7ca61f3fd144bda04ca68ddc6f55d3247b Mon Sep 17 00:00:00 2001
+From de8f6fb530db706d14e9ece52b2acfd77c823133 Mon Sep 17 00:00:00 2001
 From: Kristijan Gjoshev <crypter@mail.com>
 Date: Sat, 1 Feb 2020 18:27:08 +0100
 Subject: [PATCH 3/3] timer: add new feature FixedRandomDelay=
