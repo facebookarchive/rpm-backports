@@ -1,0 +1,553 @@
+From 625a164069aff9efb61dcc5916c572f53c2a7ab0 Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Thu, 20 Aug 2020 13:43:00 +0200
+Subject: [PATCH 1/3] analyze: rework condition testing
+
+Let's drop the private table and just use the generic concepts we have
+in place already that make the same information available.
+
+Fixes: #16781
+---
+ src/analyze/analyze-condition.c | 105 +++++++++-----------------------
+ 1 file changed, 28 insertions(+), 77 deletions(-)
+
+diff --git a/src/analyze/analyze-condition.c b/src/analyze/analyze-condition.c
+index 52ad382637f..13f75e813a2 100644
+--- a/src/analyze/analyze-condition.c
++++ b/src/analyze/analyze-condition.c
+@@ -8,83 +8,27 @@
+ #include "load-fragment.h"
+ #include "service.h"
+ 
+-typedef struct condition_definition {
+-        const char *name;
+-        ConfigParserCallback parser;
+-        ConditionType type;
+-} condition_definition;
+-
+-static const condition_definition condition_definitions[] = {
+-        { "ConditionPathExists",             config_parse_unit_condition_path,   CONDITION_PATH_EXISTS              },
+-        { "ConditionPathExistsGlob",         config_parse_unit_condition_path,   CONDITION_PATH_EXISTS_GLOB         },
+-        { "ConditionPathIsDirectory",        config_parse_unit_condition_path,   CONDITION_PATH_IS_DIRECTORY        },
+-        { "ConditionPathIsSymbolicLink",     config_parse_unit_condition_path,   CONDITION_PATH_IS_SYMBOLIC_LINK    },
+-        { "ConditionPathIsMountPoint",       config_parse_unit_condition_path,   CONDITION_PATH_IS_MOUNT_POINT      },
+-        { "ConditionPathIsReadWrite",        config_parse_unit_condition_path,   CONDITION_PATH_IS_READ_WRITE       },
+-        { "ConditionPathIsEncrypted",        config_parse_unit_condition_path,   CONDITION_PATH_IS_ENCRYPTED        },
+-        { "ConditionDirectoryNotEmpty",      config_parse_unit_condition_path,   CONDITION_DIRECTORY_NOT_EMPTY      },
+-        { "ConditionFileNotEmpty",           config_parse_unit_condition_path,   CONDITION_FILE_NOT_EMPTY           },
+-        { "ConditionFileIsExecutable",       config_parse_unit_condition_path,   CONDITION_FILE_IS_EXECUTABLE       },
+-        { "ConditionNeedsUpdate",            config_parse_unit_condition_path,   CONDITION_NEEDS_UPDATE             },
+-        { "ConditionFirstBoot",              config_parse_unit_condition_string, CONDITION_FIRST_BOOT               },
+-        { "ConditionKernelCommandLine",      config_parse_unit_condition_string, CONDITION_KERNEL_COMMAND_LINE      },
+-        { "ConditionKernelVersion",          config_parse_unit_condition_string, CONDITION_KERNEL_VERSION           },
+-        { "ConditionArchitecture",           config_parse_unit_condition_string, CONDITION_ARCHITECTURE             },
+-        { "ConditionVirtualization",         config_parse_unit_condition_string, CONDITION_VIRTUALIZATION           },
+-        { "ConditionSecurity",               config_parse_unit_condition_string, CONDITION_SECURITY                 },
+-        { "ConditionCapability",             config_parse_unit_condition_string, CONDITION_CAPABILITY               },
+-        { "ConditionHost",                   config_parse_unit_condition_string, CONDITION_HOST                     },
+-        { "ConditionACPower",                config_parse_unit_condition_string, CONDITION_AC_POWER                 },
+-        { "ConditionUser",                   config_parse_unit_condition_string, CONDITION_USER                     },
+-        { "ConditionGroup",                  config_parse_unit_condition_string, CONDITION_GROUP                    },
+-        { "ConditionControlGroupController", config_parse_unit_condition_string, CONDITION_CONTROL_GROUP_CONTROLLER },
+-
+-        { "AssertPathExists",                config_parse_unit_condition_path,   CONDITION_PATH_EXISTS              },
+-        { "AssertPathExistsGlob",            config_parse_unit_condition_path,   CONDITION_PATH_EXISTS_GLOB         },
+-        { "AssertPathIsDirectory",           config_parse_unit_condition_path,   CONDITION_PATH_IS_DIRECTORY        },
+-        { "AssertPathIsSymbolicLink",        config_parse_unit_condition_path,   CONDITION_PATH_IS_SYMBOLIC_LINK    },
+-        { "AssertPathIsMountPoint",          config_parse_unit_condition_path,   CONDITION_PATH_IS_MOUNT_POINT      },
+-        { "AssertPathIsReadWrite",           config_parse_unit_condition_path,   CONDITION_PATH_IS_READ_WRITE       },
+-        { "AssertPathIsEncrypted",           config_parse_unit_condition_path,   CONDITION_PATH_IS_ENCRYPTED        },
+-        { "AssertDirectoryNotEmpty",         config_parse_unit_condition_path,   CONDITION_DIRECTORY_NOT_EMPTY      },
+-        { "AssertFileNotEmpty",              config_parse_unit_condition_path,   CONDITION_FILE_NOT_EMPTY           },
+-        { "AssertFileIsExecutable",          config_parse_unit_condition_path,   CONDITION_FILE_IS_EXECUTABLE       },
+-        { "AssertNeedsUpdate",               config_parse_unit_condition_path,   CONDITION_NEEDS_UPDATE             },
+-        { "AssertFirstBoot",                 config_parse_unit_condition_string, CONDITION_FIRST_BOOT               },
+-        { "AssertKernelCommandLine",         config_parse_unit_condition_string, CONDITION_KERNEL_COMMAND_LINE      },
+-        { "AssertKernelVersion",             config_parse_unit_condition_string, CONDITION_KERNEL_VERSION           },
+-        { "AssertArchitecture",              config_parse_unit_condition_string, CONDITION_ARCHITECTURE             },
+-        { "AssertVirtualization",            config_parse_unit_condition_string, CONDITION_VIRTUALIZATION           },
+-        { "AssertSecurity",                  config_parse_unit_condition_string, CONDITION_SECURITY                 },
+-        { "AssertCapability",                config_parse_unit_condition_string, CONDITION_CAPABILITY               },
+-        { "AssertHost",                      config_parse_unit_condition_string, CONDITION_HOST                     },
+-        { "AssertACPower",                   config_parse_unit_condition_string, CONDITION_AC_POWER                 },
+-        { "AssertUser",                      config_parse_unit_condition_string, CONDITION_USER                     },
+-        { "AssertGroup",                     config_parse_unit_condition_string, CONDITION_GROUP                    },
+-        { "AssertControlGroupController",    config_parse_unit_condition_string, CONDITION_CONTROL_GROUP_CONTROLLER },
+-
+-        /* deprecated, but we should still parse them */
+-        { "ConditionNull",                   config_parse_unit_condition_null,   0                                  },
+-        { "AssertNull",                      config_parse_unit_condition_null,   0                                  },
+-};
+-
+ static int parse_condition(Unit *u, const char *line) {
+-        const char *p;
+-        Condition **target;
+-
+-        if ((p = startswith(line, "Condition")))
+-                target = &u->conditions;
+-        else if ((p = startswith(line, "Assert")))
+-                target = &u->asserts;
+-        else
+-                return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Cannot parse \"%s\".", line);
+-
+-        for (size_t i = 0; i < ELEMENTSOF(condition_definitions); i++) {
+-                const condition_definition *c = &condition_definitions[i];
+-
+-                p = startswith(line, c->name);
+-                if (!p)
+-                        continue;
++        assert(u);
++        assert(line);
++
++        for (ConditionType t = 0; t < _CONDITION_TYPE_MAX; t++) {
++                ConfigParserCallback callback;
++                Condition **target;
++                const char *p, *name;
++
++                name = condition_type_to_string(t);
++                p = startswith(line, name);
++                if (p)
++                        target = &u->conditions;
++                else {
++                        name = assert_type_to_string(t);
++                        p = startswith(line, name);
++                        if (!p)
++                                continue;
++
++                        target = &u->asserts;
++                }
+ 
+                 p += strspn(p, WHITESPACE);
+ 
+@@ -94,7 +38,14 @@ static int parse_condition(Unit *u, const char *line) {
+ 
+                 p += strspn(p, WHITESPACE);
+ 
+-                return c->parser(NULL, "(stdin)", 0, NULL, 0, c->name, c->type, p, target, u);
++                if (t == CONDITION_NULL) /* deprecated, but we should still parse this for now */
++                        callback = config_parse_unit_condition_null;
++                else if (condition_takes_path(t))
++                        callback = config_parse_unit_condition_path;
++                else
++                        callback = config_parse_unit_condition_string;
++
++                return callback(NULL, "(cmdline)", 0, NULL, 0, name, t, p, target, u);
+         }
+ 
+         return log_error_errno(SYNTHETIC_ERRNO(EINVAL), "Cannot parse \"%s\".", line);
+
+From 4f55a5b0bf1e68e4595120d8ac4b518654355fc3 Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Thu, 20 Aug 2020 13:44:12 +0200
+Subject: [PATCH 2/3] core: add missing conditions/asserts to unit file parsing
+
+---
+ src/core/load-fragment-gperf.gperf.m4 | 24 ++++++++++++++++--------
+ 1 file changed, 16 insertions(+), 8 deletions(-)
+
+diff --git a/src/core/load-fragment-gperf.gperf.m4 b/src/core/load-fragment-gperf.gperf.m4
+index b9e7769e4e3..1e6bd6483c2 100644
+--- a/src/core/load-fragment-gperf.gperf.m4
++++ b/src/core/load-fragment-gperf.gperf.m4
+@@ -272,22 +272,26 @@ Unit.ConditionPathIsDirectory,   config_parse_unit_condition_path,   CONDITION_P
+ Unit.ConditionPathIsSymbolicLink,config_parse_unit_condition_path,   CONDITION_PATH_IS_SYMBOLIC_LINK,offsetof(Unit, conditions)
+ Unit.ConditionPathIsMountPoint,  config_parse_unit_condition_path,   CONDITION_PATH_IS_MOUNT_POINT, offsetof(Unit, conditions)
+ Unit.ConditionPathIsReadWrite,   config_parse_unit_condition_path,   CONDITION_PATH_IS_READ_WRITE,  offsetof(Unit, conditions)
++Unit.ConditionPathIsEncrypted,   config_parse_unit_condition_path,   CONDITION_PATH_IS_ENCRYPTED,   offsetof(Unit, conditions)
+ Unit.ConditionDirectoryNotEmpty, config_parse_unit_condition_path,   CONDITION_DIRECTORY_NOT_EMPTY, offsetof(Unit, conditions)
+ Unit.ConditionFileNotEmpty,      config_parse_unit_condition_path,   CONDITION_FILE_NOT_EMPTY,      offsetof(Unit, conditions)
+ Unit.ConditionFileIsExecutable,  config_parse_unit_condition_path,   CONDITION_FILE_IS_EXECUTABLE,  offsetof(Unit, conditions)
+ Unit.ConditionNeedsUpdate,       config_parse_unit_condition_path,   CONDITION_NEEDS_UPDATE,        offsetof(Unit, conditions)
+ Unit.ConditionFirstBoot,         config_parse_unit_condition_string, CONDITION_FIRST_BOOT,          offsetof(Unit, conditions)
+-Unit.ConditionKernelCommandLine, config_parse_unit_condition_string, CONDITION_KERNEL_COMMAND_LINE, offsetof(Unit, conditions)
+-Unit.ConditionKernelVersion,     config_parse_unit_condition_string, CONDITION_KERNEL_VERSION,      offsetof(Unit, conditions)
+ Unit.ConditionArchitecture,      config_parse_unit_condition_string, CONDITION_ARCHITECTURE,        offsetof(Unit, conditions)
+ Unit.ConditionVirtualization,    config_parse_unit_condition_string, CONDITION_VIRTUALIZATION,      offsetof(Unit, conditions)
++Unit.ConditionHost,              config_parse_unit_condition_string, CONDITION_HOST,                offsetof(Unit, conditions)
++Unit.ConditionKernelCommandLine, config_parse_unit_condition_string, CONDITION_KERNEL_COMMAND_LINE, offsetof(Unit, conditions)
++Unit.ConditionKernelVersion,     config_parse_unit_condition_string, CONDITION_KERNEL_VERSION,      offsetof(Unit, conditions)
+ Unit.ConditionSecurity,          config_parse_unit_condition_string, CONDITION_SECURITY,            offsetof(Unit, conditions)
+ Unit.ConditionCapability,        config_parse_unit_condition_string, CONDITION_CAPABILITY,          offsetof(Unit, conditions)
+-Unit.ConditionHost,              config_parse_unit_condition_string, CONDITION_HOST,                offsetof(Unit, conditions)
+ Unit.ConditionACPower,           config_parse_unit_condition_string, CONDITION_AC_POWER,            offsetof(Unit, conditions)
++Unit.ConditionMemory,            config_parse_unit_condition_string, CONDITION_MEMORY,              offsetof(Unit, conditions)
++Unit.ConditionCPUs,              config_parse_unit_condition_string, CONDITION_CPUS,                offsetof(Unit, conditions)
++Unit.ConditionEnvironment,       config_parse_unit_condition_string, CONDITION_ENVIRONMENT,         offsetof(Unit, conditions)
+ Unit.ConditionUser,              config_parse_unit_condition_string, CONDITION_USER,                offsetof(Unit, conditions)
+ Unit.ConditionGroup,             config_parse_unit_condition_string, CONDITION_GROUP,               offsetof(Unit, conditions)
+-Unit.ConditionControlGroupController,  config_parse_unit_condition_string, CONDITION_CONTROL_GROUP_CONTROLLER,   offsetof(Unit, conditions)
++Unit.ConditionControlGroupController, config_parse_unit_condition_string, CONDITION_CONTROL_GROUP_CONTROLLER, offsetof(Unit, conditions)
+ Unit.ConditionNull,              config_parse_unit_condition_null,   0,                             offsetof(Unit, conditions)
+ Unit.AssertPathExists,           config_parse_unit_condition_path,   CONDITION_PATH_EXISTS,         offsetof(Unit, asserts)
+ Unit.AssertPathExistsGlob,       config_parse_unit_condition_path,   CONDITION_PATH_EXISTS_GLOB,    offsetof(Unit, asserts)
+@@ -295,22 +299,26 @@ Unit.AssertPathIsDirectory,      config_parse_unit_condition_path,   CONDITION_P
+ Unit.AssertPathIsSymbolicLink,   config_parse_unit_condition_path,   CONDITION_PATH_IS_SYMBOLIC_LINK,offsetof(Unit, asserts)
+ Unit.AssertPathIsMountPoint,     config_parse_unit_condition_path,   CONDITION_PATH_IS_MOUNT_POINT, offsetof(Unit, asserts)
+ Unit.AssertPathIsReadWrite,      config_parse_unit_condition_path,   CONDITION_PATH_IS_READ_WRITE,  offsetof(Unit, asserts)
++Unit.AssertPathIsEncrypted,      config_parse_unit_condition_path,   CONDITION_PATH_IS_ENCRYPTED,   offsetof(Unit, asserts)
+ Unit.AssertDirectoryNotEmpty,    config_parse_unit_condition_path,   CONDITION_DIRECTORY_NOT_EMPTY, offsetof(Unit, asserts)
+ Unit.AssertFileNotEmpty,         config_parse_unit_condition_path,   CONDITION_FILE_NOT_EMPTY,      offsetof(Unit, asserts)
+ Unit.AssertFileIsExecutable,     config_parse_unit_condition_path,   CONDITION_FILE_IS_EXECUTABLE,  offsetof(Unit, asserts)
+ Unit.AssertNeedsUpdate,          config_parse_unit_condition_path,   CONDITION_NEEDS_UPDATE,        offsetof(Unit, asserts)
+ Unit.AssertFirstBoot,            config_parse_unit_condition_string, CONDITION_FIRST_BOOT,          offsetof(Unit, asserts)
+-Unit.AssertKernelCommandLine,    config_parse_unit_condition_string, CONDITION_KERNEL_COMMAND_LINE, offsetof(Unit, asserts)
+-Unit.AssertKernelVersion,        config_parse_unit_condition_string, CONDITION_KERNEL_VERSION,      offsetof(Unit, asserts)
+ Unit.AssertArchitecture,         config_parse_unit_condition_string, CONDITION_ARCHITECTURE,        offsetof(Unit, asserts)
+ Unit.AssertVirtualization,       config_parse_unit_condition_string, CONDITION_VIRTUALIZATION,      offsetof(Unit, asserts)
++Unit.AssertHost,                 config_parse_unit_condition_string, CONDITION_HOST,                offsetof(Unit, asserts)
++Unit.AssertKernelCommandLine,    config_parse_unit_condition_string, CONDITION_KERNEL_COMMAND_LINE, offsetof(Unit, asserts)
++Unit.AssertKernelVersion,        config_parse_unit_condition_string, CONDITION_KERNEL_VERSION,      offsetof(Unit, asserts)
+ Unit.AssertSecurity,             config_parse_unit_condition_string, CONDITION_SECURITY,            offsetof(Unit, asserts)
+ Unit.AssertCapability,           config_parse_unit_condition_string, CONDITION_CAPABILITY,          offsetof(Unit, asserts)
+-Unit.AssertHost,                 config_parse_unit_condition_string, CONDITION_HOST,                offsetof(Unit, asserts)
+ Unit.AssertACPower,              config_parse_unit_condition_string, CONDITION_AC_POWER,            offsetof(Unit, asserts)
++Unit.AssertMemory,               config_parse_unit_condition_string, CONDITION_MEMORY,              offsetof(Unit, asserts)
++Unit.AssertCPUs,                 config_parse_unit_condition_string, CONDITION_CPUS,                offsetof(Unit, asserts)
++Unit.AssertEnvironment,          config_parse_unit_condition_string, CONDITION_ENVIRONMENT,         offsetof(Unit, asserts)
+ Unit.AssertUser,                 config_parse_unit_condition_string, CONDITION_USER,                offsetof(Unit, asserts)
+ Unit.AssertGroup,                config_parse_unit_condition_string, CONDITION_GROUP,               offsetof(Unit, asserts)
+-Unit.AssertControlGroupController,     config_parse_unit_condition_string, CONDITION_CONTROL_GROUP_CONTROLLER,   offsetof(Unit, asserts)
++Unit.AssertControlGroupController, config_parse_unit_condition_string, CONDITION_CONTROL_GROUP_CONTROLLER, offsetof(Unit, asserts)
+ Unit.AssertNull,                 config_parse_unit_condition_null,   0,                             offsetof(Unit, asserts)
+ Unit.CollectMode,                config_parse_collect_mode,          0,                             offsetof(Unit, collect_mode)
+ m4_dnl
+
+From 476cfe626dac41bb9879116c701333caa2ccec24 Mon Sep 17 00:00:00 2001
+From: Lennart Poettering <lennart@poettering.net>
+Date: Thu, 20 Aug 2020 14:01:25 +0200
+Subject: [PATCH 3/3] core: remove support for ConditionNull=
+
+The concept is flawed, and mostly useless. Let's finally remove it.
+
+It has been deprecated since 90a2ec10f2d43a8530aae856013518eb567c4039 (6
+years ago) and we started to warn since
+55dadc5c57ef1379dbc984938d124508a454be55 (1.5 years ago).
+
+Let's get rid of it altogether.
+---
+ man/systemd.unit.xml                          |  3 -
+ src/analyze/analyze-condition.c               |  4 +-
+ src/core/dbus-unit.c                          | 22 +++-----
+ src/core/load-fragment-gperf.gperf.m4         |  2 -
+ src/core/load-fragment.c                      | 55 -------------------
+ src/core/load-fragment.h                      |  1 -
+ src/shared/condition.c                        | 21 +------
+ src/shared/condition.h                        |  2 -
+ src/test/test-condition.c                     | 15 -----
+ .../fuzz-unit-file/systemd-machined.service   |  3 -
+ 10 files changed, 11 insertions(+), 117 deletions(-)
+
+diff --git a/man/systemd.unit.xml b/man/systemd.unit.xml
+index 7ef6080237e..50f35aaa3cc 100644
+--- a/man/systemd.unit.xml
++++ b/man/systemd.unit.xml
+@@ -1092,9 +1092,6 @@
+       <para>Except for <varname>ConditionPathIsSymbolicLink=</varname>, all path checks follow symlinks.</para>
+ 
+       <variablelist class='unit-directives'>
+-        <!-- We do not document ConditionNull= here, as it is not particularly useful and probably just
+-             confusing. -->
+-
+         <varlistentry>
+           <term><varname>ConditionArchitecture=</varname></term>
+ 
+diff --git a/src/analyze/analyze-condition.c b/src/analyze/analyze-condition.c
+index 13f75e813a2..e1365e18056 100644
+--- a/src/analyze/analyze-condition.c
++++ b/src/analyze/analyze-condition.c
+@@ -38,9 +38,7 @@ static int parse_condition(Unit *u, const char *line) {
+ 
+                 p += strspn(p, WHITESPACE);
+ 
+-                if (t == CONDITION_NULL) /* deprecated, but we should still parse this for now */
+-                        callback = config_parse_unit_condition_null;
+-                else if (condition_takes_path(t))
++                if (condition_takes_path(t))
+                         callback = config_parse_unit_condition_path;
+                 else
+                         callback = config_parse_unit_condition_string;
+diff --git a/src/core/dbus-unit.c b/src/core/dbus-unit.c
+index 9e9d3b101e5..e799771c220 100644
+--- a/src/core/dbus-unit.c
++++ b/src/core/dbus-unit.c
+@@ -1974,14 +1974,11 @@ static int bus_set_transient_conditions(
+                 if (t < 0)
+                         return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Invalid condition type: %s", type_name);
+ 
+-                if (t != CONDITION_NULL) {
+-                        if (isempty(param))
+-                                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Condition parameter in %s is empty", type_name);
++                if (isempty(param))
++                        return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Condition parameter in %s is empty", type_name);
+ 
+-                        if (condition_takes_path(t) && !path_is_absolute(param))
+-                                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Path in condition %s is not absolute: %s", type_name, param);
+-                } else
+-                        param = NULL;
++                if (condition_takes_path(t) && !path_is_absolute(param))
++                        return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Path in condition %s is not absolute: %s", type_name, param);
+ 
+                 if (!UNIT_WRITE_FLAGS_NOOP(flags)) {
+                         Condition *c;
+@@ -1992,14 +1989,9 @@ static int bus_set_transient_conditions(
+ 
+                         LIST_PREPEND(conditions, *list, c);
+ 
+-                        if (t != CONDITION_NULL)
+-                                unit_write_settingf(u, flags|UNIT_ESCAPE_SPECIFIERS, name,
+-                                                    "%s=%s%s%s", type_name,
+-                                                    trigger ? "|" : "", negate ? "!" : "", param);
+-                        else
+-                                unit_write_settingf(u, flags, name,
+-                                                    "%s=%s%s", type_name,
+-                                                    trigger ? "|" : "", yes_no(!negate));
++                        unit_write_settingf(u, flags|UNIT_ESCAPE_SPECIFIERS, name,
++                                            "%s=%s%s%s", type_name,
++                                            trigger ? "|" : "", negate ? "!" : "", param);
+                 }
+ 
+                 empty = false;
+diff --git a/src/core/load-fragment-gperf.gperf.m4 b/src/core/load-fragment-gperf.gperf.m4
+index 1e6bd6483c2..a191de62af3 100644
+--- a/src/core/load-fragment-gperf.gperf.m4
++++ b/src/core/load-fragment-gperf.gperf.m4
+@@ -292,7 +292,6 @@ Unit.ConditionEnvironment,       config_parse_unit_condition_string, CONDITION_E
+ Unit.ConditionUser,              config_parse_unit_condition_string, CONDITION_USER,                offsetof(Unit, conditions)
+ Unit.ConditionGroup,             config_parse_unit_condition_string, CONDITION_GROUP,               offsetof(Unit, conditions)
+ Unit.ConditionControlGroupController, config_parse_unit_condition_string, CONDITION_CONTROL_GROUP_CONTROLLER, offsetof(Unit, conditions)
+-Unit.ConditionNull,              config_parse_unit_condition_null,   0,                             offsetof(Unit, conditions)
+ Unit.AssertPathExists,           config_parse_unit_condition_path,   CONDITION_PATH_EXISTS,         offsetof(Unit, asserts)
+ Unit.AssertPathExistsGlob,       config_parse_unit_condition_path,   CONDITION_PATH_EXISTS_GLOB,    offsetof(Unit, asserts)
+ Unit.AssertPathIsDirectory,      config_parse_unit_condition_path,   CONDITION_PATH_IS_DIRECTORY,   offsetof(Unit, asserts)
+@@ -319,7 +318,6 @@ Unit.AssertEnvironment,          config_parse_unit_condition_string, CONDITION_E
+ Unit.AssertUser,                 config_parse_unit_condition_string, CONDITION_USER,                offsetof(Unit, asserts)
+ Unit.AssertGroup,                config_parse_unit_condition_string, CONDITION_GROUP,               offsetof(Unit, asserts)
+ Unit.AssertControlGroupController, config_parse_unit_condition_string, CONDITION_CONTROL_GROUP_CONTROLLER, offsetof(Unit, asserts)
+-Unit.AssertNull,                 config_parse_unit_condition_null,   0,                             offsetof(Unit, asserts)
+ Unit.CollectMode,                config_parse_collect_mode,          0,                             offsetof(Unit, collect_mode)
+ m4_dnl
+ Service.PIDFile,                 config_parse_pid_file,              0,                             offsetof(Service, pid_file)
+diff --git a/src/core/load-fragment.c b/src/core/load-fragment.c
+index 266382c84c7..cfd04f3b49f 100644
+--- a/src/core/load-fragment.c
++++ b/src/core/load-fragment.c
+@@ -2999,60 +2999,6 @@ int config_parse_unit_condition_string(
+         return 0;
+ }
+ 
+-int config_parse_unit_condition_null(
+-                const char *unit,
+-                const char *filename,
+-                unsigned line,
+-                const char *section,
+-                unsigned section_line,
+-                const char *lvalue,
+-                int ltype,
+-                const char *rvalue,
+-                void *data,
+-                void *userdata) {
+-
+-        Condition **list = data, *c;
+-        bool trigger, negate;
+-        int b;
+-
+-        assert(filename);
+-        assert(lvalue);
+-        assert(rvalue);
+-        assert(data);
+-
+-        log_syntax(unit, LOG_WARNING, filename, line, 0, "%s= is deprecated, please do not use.", lvalue);
+-
+-        if (isempty(rvalue)) {
+-                /* Empty assignment resets the list */
+-                *list = condition_free_list(*list);
+-                return 0;
+-        }
+-
+-        trigger = rvalue[0] == '|';
+-        if (trigger)
+-                rvalue++;
+-
+-        negate = rvalue[0] == '!';
+-        if (negate)
+-                rvalue++;
+-
+-        b = parse_boolean(rvalue);
+-        if (b < 0) {
+-                log_syntax(unit, LOG_ERR, filename, line, b, "Failed to parse boolean value in condition, ignoring: %s", rvalue);
+-                return 0;
+-        }
+-
+-        if (!b)
+-                negate = !negate;
+-
+-        c = condition_new(CONDITION_NULL, NULL, trigger, negate);
+-        if (!c)
+-                return log_oom();
+-
+-        LIST_PREPEND(conditions, *list, c);
+-        return 0;
+-}
+-
+ int config_parse_unit_requires_mounts_for(
+                 const char *unit,
+                 const char *filename,
+@@ -5266,7 +5212,6 @@ void unit_dump_config_items(FILE *f) {
+                 { config_parse_ip_tos,                "TOS" },
+                 { config_parse_unit_condition_path,   "CONDITION" },
+                 { config_parse_unit_condition_string, "CONDITION" },
+-                { config_parse_unit_condition_null,   "CONDITION" },
+                 { config_parse_unit_slice,            "SLICE" },
+                 { config_parse_documentation,         "URL" },
+                 { config_parse_service_timeout,       "SECONDS" },
+diff --git a/src/core/load-fragment.h b/src/core/load-fragment.h
+index 2672db5ace2..cee5717d0fb 100644
+--- a/src/core/load-fragment.h
++++ b/src/core/load-fragment.h
+@@ -58,7 +58,6 @@ CONFIG_PARSER_PROTOTYPE(config_parse_unit_env_file);
+ CONFIG_PARSER_PROTOTYPE(config_parse_ip_tos);
+ CONFIG_PARSER_PROTOTYPE(config_parse_unit_condition_path);
+ CONFIG_PARSER_PROTOTYPE(config_parse_unit_condition_string);
+-CONFIG_PARSER_PROTOTYPE(config_parse_unit_condition_null);
+ CONFIG_PARSER_PROTOTYPE(config_parse_kill_mode);
+ CONFIG_PARSER_PROTOTYPE(config_parse_notify_access);
+ CONFIG_PARSER_PROTOTYPE(config_parse_emergency_action);
+diff --git a/src/shared/condition.c b/src/shared/condition.c
+index bf3b5fa1622..1f6105622a5 100644
+--- a/src/shared/condition.c
++++ b/src/shared/condition.c
+@@ -52,7 +52,7 @@ Condition* condition_new(ConditionType type, const char *parameter, bool trigger
+ 
+         assert(type >= 0);
+         assert(type < _CONDITION_TYPE_MAX);
+-        assert((!parameter) == (type == CONDITION_NULL));
++        assert(parameter);
+ 
+         c = new(Condition, 1);
+         if (!c)
+@@ -776,15 +776,6 @@ static int condition_test_file_is_executable(Condition *c, char **env) {
+                 (st.st_mode & 0111));
+ }
+ 
+-static int condition_test_null(Condition *c, char **env) {
+-        assert(c);
+-        assert(c->type == CONDITION_NULL);
+-
+-        /* Note that during parsing we already evaluate the string and
+-         * store it in c->negate */
+-        return true;
+-}
+-
+ int condition_test(Condition *c, char **env) {
+ 
+         static int (*const condition_tests[_CONDITION_TYPE_MAX])(Condition *c, char **env) = {
+@@ -811,7 +802,6 @@ int condition_test(Condition *c, char **env) {
+                 [CONDITION_USER]                     = condition_test_user,
+                 [CONDITION_GROUP]                    = condition_test_group,
+                 [CONDITION_CONTROL_GROUP_CONTROLLER] = condition_test_control_group_controller,
+-                [CONDITION_NULL]                     = condition_test_null,
+                 [CONDITION_CPUS]                     = condition_test_cpus,
+                 [CONDITION_MEMORY]                   = condition_test_memory,
+                 [CONDITION_ENVIRONMENT]              = condition_test_environment,
+@@ -859,23 +849,20 @@ bool condition_test_list(
+                 r = condition_test(c, env);
+ 
+                 if (logger) {
+-                        const char *p = c->type == CONDITION_NULL ? "true" : c->parameter;
+-                        assert(p);
+-
+                         if (r < 0)
+                                 logger(userdata, LOG_WARNING, r, PROJECT_FILE, __LINE__, __func__,
+                                        "Couldn't determine result for %s=%s%s%s, assuming failed: %m",
+                                        to_string(c->type),
+                                        c->trigger ? "|" : "",
+                                        c->negate ? "!" : "",
+-                                       p);
++                                       c->parameter);
+                         else
+                                 logger(userdata, LOG_DEBUG, 0, PROJECT_FILE, __LINE__, __func__,
+                                        "%s=%s%s%s %s.",
+                                        to_string(c->type),
+                                        c->trigger ? "|" : "",
+                                        c->negate ? "!" : "",
+-                                       p,
++                                       c->parameter,
+                                        condition_result_to_string(c->result));
+                 }
+ 
+@@ -937,7 +924,6 @@ static const char* const condition_type_table[_CONDITION_TYPE_MAX] = {
+         [CONDITION_USER] = "ConditionUser",
+         [CONDITION_GROUP] = "ConditionGroup",
+         [CONDITION_CONTROL_GROUP_CONTROLLER] = "ConditionControlGroupController",
+-        [CONDITION_NULL] = "ConditionNull",
+         [CONDITION_CPUS] = "ConditionCPUs",
+         [CONDITION_MEMORY] = "ConditionMemory",
+         [CONDITION_ENVIRONMENT] = "ConditionEnvironment",
+@@ -969,7 +955,6 @@ static const char* const assert_type_table[_CONDITION_TYPE_MAX] = {
+         [CONDITION_USER] = "AssertUser",
+         [CONDITION_GROUP] = "AssertGroup",
+         [CONDITION_CONTROL_GROUP_CONTROLLER] = "AssertControlGroupController",
+-        [CONDITION_NULL] = "AssertNull",
+         [CONDITION_CPUS] = "AssertCPUs",
+         [CONDITION_MEMORY] = "AssertMemory",
+         [CONDITION_ENVIRONMENT] = "AssertEnvironment",
+diff --git a/src/shared/condition.h b/src/shared/condition.h
+index fea74d228d8..e5ad43f945b 100644
+--- a/src/shared/condition.h
++++ b/src/shared/condition.h
+@@ -34,8 +34,6 @@ typedef enum ConditionType {
+         CONDITION_FILE_NOT_EMPTY,
+         CONDITION_FILE_IS_EXECUTABLE,
+ 
+-        CONDITION_NULL,
+-
+         CONDITION_USER,
+         CONDITION_GROUP,
+ 
+diff --git a/src/test/test-condition.c b/src/test/test-condition.c
+index ddf2e669c03..d209c1304c8 100644
+--- a/src/test/test-condition.c
++++ b/src/test/test-condition.c
+@@ -438,20 +438,6 @@ static void test_condition_test_kernel_version(void) {
+         condition_free(condition);
+ }
+ 
+-static void test_condition_test_null(void) {
+-        Condition *condition;
+-
+-        condition = condition_new(CONDITION_NULL, NULL, false, false);
+-        assert_se(condition);
+-        assert_se(condition_test(condition, environ) > 0);
+-        condition_free(condition);
+-
+-        condition = condition_new(CONDITION_NULL, NULL, false, true);
+-        assert_se(condition);
+-        assert_se(condition_test(condition, environ) == 0);
+-        condition_free(condition);
+-}
+-
+ static void test_condition_test_security(void) {
+         Condition *condition;
+ 
+@@ -868,7 +854,6 @@ int main(int argc, char *argv[]) {
+         test_condition_test_architecture();
+         test_condition_test_kernel_command_line();
+         test_condition_test_kernel_version();
+-        test_condition_test_null();
+         test_condition_test_security();
+         print_securities();
+         test_condition_test_virtualization();
+diff --git a/test/fuzz/fuzz-unit-file/systemd-machined.service b/test/fuzz/fuzz-unit-file/systemd-machined.service
+index 70b627c5f40..79ee9861d8e 100644
+--- a/test/fuzz/fuzz-unit-file/systemd-machined.service
++++ b/test/fuzz/fuzz-unit-file/systemd-machined.service
+@@ -15,9 +15,6 @@ Documentation=https://www.freedesktop.org/wiki/Software/systemd/machined
+ Wants=machine.slice
+ After=machine.slice
+ RequiresMountsFor=/var/lib/machines
+-ConditionNull=true
+-ConditionNull=
+-ConditionNull=|!false
+ OnFailureIsolate=false
+ FailureActionExitStatus=222
+ FailureActionExitStatus=

@@ -23,6 +23,60 @@
 %global system_unit_dir %{pkgdir}/system
 %global user_unit_dir %{pkgdir}/user
 
+%if 0%{?facebook}
+%if 0%{?el7}
+### The version of meson and redhat-rpm-config is not in sync in C7.
+### Copied from the 'redhat-rpm-config-123-1' version of /usr/lib/rpm/redhat/macros
+### to support the building of systemd via meson that uses the
+### set_build_flags macro.
+%global _ld_symbols_flags              %{?_strict_symbol_defs_build:-Wl,-z,defs}
+
+#==============================================================================
+# ---- compiler flags.
+
+# C compiler flags.  This is traditionally called CFLAGS in makefiles.
+# Historically also available as %%{optflags}, and %%build sets the
+# environment variable RPM_OPT_FLAGS to this value.
+%global build_cflags %{optflags}
+
+# C++ compiler flags.  This is traditionally called CXXFLAGS in makefiles.
+%global build_cxxflags %{optflags}
+
+# Fortran compiler flags.  Makefiles use both FFLAGS and FCFLAGS as
+# the corresponding variable names.
+%global build_fflags %{optflags} -I%{_fmoddir}
+
+# Link editor flags.  This is usually called LDFLAGS in makefiles.
+# (Some makefiles use LFLAGS instead.)  The default value assumes that
+# the flags, while intended for ld, are still passed through the gcc
+# compiler driver.  At the beginning of %%build, the environment
+# variable RPM_LD_FLAGS to this value.
+%global build_ldflags -Wl,-z,relro %{_ld_symbols_flags} %{_hardened_ldflags}
+
+# Expands to shell code to seot the compiler/linker environment
+# variables CFLAGS, CXXFLAGS, FFLAGS, FCFLAGS, LDFLAGS if they have
+# not been set already.  RPM_OPT_FLAGS and RPM_LD_FLAGS have already
+# been set implicitly at the start of the %%build section.
+%global set_build_flags \
+  CFLAGS="${CFLAGS:-%{build_cflags}}" ; export CFLAGS ; \
+  CXXFLAGS="${CXXFLAGS:-%{build_cxxflags}}" ; export CXXFLAGS ; \
+  FFLAGS="${FFLAGS:-%{build_fflags}}" ; export FFLAGS ; \
+  FCFLAGS="${FCFLAGS:-%{build_fflags}}" ; export FCFLAGS ; \
+  LDFLAGS="${LDFLAGS:-%{build_ldflags}}" ; export LDFLAGS;
+
+### Copied from the rpm-4.14.2-36 version of /usr/lib/rpm/platform/x86_64-linux/macros
+### to support the building of systemd via meson that uses the
+### _smp_build_ncpus macro
+%global _smp_build_ncpus %([ -z "$RPM_BUILD_NCPUS" ] \\\
+	&& RPM_BUILD_NCPUS="`/usr/bin/getconf _NPROCESSORS_ONLN`"; \\\
+        ncpus_max=%{?_smp_ncpus_max}; \\\
+        if [ -n "$ncpus_max" ] && [ "$ncpus_max" -gt 0 ] && [ "$RPM_BUILD_NCPUS" -gt "$ncpus_max" ]; then RPM_BUILD_NCPUS="$ncpus_max"; fi; \\\
+        echo "$RPM_BUILD_NCPUS";)
+
+%global _smp_mflags -j%{_smp_build_ncpus}
+%endif
+%endif
+
 # Bootstrap may be needed to break intercircular dependencies with
 # cryptsetup, e.g. when re-building cryptsetup on a json-c SONAME-bump.
 %bcond_with    bootstrap
@@ -31,7 +85,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        246.1
-Release:        1.fb5
+Release:        1.fb6
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -89,6 +143,8 @@ Patch1005:      17082_nspawn_tty_tweaks.patch
 Patch1006:      0001-bpf-pid1-Pin-reference-to-BPF-programs-for-post-cold.patch
 Patch1007:      0002-core-clean-up-inactive-failed-service-scope-s-cgroup.patch
 Patch1008:      0003-timer-add-new-feature-FixedRandomDelay.patch
+
+Patch1009:      16803_fix_asserts_conditions.patch
 
 %ifarch %{ix86} x86_64 aarch64
 %global have_gnu_efi 1
@@ -825,6 +881,9 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Mon Jan 25 2021 Anita Zhang <anitazha@fb.com> - 246.1-1.fb6
+- Backport PR #16803 to fix ConditionEnvironment=
+
 * Thu Nov 19 2020 Chris Down <cdown@fb.com> - 246.1-1.fb5
 - Updated version of PR #17495 to fix program leak
 
