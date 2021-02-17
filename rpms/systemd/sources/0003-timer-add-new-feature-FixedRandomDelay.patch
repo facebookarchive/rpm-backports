@@ -1,7 +1,7 @@
-From de8f6fb530db706d14e9ece52b2acfd77c823133 Mon Sep 17 00:00:00 2001
+From acf24a1a84e9496e3feb09449f4cc43fe67a9a64 Mon Sep 17 00:00:00 2001
 From: Kristijan Gjoshev <crypter@mail.com>
 Date: Sat, 1 Feb 2020 18:27:08 +0100
-Subject: [PATCH 3/3] timer: add new feature FixedRandomDelay=
+Subject: [PATCH 2/2] timer: add new feature FixedRandomDelay=
 
 FixedRandomDelay=yes will use
 `siphash24(sd_id128_get_machine() || MANAGER_IS_SYSTEM(m) || getuid() || u->id)`,
@@ -18,18 +18,19 @@ Co-author: Anita Zhang <the.anitazha@gmail.com>
  man/org.freedesktop.systemd1.xml              |  6 ++++
  man/systemd.timer.xml                         | 12 +++++++
  src/core/dbus-timer.c                         |  4 +++
+ src/core/load-fragment-gperf.gperf.m4         |  1 +
  src/core/timer.c                              | 34 ++++++++++++++++++-
  src/core/timer.h                              |  1 +
  src/shared/bus-unit-util.c                    |  3 +-
  test/fuzz/fuzz-unit-file/directives.service   |  1 +
  .../systemd-tmpfiles-clean.timer              |  1 +
- 9 files changed, 61 insertions(+), 2 deletions(-)
+ 10 files changed, 62 insertions(+), 2 deletions(-)
 
 diff --git a/docs/TRANSIENT-SETTINGS.md b/docs/TRANSIENT-SETTINGS.md
-index 19944d08b8..f4639b2e87 100644
+index f0dc2ee20ff..50b9a42fa11 100644
 --- a/docs/TRANSIENT-SETTINGS.md
 +++ b/docs/TRANSIENT-SETTINGS.md
-@@ -368,6 +368,7 @@ Most timer unit settings are available to transient units.
+@@ -374,6 +374,7 @@ Most timer unit settings are available to transient units.
  ✓ RemainAfterElapse=
  ✓ AccuracySec=
  ✓ RandomizedDelaySec=
@@ -38,10 +39,10 @@ index 19944d08b8..f4639b2e87 100644
  ```
  
 diff --git a/man/org.freedesktop.systemd1.xml b/man/org.freedesktop.systemd1.xml
-index 6b16ae16da..ab4cbaa2fb 100644
+index c0e0f385b41..1f6bbc1a6ec 100644
 --- a/man/org.freedesktop.systemd1.xml
 +++ b/man/org.freedesktop.systemd1.xml
-@@ -6866,6 +6866,8 @@ node /org/freedesktop/systemd1/unit/systemd_2dtmpfiles_2dclean_2etimer {
+@@ -7211,6 +7211,8 @@ node /org/freedesktop/systemd1/unit/systemd_2dtmpfiles_2dclean_2etimer {
        @org.freedesktop.DBus.Property.EmitsChangedSignal("const")
        readonly t RandomizedDelayUSec = ...;
        @org.freedesktop.DBus.Property.EmitsChangedSignal("const")
@@ -50,7 +51,7 @@ index 6b16ae16da..ab4cbaa2fb 100644
        readonly b Persistent = ...;
        @org.freedesktop.DBus.Property.EmitsChangedSignal("const")
        readonly b WakeSystem = ...;
-@@ -6891,6 +6893,8 @@ node /org/freedesktop/systemd1/unit/systemd_2dtmpfiles_2dclean_2etimer {
+@@ -7236,6 +7238,8 @@ node /org/freedesktop/systemd1/unit/systemd_2dtmpfiles_2dclean_2etimer {
  
      <!--property RandomizedDelayUSec is not documented!-->
  
@@ -59,7 +60,7 @@ index 6b16ae16da..ab4cbaa2fb 100644
      <!--property Persistent is not documented!-->
  
      <!--property WakeSystem is not documented!-->
-@@ -6931,6 +6935,8 @@ node /org/freedesktop/systemd1/unit/systemd_2dtmpfiles_2dclean_2etimer {
+@@ -7276,6 +7280,8 @@ node /org/freedesktop/systemd1/unit/systemd_2dtmpfiles_2dclean_2etimer {
  
      <variablelist class="dbus-property" generated="True" extra-ref="RandomizedDelayUSec"/>
  
@@ -69,7 +70,7 @@ index 6b16ae16da..ab4cbaa2fb 100644
  
      <variablelist class="dbus-property" generated="True" extra-ref="WakeSystem"/>
 diff --git a/man/systemd.timer.xml b/man/systemd.timer.xml
-index 5822402712..6f731e2311 100644
+index 24c6dd50f89..c4698bf4dc9 100644
 --- a/man/systemd.timer.xml
 +++ b/man/systemd.timer.xml
 @@ -268,6 +268,18 @@
@@ -92,7 +93,7 @@ index 5822402712..6f731e2311 100644
          <term><varname>OnClockChange=</varname></term>
          <term><varname>OnTimezoneChange=</varname></term>
 diff --git a/src/core/dbus-timer.c b/src/core/dbus-timer.c
-index da35fa8678..ee54ba8772 100644
+index da35fa86786..ee54ba87720 100644
 --- a/src/core/dbus-timer.c
 +++ b/src/core/dbus-timer.c
 @@ -131,6 +131,7 @@ const sd_bus_vtable bus_timer_vtable[] = {
@@ -113,8 +114,20 @@ index da35fa8678..ee54ba8772 100644
          if (streq(name, "WakeSystem"))
                  return bus_set_transient_bool(u, name, &t->wake_system, message, flags, error);
  
+diff --git a/src/core/load-fragment-gperf.gperf.m4 b/src/core/load-fragment-gperf.gperf.m4
+index 063d8ba6b62..946862c398a 100644
+--- a/src/core/load-fragment-gperf.gperf.m4
++++ b/src/core/load-fragment-gperf.gperf.m4
+@@ -481,6 +481,7 @@ Timer.OnTimezoneChange,          config_parse_bool,
+ Timer.Persistent,                config_parse_bool,                  0,                             offsetof(Timer, persistent)
+ Timer.WakeSystem,                config_parse_bool,                  0,                             offsetof(Timer, wake_system)
+ Timer.RemainAfterElapse,         config_parse_bool,                  0,                             offsetof(Timer, remain_after_elapse)
++Timer.FixedRandomDelay,          config_parse_bool,                  0,                             offsetof(Timer, fixed_random_delay)
+ Timer.AccuracySec,               config_parse_sec,                   0,                             offsetof(Timer, accuracy_usec)
+ Timer.RandomizedDelaySec,        config_parse_sec,                   0,                             offsetof(Timer, random_usec)
+ Timer.Unit,                      config_parse_trigger_unit,          0,                             0
 diff --git a/src/core/timer.c b/src/core/timer.c
-index 03a9c14f76..b2c5e26f63 100644
+index 94388f0727f..46669b6b141 100644
 --- a/src/core/timer.c
 +++ b/src/core/timer.c
 @@ -169,6 +169,36 @@ static int timer_setup_persistent(Timer *t) {
@@ -180,7 +193,7 @@ index 03a9c14f76..b2c5e26f63 100644
          if (*v + add < *v) /* overflow */
                  *v = (usec_t) -2; /* Highest possible value, that is not USEC_INFINITY */
 diff --git a/src/core/timer.h b/src/core/timer.h
-index ab66a201ad..ce4046a210 100644
+index ab66a201adc..ce4046a2106 100644
 --- a/src/core/timer.h
 +++ b/src/core/timer.h
 @@ -59,6 +59,7 @@ struct Timer {
@@ -192,10 +205,10 @@ index ab66a201ad..ce4046a210 100644
          char *stamp_path;
  };
 diff --git a/src/shared/bus-unit-util.c b/src/shared/bus-unit-util.c
-index f2652ed9a5..68de4a2ed1 100644
+index 79c2e0cf199..d1dc9e2e022 100644
 --- a/src/shared/bus-unit-util.c
 +++ b/src/shared/bus-unit-util.c
-@@ -1779,7 +1779,8 @@ static int bus_append_timer_property(sd_bus_message *m, const char *field, const
+@@ -2074,7 +2074,8 @@ static int bus_append_timer_property(sd_bus_message *m, const char *field, const
                                "RemainAfterElapse",
                                "Persistent",
                                "OnTimezoneChange",
@@ -206,7 +219,7 @@ index f2652ed9a5..68de4a2ed1 100644
  
          if (STR_IN_SET(field, "AccuracySec",
 diff --git a/test/fuzz/fuzz-unit-file/directives.service b/test/fuzz/fuzz-unit-file/directives.service
-index dbff9ab2cc..95304ea0c6 100644
+index eebc89f5c23..30ce98687a4 100644
 --- a/test/fuzz/fuzz-unit-file/directives.service
 +++ b/test/fuzz/fuzz-unit-file/directives.service
 @@ -175,6 +175,7 @@ PipeSize=
@@ -218,7 +231,7 @@ index dbff9ab2cc..95304ea0c6 100644
  ReceiveBuffer=
  RefuseManualStart=
 diff --git a/test/fuzz/fuzz-unit-file/systemd-tmpfiles-clean.timer b/test/fuzz/fuzz-unit-file/systemd-tmpfiles-clean.timer
-index 7db361cd69..64b8808adc 100644
+index 7db361cd69b..64b8808adc3 100644
 --- a/test/fuzz/fuzz-unit-file/systemd-tmpfiles-clean.timer
 +++ b/test/fuzz/fuzz-unit-file/systemd-tmpfiles-clean.timer
 @@ -32,6 +32,7 @@ OnCalendar=Fri 2012-11-23 11:12:13
@@ -229,6 +242,3 @@ index 7db361cd69..64b8808adc 100644
  
  Persistent=no
  Unit=foo.service
--- 
-2.24.1
-

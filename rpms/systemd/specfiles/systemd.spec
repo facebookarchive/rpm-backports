@@ -85,7 +85,7 @@
 Name:           systemd
 Url:            https://www.freedesktop.org/wiki/Software/systemd
 Version:        246.1
-Release:        1.fb6
+Release:        1.fb7
 # For a breakdown of the licensing, see README
 License:        LGPLv2+ and MIT and GPLv2+
 Summary:        System and Service Manager
@@ -881,6 +881,9 @@ fi
 %files tests -f .file-list-tests
 
 %changelog
+* Tue Feb 16 2021 Anita Zhang <anitazha@fb.com> - 246.1-1.fb7
+- Fix PR #17497 backport
+
 * Mon Jan 25 2021 Anita Zhang <anitazha@fb.com> - 246.1-1.fb6
 - Backport PR #16803 to fix ConditionEnvironment=
 
