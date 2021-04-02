@@ -1,5 +1,8 @@
 # Facebook backported RPMs for CentOS
 
+Note: this repository is no longer being updated. See
+[MIGRATION.md](MIGRATION.md) for more information.
+
 This repo contains a number of RPM packages that we backported to CentOS 7 and 
 run in our infrastructure. Most of these packages have dependencies from EPEL 
 and from the last released CentOS 7 point release. Some packages also have 
